@@ -193,6 +193,10 @@ class Deployment:
         self.sessions = sessions or MemorySessionStore()
         self._instances: dict[str, Node] = {}
 
+    @property
+    def registry(self) -> NodeRegistry:
+        return self._registry
+
     def instance(self, node_id: str) -> Node:
         """A started node instance; adapters use it to feed source nodes and read sinks."""
         return self._instances[node_id]

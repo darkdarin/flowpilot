@@ -19,6 +19,7 @@ from typing import Any, cast
 
 from aiohttp import WSCloseCode, WSMsgType, web
 
+from flowpilot_core import GraphIssue, ValidatedGraph
 from flowpilot_core.runtime import Deployment, TurnStatus
 from flowpilot_sdk import (
     AudioFormat,
@@ -36,6 +37,8 @@ from flowpilot_sdk import (
 )
 
 from . import __version__
+from .editor_api import add_editor_routes
+from .manager import GraphManager
 from .nodes import ClientInput, ClientSink, ClientSource
 from .protocol import (
     MAX_STREAM_ID,
@@ -87,28 +90,56 @@ class SessionIndex:
         return info
 
 
+def client_graph_issues(graph: ValidatedGraph) -> list[GraphIssue]:
+    """A served graph starts at ``client.source`` and has exactly one ``client.sink``."""
+    issues = []
+    if graph.specs[graph.source].type != ClientSource.spec.type:
+        issues.append(
+            GraphIssue("client_source", "$.nodes", f"input must be {ClientSource.spec.type}")
+        )
+    sinks = [n for n, s in graph.specs.items() if s.type == ClientSink.spec.type]
+    if len(sinks) != 1:
+        issues.append(
+            GraphIssue("client_sink", "$.nodes", f"needs exactly one {ClientSink.spec.type}")
+        )
+    return issues
+
+
+def source_of(deployment: Deployment) -> ClientSource:
+    return cast(ClientSource, deployment.instance(deployment.graph.source))
+
+
+def sink_of(deployment: Deployment) -> ClientSink:
+    node_id = next(n for n, s in deployment.graph.specs.items() if s.type == ClientSink.spec.type)
+    return cast(ClientSink, deployment.instance(node_id))
+
+
 class FlowPilotServer:
     """Serves deployed graphs to clients over the FlowPilot protocol."""
 
     def __init__(
-        self, deployments: Mapping[str, Deployment], *, token: str, default_graph: str
+        self,
+        deployments: Mapping[str, Deployment] | None = None,
+        *,
+        token: str,
+        default_graph: str,
+        manager: GraphManager | None = None,
     ) -> None:
-        if default_graph not in deployments:
+        self.manager = manager or GraphManager.adopt(deployments or {})
+        self.manager.set_check(client_graph_issues)
+        for graph_id, d in self.manager.deployments.items():
+            if issues := client_graph_issues(d.graph):
+                raise ValueError(f"graph {graph_id!r}: {issues[0].message}")
+        if self.manager.store is None and default_graph not in self.manager.deployments:
             raise ValueError(f"default graph {default_graph!r} is not deployed")
-        self.deployments = dict(deployments)
         self.default_graph = default_graph
         self._token = token
         self.sessions = SessionIndex()
-        self._sinks: dict[str, str] = {}
         self._sockets: set[web.WebSocketResponse] = set()
-        for graph_id, d in self.deployments.items():
-            g = d.graph
-            if g.specs[g.source].type != ClientSource.spec.type:
-                raise ValueError(f"graph {graph_id!r}: input must be {ClientSource.spec.type}")
-            sinks = [n for n, s in g.specs.items() if s.type == ClientSink.spec.type]
-            if len(sinks) != 1:
-                raise ValueError(f"graph {graph_id!r}: needs exactly one {ClientSink.spec.type}")
-            self._sinks[graph_id] = sinks[0]
+
+    @property
+    def deployments(self) -> Mapping[str, Deployment]:
+        return self.manager.deployments
 
     def app(self) -> web.Application:
         app = web.Application(client_max_size=MAX_HTTP_AUDIO_BYTES)
@@ -117,6 +148,7 @@ class FlowPilotServer:
         app.router.add_get("/", self._handle_static)
         app.router.add_get("/app.js", self._handle_static)
         app.on_shutdown.append(self._close_sockets)
+        add_editor_routes(app, self)
         return app
 
     async def _handle_static(self, request: web.Request) -> web.Response:
@@ -165,13 +197,14 @@ class FlowPilotServer:
             external={"http.conversation_id": conversation_id} if conversation_id else {},
         )
         outlet = _Collector()
-        self.source(graph_id).inputs[ctx.turn_id] = inp
-        self.sink(graph_id).outlets[ctx.turn_id] = outlet
-        try:
-            result = await self.deployments[graph_id].run_turn(ctx, session)
-        finally:
-            self.source(graph_id).inputs.pop(ctx.turn_id, None)
-            self.sink(graph_id).outlets.pop(ctx.turn_id, None)
+        with self.manager.turn(graph_id) as deployment:
+            source_of(deployment).inputs[ctx.turn_id] = inp
+            sink_of(deployment).outlets[ctx.turn_id] = outlet
+            try:
+                result = await deployment.run_turn(ctx, session)
+            finally:
+                source_of(deployment).inputs.pop(ctx.turn_id, None)
+                sink_of(deployment).outlets.pop(ctx.turn_id, None)
         reply: dict[str, Any] = {
             "turn_id": ctx.turn_id,
             "session_id": session.session_id,
@@ -252,13 +285,6 @@ class FlowPilotServer:
 
     def check_token(self, token: Any) -> bool:
         return isinstance(token, str) and hmac.compare_digest(token, self._token)
-
-    def source(self, graph_id: str) -> ClientSource:
-        d = self.deployments[graph_id]
-        return cast(ClientSource, d.instance(d.graph.source))
-
-    def sink(self, graph_id: str) -> ClientSink:
-        return cast(ClientSink, self.deployments[graph_id].instance(self._sinks[graph_id]))
 
 
 def _read_wav(data: bytes) -> tuple[AudioFormat, bytes]:
@@ -630,7 +656,6 @@ class Connection:
         graph_id = str(msg.get("graph") or self.server.default_graph)
         if graph_id not in self.server.deployments:
             raise ProtocolError("unknown_graph", f"graph {graph_id!r} is not deployed", ref)
-        deployment = self.server.deployments[graph_id]
 
         raw_input = msg.get("input")
         if not isinstance(raw_input, dict) or not raw_input:
@@ -655,8 +680,6 @@ class Connection:
             user_id=msg.get("user_id"),
         )
 
-        self.server.source(graph_id).inputs[ctx.turn_id] = inp
-        self.server.sink(graph_id).outlets[ctx.turn_id] = _Outlet(self, ctx.turn_id)
         if audio_stream is not None:
             assert inp.audio is not None
             self._in_streams[audio_stream] = (ctx.turn_id, inp.audio)
@@ -670,16 +693,24 @@ class Connection:
             }
         )
         task = asyncio.create_task(
-            self._run_turn(graph_id, deployment, ctx, session), name=f"turn:{ctx.turn_id}"
+            self._run_turn(graph_id, inp, ctx, session), name=f"turn:{ctx.turn_id}"
         )
         self._turns[ctx.turn_id] = task
 
     async def _run_turn(
-        self, graph_id: str, deployment: Deployment, ctx: TurnContext, session: SessionInfo
+        self, graph_id: str, inp: ClientInput, ctx: TurnContext, session: SessionInfo
     ) -> None:
         status, nodes = "cancelled", {}
         try:
-            result = await deployment.run_turn(ctx, session, host=self)
+            # The turn stays on this deployment even if the graph is redeployed meanwhile.
+            with self.server.manager.turn(graph_id) as deployment:
+                source_of(deployment).inputs[ctx.turn_id] = inp
+                sink_of(deployment).outlets[ctx.turn_id] = _Outlet(self, ctx.turn_id)
+                try:
+                    result = await deployment.run_turn(ctx, session, host=self)
+                finally:
+                    source_of(deployment).inputs.pop(ctx.turn_id, None)
+                    sink_of(deployment).outlets.pop(ctx.turn_id, None)
             status = result.status.value
             nodes = {n: o.status.value for n, o in result.nodes.items()}
             if result.status is not TurnStatus.OK:
@@ -688,8 +719,6 @@ class Connection:
             status = "cancelled"
         finally:
             self._turns.pop(ctx.turn_id, None)
-            self.server.source(graph_id).inputs.pop(ctx.turn_id, None)
-            self.server.sink(graph_id).outlets.pop(ctx.turn_id, None)
             for stream, (turn_id, _) in list(self._in_streams.items()):
                 if turn_id == ctx.turn_id:
                     del self._in_streams[stream]

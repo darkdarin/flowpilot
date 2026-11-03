@@ -6,7 +6,7 @@ Configuration (JSON)::
       "host": "0.0.0.0",
       "port": 8765,
       "token": "...",                      # or token_file
-      "graphs": {"main": "graphs/main.json"},
+      "graphs_dir": "graphs",              # <id>.json deployed, <id>.draft.json drafts
       "default_graph": "main",
       "secrets_file": "secrets.json",      # optional {name: value}
       "grants": {"identity.resolve": ["identity.provider"]}
@@ -30,12 +30,12 @@ from typing import Any
 
 from aiohttp import web
 
-from flowpilot_core import GrantPolicy, NodeRegistry, parse_graph, validate_graph
+from flowpilot_core import GrantPolicy, NodeRegistry
 from flowpilot_core.builtin import register_builtin
-from flowpilot_core.runtime import Deployment
 from flowpilot_sdk import Node
 
 from .devnodes import DEV_NODES
+from .manager import GraphManager, GraphStore
 from .nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
 from .server import FlowPilotServer
 
@@ -68,20 +68,17 @@ async def serve(config_path: Path, *, dev: bool = False) -> None:
     token = config.get("token") or (base / config["token_file"]).read_text().strip()
     secrets = _read_json(base / config["secrets_file"]) if config.get("secrets_file") else {}
     grants = GrantPolicy({node: frozenset(gs) for node, gs in (config.get("grants") or {}).items()})
-    registry = build_registry(dev=dev)
-
-    deployments: dict[str, Deployment] = {}
+    manager = GraphManager(
+        build_registry(dev=dev),
+        store=GraphStore(base / config.get("graphs_dir", "graphs")),
+        secrets=secrets,
+        grants=grants,
+    )
+    server = FlowPilotServer(
+        token=token, default_graph=config.get("default_graph", "main"), manager=manager
+    )
     try:
-        for graph_id, rel in config["graphs"].items():
-            graph = validate_graph(parse_graph(_read_json(base / rel)), registry, grants=grants)
-            deployment = Deployment(graph, registry, secrets=secrets)
-            await deployment.start()
-            deployments[graph_id] = deployment
-            _LOGGER.info("graph %s deployed (%d nodes)", graph_id, len(graph.order))
-
-        server = FlowPilotServer(
-            deployments, token=token, default_graph=config.get("default_graph", "main")
-        )
+        await manager.load_all()
         runner = web.AppRunner(server.app())
         await runner.setup()
         site = web.TCPSite(runner, config.get("host", "0.0.0.0"), int(config.get("port", 8765)))
@@ -95,8 +92,7 @@ async def serve(config_path: Path, *, dev: bool = False) -> None:
         await stop.wait()
         await runner.cleanup()
     finally:
-        for deployment in deployments.values():
-            await deployment.stop()
+        await manager.stop()
 
 
 def main() -> None:
