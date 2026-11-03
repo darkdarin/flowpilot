@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import hmac
+import io
 import json
 import logging
 import time
+import wave
 from collections.abc import AsyncIterable, AsyncIterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from importlib import resources
 from typing import Any, cast
 
 from aiohttp import WSCloseCode, WSMsgType, web
@@ -36,6 +40,7 @@ from .nodes import ClientInput, ClientSink, ClientSource
 from .protocol import (
     MAX_STREAM_ID,
     PROTOCOL_VERSION,
+    TURN_PATH,
     WS_PATH,
     ProtocolError,
     pack_audio,
@@ -46,6 +51,7 @@ _LOGGER = logging.getLogger(__name__)
 
 SESSION_IDLE_S = 3600.0
 AUDIO_QUEUE_CHUNKS = 64
+MAX_HTTP_AUDIO_BYTES = 16 * 1024 * 1024
 
 
 @dataclass
@@ -105,10 +111,88 @@ class FlowPilotServer:
             self._sinks[graph_id] = sinks[0]
 
     def app(self) -> web.Application:
-        app = web.Application()
+        app = web.Application(client_max_size=MAX_HTTP_AUDIO_BYTES)
         app.router.add_get(WS_PATH, self._handle_ws)
+        app.router.add_post(TURN_PATH, self._handle_http_turn)
+        app.router.add_get("/", self._handle_static)
+        app.router.add_get("/app.js", self._handle_static)
         app.on_shutdown.append(self._close_sockets)
         return app
+
+    async def _handle_static(self, request: web.Request) -> web.Response:
+        """Development client page: microphone and text input against the protocol."""
+        name = "app.js" if request.path == "/app.js" else "index.html"
+        content_type = "text/javascript" if name == "app.js" else "text/html"
+        body = resources.files("flowpilot_server").joinpath("static", name).read_text()
+        return web.Response(text=body, content_type=content_type)
+
+    async def _handle_http_turn(self, request: web.Request) -> web.Response:
+        """One turn over plain HTTP: JSON text or a WAV body in, transcript and response out."""
+        auth = request.headers.get("Authorization", "")
+        if not self.check_token(auth.removeprefix("Bearer ").strip()):
+            return web.json_response({"error": "invalid token"}, status=401)
+        graph_id = request.query.get("graph") or self.default_graph
+        if graph_id not in self.deployments:
+            return web.json_response({"error": f"unknown graph {graph_id!r}"}, status=404)
+        language = request.query.get("language")
+        conversation_id = request.query.get("conversation_id")
+        inp = ClientInput()
+        if request.content_type == "application/json":
+            body = await request.json()
+            inp.text = str(body["text"])
+            language = body.get("language", language)
+            conversation_id = body.get("conversation_id", conversation_id)
+        elif request.content_type in ("audio/wav", "audio/x-wav", "audio/wave"):
+            try:
+                fmt, pcm = _read_wav(await request.read())
+            except ValueError as err:
+                return web.json_response({"error": str(err)}, status=400)
+            inp.audio_format, inp.audio = fmt, asyncio.Queue()
+            step = fmt.sample_rate * fmt.bytes_per_sample // 50  # 20 ms
+            for i in range(0, len(pcm), step):
+                inp.audio.put_nowait(pcm[i : i + step])
+            inp.audio.put_nowait(None)
+        else:
+            return web.json_response(
+                {"error": "send application/json {text} or audio/wav"}, status=415
+            )
+
+        ctx, session = self.new_turn(
+            graph_id,
+            adapter_id="http",
+            source={"kind": "http"},
+            language=language,
+            external={"http.conversation_id": conversation_id} if conversation_id else {},
+        )
+        outlet = _Collector()
+        self.source(graph_id).inputs[ctx.turn_id] = inp
+        self.sink(graph_id).outlets[ctx.turn_id] = outlet
+        try:
+            result = await self.deployments[graph_id].run_turn(ctx, session)
+        finally:
+            self.source(graph_id).inputs.pop(ctx.turn_id, None)
+            self.sink(graph_id).outlets.pop(ctx.turn_id, None)
+        reply: dict[str, Any] = {
+            "turn_id": ctx.turn_id,
+            "session_id": session.session_id,
+            "status": result.status.value,
+            "nodes": {n: o.status.value for n, o in result.nodes.items()},
+            "partials": outlet.partials,
+            "transcript": outlet.final,
+            "response": outlet.answer,
+            "speech": None,
+        }
+        if outlet.speech_format is not None:
+            speech: dict[str, Any] = {
+                "format": outlet.speech_format.as_meta(),
+                "bytes": len(outlet.speech),
+            }
+            reply["speech"] = speech
+            if request.query.get("speech") == "wav":
+                speech["wav_base64"] = base64.b64encode(
+                    _wav(outlet.speech_format, bytes(outlet.speech))
+                ).decode()
+        return web.json_response(reply)
 
     async def _close_sockets(self, app: web.Application) -> None:
         """Close client connections on shutdown instead of waiting for clients to hang up."""
@@ -130,6 +214,42 @@ class FlowPilotServer:
             await conn.close()
         return ws
 
+    def new_turn(
+        self,
+        graph_id: str,
+        *,
+        adapter_id: str,
+        source: Mapping[str, Any],
+        language: str | None,
+        external: Mapping[str, str],
+        user_id: Any = None,
+    ) -> tuple[TurnContext, SessionInfo]:
+        """Context and session for a new turn on ``graph_id``."""
+        session = self.sessions.resolve(external)
+        principal = (
+            Principal.unknown(Evidence("client_user", {"user_id": str(user_id)}))
+            if user_id
+            else Principal.unknown()
+        )
+        timeout_s = self.deployments[graph_id].graph.graph.settings.turn_timeout_ms / 1000
+        ctx = TurnContext(
+            turn_id=new_ulid(),
+            session_id=session.session_id,
+            started_at=datetime.now(UTC),
+            deadline_mono_ns=time.monotonic_ns() + int(timeout_s * 1e9),
+            source=SourceInfo(kind=str(source.get("kind", "client")), adapter_id=adapter_id),
+            trace_id=new_ulid(),
+            initial_principal=principal,
+            device=DeviceInfo(
+                device_id=source.get("device_id"),
+                satellite_id=source.get("satellite_id"),
+                area=source.get("area"),
+            ),
+            language=language,
+            external=dict(external),
+        )
+        return ctx, session
+
     def check_token(self, token: Any) -> bool:
         return isinstance(token, str) and hmac.compare_digest(token, self._token)
 
@@ -139,6 +259,65 @@ class FlowPilotServer:
 
     def sink(self, graph_id: str) -> ClientSink:
         return cast(ClientSink, self.deployments[graph_id].instance(self._sinks[graph_id]))
+
+
+def _read_wav(data: bytes) -> tuple[AudioFormat, bytes]:
+    try:
+        with wave.open(io.BytesIO(data)) as w:
+            if w.getsampwidth() != 2:
+                raise ValueError("WAV must be 16-bit PCM")
+            fmt = AudioFormat(sample_rate=w.getframerate(), channels=w.getnchannels())
+            return fmt, w.readframes(w.getnframes())
+    except (wave.Error, EOFError) as err:
+        raise ValueError(f"not a WAV file: {err}") from err
+
+
+def _wav(fmt: AudioFormat, pcm: bytes) -> bytes:
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(fmt.channels)
+        w.setsampwidth(2)
+        w.setframerate(fmt.sample_rate)
+        w.writeframes(pcm)
+    return out.getvalue()
+
+
+class _Collector:
+    """Collects one turn's results for an HTTP reply."""
+
+    def __init__(self) -> None:
+        self.partials: list[str] = []
+        self.final: str | None = None
+        self.answer: dict[str, Any] | None = None
+        self.speech_format: AudioFormat | None = None
+        self.speech = bytearray()
+
+    async def transcript(self, text: str, final: bool) -> None:
+        if final:
+            self.final = text
+        else:
+            self.partials.append(text)
+
+    async def delta(self, text: str) -> None:
+        return None
+
+    async def response(self, response: Response) -> None:
+        self.answer = {
+            "text": response.text,
+            "speech_text": response.speech_text,
+            "language": response.language,
+            "continue_conversation": response.continue_conversation,
+            "data": dict(response.data) if response.data else None,
+        }
+
+    async def speech_start(self, fmt: AudioFormat) -> None:
+        self.speech_format = fmt
+
+    async def speech_chunk(self, pcm: bytes) -> None:
+        self.speech.extend(pcm)
+
+    async def speech_end(self) -> None:
+        return None
 
 
 class _Outlet:
@@ -467,34 +646,13 @@ class Connection:
             inp.audio_format = AudioFormat.from_meta(raw_input["audio"]["format"])
             inp.audio = asyncio.Queue(AUDIO_QUEUE_CHUNKS)
 
-        external = {str(k): str(v) for k, v in (msg.get("external") or {}).items()}
-        session = self.server.sessions.resolve(external)
-        source = msg.get("source") or {}
-        user_id = msg.get("user_id")
-        principal = (
-            Principal.unknown(Evidence("client_user", {"user_id": str(user_id)}))
-            if user_id
-            else Principal.unknown()
-        )
-        timeout_s = deployment.graph.graph.settings.turn_timeout_ms / 1000
-        ctx = TurnContext(
-            turn_id=new_ulid(),
-            session_id=session.session_id,
-            started_at=datetime.now(UTC),
-            deadline_mono_ns=time.monotonic_ns() + int(timeout_s * 1e9),
-            source=SourceInfo(
-                kind=str(source.get("kind", "client")),
-                adapter_id=str(self.client.get("name", "client")),
-            ),
-            trace_id=new_ulid(),
-            initial_principal=principal,
-            device=DeviceInfo(
-                device_id=source.get("device_id"),
-                satellite_id=source.get("satellite_id"),
-                area=source.get("area"),
-            ),
+        ctx, session = self.server.new_turn(
+            graph_id,
+            adapter_id=str(self.client.get("name", "client")),
+            source=msg.get("source") or {},
             language=msg.get("language"),
-            external=external,
+            external={str(k): str(v) for k, v in (msg.get("external") or {}).items()},
+            user_id=msg.get("user_id"),
         )
 
         self.server.source(graph_id).inputs[ctx.turn_id] = inp

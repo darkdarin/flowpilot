@@ -30,6 +30,12 @@ Server → client
 - ``host.call``      ``{call, turn_id, op, args}`` — the client answers with ``host.result``.
 - ``turn.end``       ``{turn_id, status: ok|degraded|timeout|cancelled, nodes: {id: status}}``
 - ``error``          ``{code, message, ref?}``
+
+HTTP (one turn, no host operations): ``POST /api/turn`` with ``Authorization: Bearer <token>``
+and either ``application/json`` ``{text, language?, conversation_id?}`` or an ``audio/wav`` body
+(16-bit PCM; ``?language=``). Query ``graph=`` selects the graph, ``speech=wav`` adds the speech
+as base64 WAV. The reply has ``status``, ``nodes``, ``partials``, ``transcript``, ``response`` and
+``speech``.
 """
 
 from __future__ import annotations
@@ -38,6 +44,7 @@ import struct
 
 PROTOCOL_VERSION = 1
 WS_PATH = "/api/ws"
+TURN_PATH = "/api/turn"
 
 _STREAM_ID = struct.Struct(">I")
 MAX_STREAM_ID = 2**32 - 1

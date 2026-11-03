@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FlowPilot dev client</title>
+<style>
+  body { font: 15px/1.45 system-ui, sans-serif; margin: 0; background: #f5f6f8; color: #1d2330; }
+  main { max-width: 760px; margin: 0 auto; padding: 20px; }
+  h1 { font-size: 20px; margin: 0 0 14px; }
+  section { background: #fff; border: 1px solid #dde1e8; border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+  label { font-size: 12px; color: #5b6475; display: block; margin-bottom: 4px; }
+  .row { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 120px; }
+  input, select, button { font: inherit; padding: 7px 10px; border: 1px solid #c9cfda; border-radius: 7px; width: 100%; box-sizing: border-box; }
+  button { width: auto; background: #2457d6; color: #fff; border-color: #2457d6; cursor: pointer; }
+  button.secondary { background: #fff; color: #2457d6; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.recording { background: #c62828; border-color: #c62828; }
+  #status { font-size: 13px; color: #5b6475; margin-top: 8px; }
+  #status.error { color: #c62828; }
+  .partial { color: #8a93a5; }
+  .turn { border-top: 1px solid #eceff4; padding-top: 8px; margin-top: 8px; }
+  .turn:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+  .meta { font-size: 12px; color: #8a93a5; }
+  .you { font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>FlowPilot dev client</h1>
+  <section>
+    <div class="row">
+      <div><label for="token">Token</label><input id="token" type="password" autocomplete="off"></div>
+      <div><label for="graph">Graph</label><select id="graph" disabled></select></div>
+      <div style="max-width:90px"><label for="language">Language</label><input id="language" value="ru"></div>
+      <button id="connect">Connect</button>
+    </div>
+    <div id="status">Not connected.</div>
+  </section>
+  <section>
+    <div class="row">
+      <div><label for="text">Text turn</label><input id="text" placeholder="Type and press Enter" disabled></div>
+      <button id="send" disabled>Send</button>
+      <button id="mic" disabled>🎙 Talk</button>
+      <button id="reset" class="secondary" disabled>New conversation</button>
+    </div>
+  </section>
+  <section id="turns"></section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import itertools
 import json
+import wave
 from collections.abc import AsyncIterator, Callable
 from typing import Any, ClassVar
 
@@ -26,7 +28,13 @@ from flowpilot_sdk import (
     Utterance,
 )
 from flowpilot_server.nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
-from flowpilot_server.protocol import PROTOCOL_VERSION, WS_PATH, pack_audio, unpack_audio
+from flowpilot_server.protocol import (
+    PROTOCOL_VERSION,
+    TURN_PATH,
+    WS_PATH,
+    pack_audio,
+    unpack_audio,
+)
 from flowpilot_server.server import FlowPilotServer
 
 TOKEN = "test-token"
@@ -482,3 +490,71 @@ async def test_ha_stt_and_tts_stream_audio_through_host_operations() -> None:
     finally:
         await ts.close()
         await deployment.stop()
+
+
+@pytest.fixture
+async def http(server: TestServer) -> AsyncIterator[tuple[aiohttp.ClientSession, Any]]:
+    async with aiohttp.ClientSession() as session:
+        yield session, server.make_url
+
+
+AUTH = {"Authorization": f"Bearer {TOKEN}"}
+
+
+def wav_bytes(tag: str, chunks: int = 10) -> bytes:
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(tag.encode().ljust(640, b"\x00") + bytes(640 * (chunks - 1)))
+    return out.getvalue()
+
+
+async def test_http_turn_rejects_bad_token(http: Any) -> None:
+    session, url = http
+    resp = await session.post(url(TURN_PATH), json={"text": "hi"})
+    assert resp.status == 401
+
+
+async def test_http_text_turn_without_host_degrades(http: Any) -> None:
+    session, url = http
+    resp = await session.post(url(TURN_PATH), json={"text": "hi"}, headers=AUTH)
+    body = await resp.json()
+    assert resp.status == 200
+    assert body["status"] == "degraded"  # ha.conversation needs Home Assistant
+    assert body["nodes"]["agent"] == "error"
+    assert body["response"] is None
+
+
+async def test_http_wav_turn(http: Any) -> None:
+    session, url = http
+    resp = await session.post(
+        url(TURN_PATH),
+        data=wav_bytes("alice"),
+        headers={**AUTH, "Content-Type": "audio/wav"},
+        params={"language": "en"},
+    )
+    body = await resp.json()
+    assert resp.status == 200
+    assert body["transcript"] == "heard alice"
+
+
+async def test_http_rejects_unknown_content(http: Any) -> None:
+    session, url = http
+    resp = await session.post(
+        url(TURN_PATH), data=b"x", headers={**AUTH, "Content-Type": "text/plain"}
+    )
+    assert resp.status == 415
+    resp = await session.post(
+        url(TURN_PATH), data=b"RIFFxx", headers={**AUTH, "Content-Type": "audio/wav"}
+    )
+    assert resp.status == 400
+
+
+async def test_dev_page_is_served(http: Any) -> None:
+    session, url = http
+    page = await (await session.get(url("/"))).text()
+    script = await (await session.get(url("/app.js"))).text()
+    assert "FlowPilot dev client" in page and "app.js" in page
+    assert "turn.start" in script and "/api/ws" in script
