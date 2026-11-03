@@ -11,6 +11,7 @@ members = [
     "flowpilot-core",
     "flowpilot-sdk",
     "flowpilot-server",
+    "flowpilot-vad",
     "flowpilot-workspace",
     "flowpilot-wyoming",
 ]
@@ -256,6 +257,21 @@ requires-dist = [
 ]
 
 [[package]]
+name = "flowpilot-vad"
+version = "0.0.1"
+source = { editable = "plugins/flowpilot-vad" }
+dependencies = [
+    { name = "flowpilot-sdk" },
+    { name = "pymicro-vad" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flowpilot-sdk", editable = "packages/flowpilot-sdk" },
+    { name = "pymicro-vad", specifier = "==1.0.1" },
+]
+
+[[package]]
 name = "flowpilot-workspace"
 version = "0.0.0"
 source = { virtual = "." }
@@ -263,6 +279,7 @@ dependencies = [
     { name = "flowpilot-core" },
     { name = "flowpilot-sdk" },
     { name = "flowpilot-server" },
+    { name = "flowpilot-vad" },
     { name = "flowpilot-wyoming" },
 ]
 
@@ -280,6 +297,7 @@ requires-dist = [
     { name = "flowpilot-core", editable = "packages/flowpilot-core" },
     { name = "flowpilot-sdk", editable = "packages/flowpilot-sdk" },
     { name = "flowpilot-server", editable = "packages/flowpilot-server" },
+    { name = "flowpilot-vad", editable = "plugins/flowpilot-vad" },
     { name = "flowpilot-wyoming", editable = "plugins/flowpilot-wyoming" },
 ]
 
@@ -721,6 +739,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/49/2e/ced460408999b33da
 wheels = [
     { url = "https://files.pythonhosted.org/packages/71/46/17f022dd3e953bf20a04a028a21ec746d942f8d2af30fa0f124fa0e6a684/pygments-2.21.0-py3-none-any.whl", hash = "sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9", size = 1250147, upload-time = "2026-08-17T08:02:44.912Z" },
 ]
+
+[[package]]
+name = "pymicro-vad"
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2e/0f/a92acea368e2b37fbc706f6d049f04557497d981316a2f428b26f14666a9/pymicro_vad-1.0.1.tar.gz", hash = "sha256:60e0508b338b694c7ad71c633c0da6fcd2678a88abb8e948b80fa68934965111", size = 135575, upload-time = "2024-07-31T20:04:04.619Z" }
 
 [[package]]
 name = "pytest"

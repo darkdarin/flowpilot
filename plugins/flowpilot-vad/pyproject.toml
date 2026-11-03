@@ -1,0 +1,28 @@
+[project]
+name = "flowpilot-vad"
+version = "0.0.1"
+description = "FlowPilot voice activity detection: end-of-command segmentation for speech-to-text"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    { name = "Pavel Babushkin", email = "idarksoft@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "flowpilot-sdk",
+    # Same voice activity detector as the Home Assistant Assist pipeline.
+    "pymicro-vad==1.0.1",
+]
+
+[project.entry-points."flowpilot.nodes"]
+vad = "flowpilot_vad:nodes"
+
+[tool.uv.sources]
+flowpilot-sdk = { workspace = true }
+
+[project.urls]
+Repository = "https://github.com/darkdarin/flowpilot"
+
+[build-system]
+requires = ["uv_build>=0.13.6,<0.14.0"]
+build-backend = "uv_build"

@@ -13,6 +13,7 @@ dependencies = [
     "flowpilot-core",
     "flowpilot-server",
     "flowpilot-wyoming",
+    "flowpilot-vad",
 ]
 
 [tool.uv]
@@ -28,6 +29,7 @@ flowpilot-sdk = { workspace = true }
 flowpilot-core = { workspace = true }
 flowpilot-server = { workspace = true }
 flowpilot-wyoming = { workspace = true }
+flowpilot-vad = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -52,7 +54,7 @@ target-version = "py314"
 select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "BLE"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["flowpilot_sdk", "flowpilot_core", "flowpilot_server", "flowpilot_wyoming"]
+known-first-party = ["flowpilot_sdk", "flowpilot_core", "flowpilot_server", "flowpilot_wyoming", "flowpilot_vad"]
 
 [tool.mypy]
 python_version = "3.14"
@@ -66,4 +68,10 @@ files = [
     "packages/flowpilot-server/tests",
     "plugins/flowpilot-wyoming/src",
     "plugins/flowpilot-wyoming/wyoming_tests",
+    "plugins/flowpilot-vad/src",
+    "plugins/flowpilot-vad/vad_tests",
 ]
+
+[[tool.mypy.overrides]]
+module = ["pymicro_vad"]
+ignore_missing_imports = true
