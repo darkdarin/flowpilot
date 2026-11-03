@@ -15,6 +15,7 @@ from collections.abc import AsyncIterable, AsyncIterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib import resources
+from pathlib import Path
 from typing import Any, cast
 
 from aiohttp import WSCloseCode, WSMsgType, web
@@ -115,6 +116,19 @@ def sink_of(deployment: Deployment) -> ClientSink:
     return cast(ClientSink, deployment.instance(node_id))
 
 
+EDITOR_NOT_BUILT = "The editor is not built: run `npm ci && npm run build` in editor/."
+
+
+def editor_file(path: str, root: Path | None = None) -> Path | None:
+    """A file of the built editor inside the package, ``index.html`` for app routes."""
+    root = (root or Path(str(resources.files("flowpilot_server").joinpath("editor")))).resolve()
+    index = root / "index.html"
+    if not index.is_file():
+        return None
+    target = (root / path).resolve()
+    return target if target.is_relative_to(root) and target.is_file() else index
+
+
 class FlowPilotServer:
     """Serves deployed graphs to clients over the FlowPilot protocol."""
 
@@ -160,11 +174,24 @@ class FlowPilotServer:
         app.router.add_get("/app.js", self._handle_static)
         app.on_shutdown.append(self._close_sockets)
         app.router.add_get(EDITOR_WS_PATH, self._handle_editor_ws)
+        app.router.add_get("/editor", self._handle_editor_root)
+        app.router.add_get("/editor/{path:.*}", self._handle_editor_file)
         add_editor_routes(app, self)
         return app
 
     async def _handle_editor_ws(self, request: web.Request) -> web.WebSocketResponse:
         return await editor_socket(request, self)
+
+    async def _handle_editor_root(self, request: web.Request) -> web.Response:
+        raise web.HTTPFound("/editor/")
+
+    async def _handle_editor_file(self, request: web.Request) -> web.StreamResponse:
+        """The built graph editor (``npm run build`` in ``editor/``); SPA fallback to index."""
+        target = editor_file(request.match_info["path"])
+        if target is None:
+            return web.Response(status=404, text=EDITOR_NOT_BUILT)
+        cache = "no-cache" if target.name == "index.html" else "public, max-age=31536000, immutable"
+        return web.FileResponse(target, headers={"Cache-Control": cache})
 
     async def _handle_static(self, request: web.Request) -> web.Response:
         """Development client page: microphone and text input against the protocol."""

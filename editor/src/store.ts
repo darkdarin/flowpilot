@@ -1,0 +1,412 @@
+// Editor state: catalog, the open graph (as Vue Flow nodes/edges), draft autosave, deploy, live debug.
+
+import type { Edge, Node } from "@vue-flow/core";
+import { type Ref, computed, reactive, ref, shallowRef, watch } from "vue";
+import {
+  Api,
+  ApiError,
+  type Catalog,
+  type GraphDoc,
+  type GraphSummary,
+  type Issue,
+  type NodeInfo,
+  type TraceMsg,
+  TraceSocket,
+} from "./api";
+
+export interface FpNodeData {
+  type: string;
+  config: Record<string, unknown>;
+}
+
+export type FpNode = Node<FpNodeData>;
+export type FpEdge = Edge<{ type: string }>;
+
+export interface NodeRun {
+  status: string; // running | ok | error | timeout | cancelled
+  startMs: number;
+  durationMs?: number;
+  error?: string;
+}
+
+export interface PortRun {
+  items: number;
+  state: string; // flowing | end | error | absent
+  firstMs?: number;
+}
+
+export interface TurnRun {
+  id: string;
+  status: string; // running | ok | degraded | timeout
+  durationMs?: number;
+  nodes: Record<string, NodeRun>;
+  ports: Record<string, PortRun>;
+  hostCalls: { node: string; op: string; t: number }[];
+}
+
+const SAVE_DELAY_MS = 600;
+const MAX_TURNS = 12;
+
+export const token = ref(localStorage.getItem("flowpilot.token") ?? "");
+export const api = shallowRef<Api | null>(null);
+export const catalog = shallowRef<Catalog | null>(null);
+export const graphs = ref<GraphSummary[]>([]);
+export const graphId = ref<string | null>(null);
+export const graphName = ref("");
+export const extra = ref<Pick<GraphDoc, "settings" | "schema_version">>({ schema_version: 1 });
+export const nodes = ref([]) as Ref<FpNode[]>;
+export const edges = ref([]) as Ref<FpEdge[]>;
+export const issues = ref<Issue[]>([]);
+export const hasDraft = ref(false);
+export const live = ref(false);
+export const saving = ref(false);
+export const deploying = ref(false);
+export const selectedId = ref<string | null>(null);
+export const notice = ref<{ text: string; kind: "info" | "error" } | null>(null);
+
+export const debug = reactive({
+  enabled: false,
+  connected: false,
+  redeployed: false,
+  turns: [] as TurnRun[],
+  selectedTurn: null as string | null,
+});
+
+let loading = false;
+let savedSnapshot = ""; // the graph as last loaded or saved; autosave only when it changes
+let saveTimer: number | undefined;
+let trace: TraceSocket | null = null;
+
+export const specs = computed(() => {
+  const map = new Map<string, NodeInfo>();
+  for (const n of catalog.value?.nodes ?? []) map.set(n.type, n);
+  return map;
+});
+
+export const selectedNode = computed(() => nodes.value.find((n) => n.id === selectedId.value) ?? null);
+
+export const nodeIssues = computed(() => {
+  const map = new Map<string, Issue[]>();
+  for (const i of issues.value) if (i.node) map.set(i.node, [...(map.get(i.node) ?? []), i]);
+  return map;
+});
+
+export const brokenEdges = computed(() => {
+  const set = new Set<string>();
+  for (const i of issues.value) {
+    const edge = i.edge === undefined ? undefined : edges.value[i.edge];
+    if (edge) set.add(edge.id);
+  }
+  return set;
+});
+
+export const currentTurn = computed<TurnRun | null>(
+  () => debug.turns.find((t) => t.id === debug.selectedTurn) ?? debug.turns[0] ?? null,
+);
+
+export function flash(text: string, kind: "info" | "error" = "info") {
+  notice.value = { text, kind };
+  window.setTimeout(() => {
+    if (notice.value?.text === text) notice.value = null;
+  }, kind === "error" ? 8000 : 3000);
+}
+
+// --- graph <-> canvas --------------------------------------------------------------------------
+
+function autoLayout(doc: GraphDoc): Record<string, { x: number; y: number }> {
+  const depth = new Map<string, number>(doc.nodes.map((n) => [n.id, 0]));
+  for (let pass = 0; pass < doc.nodes.length; pass++) {
+    for (const e of doc.edges) {
+      const [from] = e.from.split(".");
+      const [to] = e.to.split(".");
+      depth.set(to, Math.max(depth.get(to) ?? 0, (depth.get(from) ?? 0) + 1));
+    }
+  }
+  const rows = new Map<number, number>();
+  const out: Record<string, { x: number; y: number }> = {};
+  for (const n of doc.nodes) {
+    const d = depth.get(n.id) ?? 0;
+    const row = rows.get(d) ?? 0;
+    rows.set(d, row + 1);
+    out[n.id] = { x: 55 + d * 330, y: 55 + row * 198 }; // on the 11px snap grid
+  }
+  return out;
+}
+
+function portType(nodeType: string, port: string, side: "inputs" | "outputs"): string {
+  return specs.value.get(nodeType)?.[side].find((p) => p.name === port)?.type ?? "";
+}
+
+function toCanvas(doc: GraphDoc) {
+  const positions = { ...autoLayout(doc), ...(doc.ui?.nodes ?? {}) };
+  nodes.value = doc.nodes.map((n) => ({
+    id: n.id,
+    type: "fp",
+    position: positions[n.id] ?? { x: 0, y: 0 },
+    data: { type: n.type, config: structuredClone(n.config ?? {}) },
+  }));
+  const types = new Map(doc.nodes.map((n) => [n.id, n.type]));
+  edges.value = doc.edges.map((e) => {
+    const [source, sourceHandle] = splitRef(e.from);
+    const [target, targetHandle] = splitRef(e.to);
+    return makeEdge(source, sourceHandle, target, targetHandle, portType(types.get(source) ?? "", sourceHandle, "outputs"));
+  });
+}
+
+function splitRef(ref: string): [string, string] {
+  const dot = ref.lastIndexOf(".");
+  return [ref.slice(0, dot), ref.slice(dot + 1)];
+}
+
+export function makeEdge(source: string, sourceHandle: string, target: string, targetHandle: string, type: string): FpEdge {
+  return {
+    id: `${source}.${sourceHandle}->${target}.${targetHandle}`,
+    type: "typed",
+    source,
+    sourceHandle,
+    target,
+    targetHandle,
+    data: { type },
+  };
+}
+
+export function toDoc(): GraphDoc {
+  return {
+    schema_version: extra.value.schema_version ?? 1,
+    id: graphId.value ?? "",
+    name: graphName.value,
+    ...(extra.value.settings ? { settings: extra.value.settings } : {}),
+    nodes: nodes.value.map((n) => {
+      const config = n.data?.config ?? {};
+      return {
+        id: n.id,
+        type: n.data!.type,
+        ...(Object.keys(config).length ? { config } : {}),
+      };
+    }),
+    edges: edges.value.map((e) => ({
+      from: `${e.source}.${e.sourceHandle}`,
+      to: `${e.target}.${e.targetHandle}`,
+    })),
+    ui: {
+      nodes: Object.fromEntries(
+        nodes.value.map((n) => [n.id, { x: Math.round(n.position.x), y: Math.round(n.position.y) }]),
+      ),
+    },
+  };
+}
+
+// --- loading and saving ------------------------------------------------------------------------
+
+export async function connect(value: string): Promise<boolean> {
+  const client = new Api(value);
+  try {
+    catalog.value = await client.catalog();
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) return false;
+    throw err;
+  }
+  token.value = value;
+  localStorage.setItem("flowpilot.token", value);
+  api.value = client;
+  trace?.close();
+  trace = new TraceSocket(value, onTrace, (c) => (debug.connected = c));
+  await refreshGraphs();
+  const wanted = localStorage.getItem("flowpilot.graph");
+  const pick = graphs.value.find((g) => g.id === wanted) ?? graphs.value.find((g) => g.default) ?? graphs.value[0];
+  if (pick) await openGraph(pick.id);
+  return true;
+}
+
+export async function refreshGraphs() {
+  graphs.value = (await api.value!.graphs()).graphs;
+}
+
+export async function openGraph(id: string) {
+  await flushSave();
+  const detail = await api.value!.graph(id);
+  const doc = detail.draft ?? detail.deployed!;
+  loading = true;
+  graphId.value = id;
+  graphName.value = doc.name ?? id;
+  extra.value = { schema_version: doc.schema_version, settings: doc.settings };
+  toCanvas(doc);
+  issues.value = detail.issues;
+  hasDraft.value = detail.draft !== null;
+  live.value = detail.live;
+  selectedId.value = null;
+  debug.turns = [];
+  debug.selectedTurn = null;
+  debug.redeployed = false;
+  localStorage.setItem("flowpilot.graph", id);
+  trace?.subscribe(id);
+  savedSnapshot = snapshot();
+  loading = false;
+}
+
+export async function createGraph(id: string, name: string) {
+  await api.value!.create(id, name);
+  await refreshGraphs();
+  await openGraph(id);
+}
+
+function snapshot(): string {
+  return JSON.stringify(toDoc());
+}
+
+function scheduleSave() {
+  if (loading || !graphId.value || snapshot() === savedSnapshot) return;
+  window.clearTimeout(saveTimer);
+  saving.value = true;
+  saveTimer = window.setTimeout(() => void save(), SAVE_DELAY_MS);
+}
+
+async function save() {
+  saveTimer = undefined;
+  const id = graphId.value;
+  if (!id) return;
+  const doc = toDoc();
+  savedSnapshot = JSON.stringify(doc);
+  try {
+    const result = await api.value!.saveDraft(id, doc);
+    if (graphId.value === id) {
+      issues.value = result.issues;
+      hasDraft.value = true;
+    }
+  } catch (err) {
+    flash(String((err as Error).message), "error");
+  } finally {
+    saving.value = saveTimer !== undefined;
+  }
+}
+
+async function flushSave() {
+  if (saveTimer !== undefined) {
+    window.clearTimeout(saveTimer);
+    await save();
+  }
+}
+
+watch([nodes, edges, graphName], scheduleSave, { deep: true });
+
+export async function deploy(): Promise<boolean> {
+  const id = graphId.value;
+  if (!id) return false;
+  deploying.value = true;
+  try {
+    await flushSave();
+    await api.value!.deploy(id);
+    hasDraft.value = false;
+    live.value = true;
+    await refreshGraphs();
+    return true;
+  } catch (err) {
+    if (err instanceof ApiError && err.issues.length) issues.value = err.issues;
+    flash(err instanceof ApiError && err.status === 422 ? "invalid" : (err as Error).message, "error");
+    return false;
+  } finally {
+    deploying.value = false;
+  }
+}
+
+export async function discardDraft() {
+  const id = graphId.value;
+  if (!id) return;
+  window.clearTimeout(saveTimer);
+  saveTimer = undefined;
+  saving.value = false;
+  await api.value!.discardDraft(id);
+  await refreshGraphs();
+  if (graphs.value.some((g) => g.id === id)) await openGraph(id);
+  else if (graphs.value[0]) await openGraph(graphs.value[0].id);
+  else graphId.value = null;
+}
+
+// --- editing helpers ---------------------------------------------------------------------------
+
+export function uniqueNodeId(type: string): string {
+  const base = (type.split(".").pop() ?? "node").replace(/[^a-z0-9_]/g, "_");
+  const taken = new Set(nodes.value.map((n) => n.id));
+  if (!taken.has(base)) return base;
+  for (let i = 2; ; i++) if (!taken.has(`${base}${i}`)) return `${base}${i}`;
+}
+
+export function addNode(type: string, position: { x: number; y: number }) {
+  const id = uniqueNodeId(type);
+  nodes.value = [...nodes.value, { id, type: "fp", position, data: { type, config: {} } }];
+  selectedId.value = id;
+}
+
+export function removeNode(id: string) {
+  nodes.value = nodes.value.filter((n) => n.id !== id);
+  edges.value = edges.value.filter((e) => e.source !== id && e.target !== id);
+  if (selectedId.value === id) selectedId.value = null;
+}
+
+export function renameNode(oldId: string, newId: string): boolean {
+  if (oldId === newId) return true;
+  if (!/^[a-z0-9][a-z0-9_]*$/.test(newId) || nodes.value.some((n) => n.id === newId)) return false;
+  nodes.value = nodes.value.map((n) => (n.id === oldId ? { ...n, id: newId } : n));
+  edges.value = edges.value.map((e) => {
+    const source = e.source === oldId ? newId : e.source;
+    const target = e.target === oldId ? newId : e.target;
+    return makeEdge(source, e.sourceHandle!, target, e.targetHandle!, e.data!.type);
+  });
+  selectedId.value = newId;
+  return true;
+}
+
+// --- live debug --------------------------------------------------------------------------------
+
+function onTrace(msg: TraceMsg | { type: string; graph?: string }) {
+  if (msg.graph !== graphId.value) return;
+  if (msg.type === "deployed") {
+    debug.redeployed = true;
+    return;
+  }
+  if (msg.type !== "trace") return;
+  const ev = msg as TraceMsg;
+  let turn = debug.turns.find((t) => t.id === ev.turn_id);
+  if (!turn) {
+    if (ev.event !== "turn.start") return; // backlog tail of a turn we never saw starting
+    turn = { id: ev.turn_id, status: "running", nodes: {}, ports: {}, hostCalls: [] };
+    debug.turns.unshift(turn);
+    debug.turns.splice(MAX_TURNS);
+    turn = debug.turns[0];
+  }
+  const node = ev.node ?? "";
+  switch (ev.event) {
+    case "turn.end":
+      turn.status = String(ev.attrs.status);
+      turn.durationMs = ev.t_ms;
+      break;
+    case "node.start":
+      turn.nodes[node] = { status: "running", startMs: ev.t_ms };
+      break;
+    case "node.end": {
+      const run = turn.nodes[node] ?? { status: "running", startMs: 0 };
+      run.status = String(ev.attrs.status);
+      run.durationMs = Number(ev.attrs.duration_ms);
+      if (ev.attrs.error) run.error = String(ev.attrs.error);
+      turn.nodes[node] = run;
+      break;
+    }
+    case "port.first_item": {
+      const key = `${node}.${ev.attrs.port}`;
+      turn.ports[key] ??= { items: 1, state: "flowing", firstMs: ev.t_ms };
+      break;
+    }
+    case "port.end": {
+      const key = `${node}.${ev.attrs.port}`;
+      turn.ports[key] = {
+        ...turn.ports[key],
+        items: Number(ev.attrs.items),
+        state: String(ev.attrs.state),
+      };
+      break;
+    }
+    case "host.call":
+      turn.hostCalls.push({ node, op: String(ev.attrs.op), t: ev.t_ms });
+      break;
+  }
+}

@@ -21,3 +21,5 @@ node_modules/
 
 # Local Claude Code settings
 .claude/settings.local.json
+# editor build output (npm run build in editor/)
+packages/flowpilot-server/src/flowpilot_server/editor/

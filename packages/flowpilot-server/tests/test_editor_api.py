@@ -277,3 +277,22 @@ async def test_trace_stream_for_live_debug(env: Any) -> None:
         await ws.receive_json()
         first = await asyncio.wait_for(ws.receive_json(), 5)
         assert first["event"] == "turn.start"
+
+
+def test_editor_files_stay_inside_the_build(tmp_path: Path) -> None:
+    from flowpilot_server.server import editor_file
+
+    assert editor_file("index.html", tmp_path) is None  # not built
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text("<html>")
+    (tmp_path / "assets" / "app.js").write_text("x")
+    (tmp_path.parent / "secret.txt").write_text("s")
+    assert editor_file("assets/app.js", tmp_path) == (tmp_path / "assets" / "app.js").resolve()
+    assert editor_file("graphs/main", tmp_path) == (tmp_path / "index.html").resolve()
+    assert editor_file("../secret.txt", tmp_path) == (tmp_path / "index.html").resolve()
+
+
+async def test_editor_root_redirects(env: Any) -> None:
+    session, url, _ = env
+    resp = await session.get(url("/editor"), allow_redirects=False)
+    assert resp.status == 302 and resp.headers["Location"] == "/editor/"

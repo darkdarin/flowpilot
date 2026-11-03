@@ -1,0 +1,265 @@
+@import "@vue-flow/core/dist/style.css";
+
+/* ---- tokens --------------------------------------------------------------------------------- */
+
+:root {
+  --font-ui: "Onest Variable", system-ui, sans-serif;
+  --font-code: "JetBrains Mono Variable", ui-monospace, monospace;
+  --radius-node: 10px;
+  --radius-ctl: 7px;
+  color-scheme: dark;
+
+  /* dark: graphite, cool, the wires are the colour */
+  --canvas: #1b1f26;
+  --canvas-dot: #2c323c;
+  --panel: #232831;
+  --panel-raised: #2b313b;
+  --node: #2b313b;
+  --node-head: #313844;
+  --line: #3a414d;
+  --line-strong: #4a5260;
+  --text: #e4e7ec;
+  --muted: #8a93a3;
+  --faint: #626b7a;
+  --focus: #7aa2ff;
+  --primary: #e4e7ec;
+  --primary-text: #1b1f26;
+  --danger: #ff6b6b;
+  --ok: #3ecf8e;
+  --warn: #f2b84b;
+  --shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 8px 24px rgb(0 0 0 / 0.35);
+
+  --type-audio: #2bb8a6;
+  --type-transcript: #e9a23b;
+  --type-delta: #d9c443;
+  --type-utterance: #ee7f4a;
+  --type-response: #9c7bf0;
+  --type-principal: #e0567c;
+  --type-speaker: #d77ad6;
+  --type-other: #8a93a3;
+
+  --cat-io: #6f8bb8;
+  --cat-speech: #2bb8a6;
+  --cat-agent: #9c7bf0;
+  --cat-logic: #8a93a3;
+  --cat-identity: #e0567c;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --canvas: #e8ebef;
+  --canvas-dot: #c9ced6;
+  --panel: #f7f8fa;
+  --panel-raised: #ffffff;
+  --node: #ffffff;
+  --node-head: #f3f5f8;
+  --line: #d9dde3;
+  --line-strong: #b9c0ca;
+  --text: #1d2330;
+  --muted: #5d6676;
+  --faint: #8a93a3;
+  --focus: #2f62e0;
+  --primary: #1d2330;
+  --primary-text: #ffffff;
+  --danger: #d63c3c;
+  --ok: #138a57;
+  --warn: #b7791f;
+  --shadow: 0 1px 2px rgb(29 35 48 / 0.06), 0 6px 18px rgb(29 35 48 / 0.08);
+
+  --type-audio: #0f9483;
+  --type-transcript: #c67f10;
+  --type-delta: #a99312;
+  --type-utterance: #d9602a;
+  --type-response: #7552e0;
+  --type-principal: #c93462;
+  --type-speaker: #b04fae;
+  --type-other: #7a8394;
+
+  --cat-io: #4f6f9f;
+  --cat-speech: #0f9483;
+  --cat-agent: #7552e0;
+  --cat-logic: #7a8394;
+  --cat-identity: #c93462;
+}
+
+/* ---- base ----------------------------------------------------------------------------------- */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--canvas);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+code,
+.code {
+  font-family: var(--font-code);
+  font-size: 11.5px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-ctl);
+  background: var(--panel-raised);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-text);
+  font-weight: 600;
+}
+
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+}
+
+.btn.ghost:hover:not(:disabled) {
+  background: var(--panel-raised);
+  border-color: var(--line);
+}
+
+.btn.icon {
+  width: 30px;
+  padding: 0;
+  justify-content: center;
+}
+
+.btn.danger {
+  color: var(--danger);
+}
+
+.field {
+  width: 100%;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-ctl);
+  background: var(--canvas);
+}
+
+.field:focus {
+  border-color: var(--focus);
+  outline: none;
+}
+
+.field.invalid {
+  border-color: var(--danger);
+}
+
+textarea.field {
+  height: auto;
+  padding: 6px 9px;
+  resize: vertical;
+}
+
+/* ---- vue flow ------------------------------------------------------------------------------- */
+
+.vue-flow__edge-path {
+  stroke-width: 2.5;
+}
+
+.vue-flow__connection-path {
+  stroke: var(--muted);
+  stroke-width: 2.5;
+  stroke-dasharray: 6 5;
+}
+
+.vue-flow__handle {
+  width: 12px;
+  height: 12px;
+  min-width: 0;
+  min-height: 0;
+  border: 2px solid var(--pin);
+  border-radius: 50%;
+  background: var(--node);
+  transition: background 0.12s;
+}
+
+.vue-flow__handle.connected,
+.vue-flow__handle:hover {
+  background: var(--pin);
+}
+
+.vue-flow__handle.value {
+  border-radius: 2px;
+  width: 10px;
+  height: 10px;
+}
+
+.vue-flow__handle-left.value {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.vue-flow__handle-right.value {
+  transform: translate(50%, -50%) rotate(45deg);
+}
+
+.vue-flow__handle.connectingfrom,
+.vue-flow__handle.valid {
+  background: var(--pin);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--pin) 30%, transparent);
+}
+
+.vue-flow__node.selected .fp-node {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.vue-flow__minimap {
+  transform: scale(0.75);
+  transform-origin: bottom right;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-ctl);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
