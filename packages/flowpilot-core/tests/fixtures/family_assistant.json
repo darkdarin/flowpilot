@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "family-assistant",
+  "name": "Family assistant",
+  "settings": { "turn_timeout_ms": 30000 },
+  "nodes": [
+    { "id": "in", "type": "ha.assist.source", "version": "^1", "config": {} },
+    { "id": "stt", "type": "wyoming.stt", "version": "^1",
+      "config": { "uri": "tcp://local-wyoming-soniox:10300", "language": "ru" } },
+    { "id": "spk", "type": "speaker.onnx", "version": "^1",
+      "config": { "model": "wespeaker-resnet34", "threshold": 0.62 } },
+    { "id": "who", "type": "identity.resolve", "version": "^1", "config": { "timeout_ms": 1500 } },
+    { "id": "utt", "type": "text.first", "version": "^1", "config": {} },
+    { "id": "agent", "type": "ha.conversation", "version": "^1",
+      "config": { "agent_id": "conversation.home_assistant" } },
+    { "id": "out", "type": "ha.assist.sink", "version": "^1", "config": {} }
+  ],
+  "edges": [
+    { "from": "in.audio", "to": "stt.audio" },
+    { "from": "in.audio", "to": "spk.audio" },
+    { "from": "stt.transcript", "to": "out.transcript" },
+    { "from": "spk.speaker", "to": "who.speaker" },
+    { "from": "stt.utterance", "to": "utt.primary" },
+    { "from": "in.utterance", "to": "utt.fallback" },
+    { "from": "who.principal", "to": "agent.principal" },
+    { "from": "utt.value", "to": "agent.utterance" },
+    { "from": "agent.response", "to": "out.response" }
+  ],
+  "ui": { "nodes": { "in": { "x": 40, "y": 120 } } }
+}
