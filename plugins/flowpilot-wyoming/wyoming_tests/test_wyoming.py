@@ -69,7 +69,7 @@ async def test_stt_own_vad_streams_partials_and_stops_audio_early() -> None:
 
 async def test_stt_external_vad_waits_for_audio_end() -> None:
     rec = Record()
-    async with serve(asr(rec, own_vad=False, streaming=False, words=["hello"])) as uri:
+    async with serve(asr(rec, own_vad=False, streaming=False, words=[" hello"])) as uri:
         node = await started(WyomingStt, {"uri": uri})
         run = await run_node_once(node, {"audio": audio(20)})
     assert run.error is None, run.error

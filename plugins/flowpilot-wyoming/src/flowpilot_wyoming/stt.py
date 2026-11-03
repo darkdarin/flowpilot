@@ -118,12 +118,13 @@ class WyomingStt:
                 with contextlib.suppress(asyncio.CancelledError, OSError, StreamError):
                     await sender
         audio.close()  # the service decided the utterance is over
-        turn.trace("wyoming.stt.final", chars=len(final.text))
+        text = final.text.strip()  # e.g. Whisper prefixes a space
+        turn.trace("wyoming.stt.final", chars=len(text))
         await turn.output("transcript").send(
-            Transcript(final.text, final=True, language=final.language or language)
+            Transcript(text, final=True, language=final.language or language)
         )
-        if final.text.strip():
-            await turn.output("utterance").send(Utterance(final.text, final.language or language))
+        if text:
+            await turn.output("utterance").send(Utterance(text, final.language or language))
 
     @staticmethod
     async def _send_audio(

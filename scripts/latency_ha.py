@@ -78,11 +78,13 @@ def load_speech(path: Path) -> bytes:
         return w.readframes(w.getnframes())
 
 
-async def ensure_wyoming_entry(http: aiohttp.ClientSession, uri: str) -> None:
-    resp = await http.get(f"{BASE}/api/config/config_entries/entry", headers=HEADERS)
-    if any(e["domain"] == "wyoming" for e in await resp.json()):
-        return
+async def ensure_wyoming_entry(http: aiohttp.ClientSession, uri: str) -> str:
+    """Config entry of the Wyoming service at ``uri`` (created if missing); returns its id."""
     parsed = urlparse(uri)
+    resp = await http.get(f"{BASE}/api/config/config_entries/entry", headers=HEADERS)
+    for e in await resp.json():
+        if e["domain"] == "wyoming" and str(parsed.port) in e["title"] + json.dumps(e):
+            return str(e["entry_id"])
     flow = await (
         await http.post(
             f"{BASE}/api/config/config_entries/flow", json={"handler": "wyoming"}, headers=HEADERS
@@ -97,14 +99,17 @@ async def ensure_wyoming_entry(http: aiohttp.ClientSession, uri: str) -> None:
     ).json()
     print("wyoming entry:", result.get("type"), result.get("errors") or "")
     await asyncio.sleep(3)
+    return str(result["result"]["entry_id"])
 
 
-async def stt_entities(ws: Ws) -> dict[str, str]:
+async def stt_entities(ws: Ws, wyoming_entry: str) -> dict[str, str]:
     entities = await ws.call({"type": "config/entity_registry/list"})
     found: dict[str, str] = {}
     for e in entities:
         domain = e["entity_id"].split(".")[0]
-        if e["platform"] in ("wyoming", "flowpilot") and domain in ("stt", "conversation"):
+        if domain not in ("stt", "conversation"):
+            continue
+        if e["platform"] == "flowpilot" or e["config_entry_id"] == wyoming_entry:
             found[f"{e['platform']}.{domain}"] = e["entity_id"]
     return found
 
@@ -214,20 +219,21 @@ async def main() -> None:
     speech = load_speech(args.audio)
 
     async with aiohttp.ClientSession() as http:
-        await ensure_wyoming_entry(http, args.wyoming)
+        wyoming_entry = await ensure_wyoming_entry(http, args.wyoming)
+        port = urlparse(args.wyoming).port
         async with http.ws_connect(f"{BASE}/api/websocket") as raw:
             await raw.receive_json()
             await raw.send_json({"type": "auth", "access_token": TOKEN})
             assert (await raw.receive_json())["type"] == "auth_ok"
             ws = Ws(raw)
-            ent = await stt_entities(ws)
+            ent = await stt_entities(ws, wyoming_entry)
             pipelines = {
                 "direct": await ensure_pipeline(
-                    ws, "Bench: Wyoming direct", ent["wyoming.stt"],
+                    ws, f"Bench: Wyoming direct :{port}", ent["wyoming.stt"],
                     "conversation.home_assistant", args.language,
                 ),
                 "flowpilot": await ensure_pipeline(
-                    ws, "Bench: FlowPilot", ent["flowpilot.stt"],
+                    ws, f"Bench: FlowPilot :{port}", ent["flowpilot.stt"],
                     ent["flowpilot.conversation"], args.language,
                 ),
             }  # fmt: skip
