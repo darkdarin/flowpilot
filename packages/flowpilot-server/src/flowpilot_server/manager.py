@@ -113,6 +113,7 @@ class GraphManager:
         self._grants = grants or GrantPolicy()
         self._check = check
         self._trace_factory = trace_factory
+        self._on_deployed: Callable[[str], None] | None = None
         self.deployments: dict[str, Deployment] = {}
         self._active: dict[Deployment, int] = {}
         self._idle = asyncio.Condition()
@@ -129,6 +130,11 @@ class GraphManager:
 
     def set_check(self, check: GraphCheck) -> None:
         self._check = check
+
+    def set_trace(self, factory: TraceFactory, on_deployed: Callable[[str], None]) -> None:
+        """Trace sink for deployments started from now on, and a hook called after each deploy."""
+        self._trace_factory = factory
+        self._on_deployed = on_deployed
 
     # --- validation -----------------------------------------------------------------------------
 
@@ -180,6 +186,8 @@ class GraphManager:
                 self.store.save(graph_id, data)
                 self.store.delete_draft(graph_id)
         _LOGGER.info("graph %s deployed (%d nodes)", graph_id, len(graph.order))
+        if self._on_deployed is not None:
+            self._on_deployed(graph_id)
         if old is not None:
             task = asyncio.create_task(self._retire(old), name=f"retire:{graph_id}")
             self._retiring.add(task)

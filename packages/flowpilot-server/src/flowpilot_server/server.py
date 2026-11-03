@@ -49,6 +49,7 @@ from .protocol import (
     pack_audio,
     unpack_audio,
 )
+from .tracehub import EDITOR_WS_PATH, TraceHub, editor_socket
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -136,6 +137,16 @@ class FlowPilotServer:
         self._token = token
         self.sessions = SessionIndex()
         self._sockets: set[web.WebSocketResponse] = set()
+        self.trace_hub = TraceHub()
+        self.manager.set_trace(
+            self.trace_hub.sink, lambda graph_id: self.trace_hub.announce(graph_id, "deployed")
+        )
+
+    def track_socket(self, ws: web.WebSocketResponse) -> None:
+        self._sockets.add(ws)
+
+    def untrack_socket(self, ws: web.WebSocketResponse) -> None:
+        self._sockets.discard(ws)
 
     @property
     def deployments(self) -> Mapping[str, Deployment]:
@@ -148,8 +159,12 @@ class FlowPilotServer:
         app.router.add_get("/", self._handle_static)
         app.router.add_get("/app.js", self._handle_static)
         app.on_shutdown.append(self._close_sockets)
+        app.router.add_get(EDITOR_WS_PATH, self._handle_editor_ws)
         add_editor_routes(app, self)
         return app
+
+    async def _handle_editor_ws(self, request: web.Request) -> web.WebSocketResponse:
+        return await editor_socket(request, self)
 
     async def _handle_static(self, request: web.Request) -> web.Response:
         """Development client page: microphone and text input against the protocol."""

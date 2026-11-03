@@ -38,7 +38,12 @@ class RuntimeOutputStream:
         self._turn_id = turn_id
         self._seq = 0
         self.state: State = "pending"
+        self.opened = False
         self._on_first_item = on_first_item
+
+    @property
+    def items(self) -> int:
+        return self._seq
 
     async def _broadcast(self, msg: Open | Item | End | Fail) -> None:
         for ch in self._channels:
@@ -48,6 +53,7 @@ class RuntimeOutputStream:
         if self.state != "pending":
             raise RuntimeError(f"output {self.node_id}.{self.name} is already {self.state}")
         self.state = "open"
+        self.opened = True
         await self._broadcast(Open(StreamHeader(self.spec.type, dict(meta or {}))))
 
     async def send(self, payload: Any) -> None:

@@ -345,12 +345,26 @@ class Deployment:
             await asyncio.shield(self._finish_node(turn, status, error))
             outcome = NodeOutcome(status, (time.monotonic() - started) * 1000, error)
             outcomes[node_id] = outcome
+            for name, out in turn._outputs.items():
+                state = "error" if out.state == "failed" else "end" if out.opened else "absent"
+                self.trace.emit(
+                    TraceEvent(
+                        turn_id,
+                        "port.end",
+                        node_id,
+                        attrs={"port": name, "items": out.items, "state": state},
+                    )
+                )
             self.trace.emit(
                 TraceEvent(
                     turn_id,
                     "node.end",
                     node_id,
-                    attrs={"status": status.value, "duration_ms": round(outcome.duration_ms, 3)},
+                    attrs={
+                        "status": status.value,
+                        "duration_ms": round(outcome.duration_ms, 3),
+                        **({"error": error[:300]} if error else {}),
+                    },
                 )
             )
 

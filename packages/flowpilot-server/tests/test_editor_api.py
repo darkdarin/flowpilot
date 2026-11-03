@@ -239,3 +239,41 @@ async def test_create_and_discard_graph(env: Any) -> None:
     assert resp.status == 200
     resp = await session.get(url("/api/editor/graphs/kids"), headers=AUTH)
     assert resp.status == 404
+
+
+async def test_trace_stream_for_live_debug(env: Any) -> None:
+    session, url, manager = env
+    async with session.ws_connect(url("/api/editor/ws")) as ws:
+        await ws.send_json({"type": "subscribe", "graph": "main"})
+        assert (await ws.receive_json())["code"] == "auth"
+    async with session.ws_connect(url("/api/editor/ws")) as ws:
+        await ws.send_json({"type": "hello", "token": TOKEN})
+        assert (await ws.receive_json())["type"] == "hello.ok"
+        await ws.send_json({"type": "subscribe", "graph": "main"})
+        assert await ws.receive_json() == {"type": "subscribed", "graph": "main"}
+
+        assert await ask(session, url) == "v1"
+        events = []
+        while not events or events[-1]["event"] != "turn.end":
+            events.append(await asyncio.wait_for(ws.receive_json(), 5))
+        kinds = {(e["event"], e["node"]) for e in events}
+        assert {("turn.start", None), ("node.start", "agent"), ("node.end", "agent")} <= kinds
+        port = next(e for e in events if e["event"] == "port.end" and e["node"] == "agent")
+        assert port["attrs"] == {"port": "response", "items": 1, "state": "end"}
+        absent = next(e for e in events if e["event"] == "port.end" and e["node"] == "in"
+                      and e["attrs"]["port"] == "audio")  # fmt: skip
+        assert absent["attrs"]["state"] == "absent"
+        assert all(e["t_ms"] >= 0 for e in events)
+        assert events[-1]["attrs"]["status"] == "ok"
+
+        await manager.deploy_data("main", graph("v2"))
+        assert await asyncio.wait_for(ws.receive_json(), 5) == {"type": "deployed", "graph": "main"}
+
+    # a new editor sees the recent turns from the backlog
+    async with session.ws_connect(url("/api/editor/ws")) as ws:
+        await ws.send_json({"type": "hello", "token": TOKEN})
+        await ws.receive_json()
+        await ws.send_json({"type": "subscribe", "graph": "main"})
+        await ws.receive_json()
+        first = await asyncio.wait_for(ws.receive_json(), 5)
+        assert first["event"] == "turn.start"
