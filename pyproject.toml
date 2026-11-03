@@ -44,7 +44,15 @@ target-version = "py314"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "BLE"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["flowpilot_sdk", "flowpilot_core"]
+
 [tool.mypy]
 python_version = "3.14"
 strict = true
-packages = ["flowpilot_sdk", "flowpilot_core"]
+files = [
+    "packages/flowpilot-sdk/src",
+    "packages/flowpilot-sdk/tests",
+    "packages/flowpilot-core/src",
+    "packages/flowpilot-core/tests",
+]

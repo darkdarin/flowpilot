@@ -1,0 +1,117 @@
+"""Node interface: static spec, instance lifecycle and the per-turn session."""
+
+from __future__ import annotations
+
+import logging
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Any, ClassVar, Literal, Protocol
+
+from .context import SessionInfo, SessionState, TurnContext
+from .streams import InputStream, OutputStream
+from .types import PRIVILEGED_TYPES, validate_type_id
+
+NODE_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
+PORT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+SEMVER_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+
+Category = Literal["input", "speech", "identity", "logic", "agent", "tool", "output"]
+Isolation = Literal["in_process", "subprocess", "any"]
+
+
+@dataclass(frozen=True, slots=True)
+class PortSpec:
+    """A typed port of a node."""
+
+    type: str
+    kind: Literal["stream", "value"] = "stream"
+    required: bool = True
+    delivery: Literal["lossless", "latest"] = "lossless"
+    buffer: int = 32
+
+    def __post_init__(self) -> None:
+        validate_type_id(self.type)
+        if self.buffer < 1:
+            raise ValueError("port buffer must be at least 1")
+
+
+@dataclass(frozen=True, slots=True)
+class NodeSpec:
+    """Static declaration of a node type."""
+
+    type: str
+    version: str
+    title: str
+    category: Category
+    inputs: Mapping[str, PortSpec] = field(default_factory=dict)
+    outputs: Mapping[str, PortSpec] = field(default_factory=dict)
+    config_schema: Mapping[str, Any] = field(default_factory=lambda: {"type": "object"})
+    isolation: Isolation = "any"
+    grants: frozenset[str] = frozenset()
+    turn_timeout_s: float | None = None
+    description: str = ""
+
+    def __post_init__(self) -> None:
+        if not NODE_TYPE_RE.match(self.type):
+            raise ValueError(f"invalid node type {self.type!r}, expected 'namespace.name'")
+        if not SEMVER_RE.match(self.version):
+            raise ValueError(f"invalid node version {self.version!r}, expected semver 'X.Y.Z'")
+        for name in (*self.inputs, *self.outputs):
+            if not PORT_NAME_RE.match(name):
+                raise ValueError(f"invalid port name {name!r} in {self.type}")
+        for name, port in self.outputs.items():
+            grant = PRIVILEGED_TYPES.get(port.type)
+            if grant is not None and grant not in self.grants:
+                raise ValueError(
+                    f"{self.type}: output {name!r} of privileged type {port.type!r} "
+                    f"requires grant {grant!r}"
+                )
+        if self.turn_timeout_s is not None and self.turn_timeout_s <= 0:
+            raise ValueError("turn_timeout_s must be positive")
+
+
+class NodeContext(Protocol):
+    """What a node instance gets at start: its identity in the graph, config and secrets."""
+
+    node_id: str
+    config: Mapping[str, Any]
+    logger: logging.Logger
+
+    def secret(self, name: str) -> str:
+        """Value of a secret referenced in the node config; ``KeyError`` if not granted."""
+        ...
+
+
+class TurnSession(Protocol):
+    """What a node sees during one turn."""
+
+    context: TurnContext
+    session: SessionInfo
+    state: SessionState
+
+    def input(self, name: str) -> InputStream[Any]: ...
+
+    def output(self, name: str) -> OutputStream[Any]: ...
+
+    def trace(self, event: str, **attrs: Any) -> None:
+        """Record a trace event. Never pass raw audio; text only where redaction allows."""
+        ...
+
+
+class Node(Protocol):
+    """A node type implementation. One instance per node in a deployed graph."""
+
+    spec: ClassVar[NodeSpec]
+
+    async def start(self, ctx: NodeContext) -> None:
+        """Instance lifetime begins: validate config, load models, open pools."""
+        ...
+
+    async def run_turn(self, turn: TurnSession) -> None:
+        """Handle one turn: read inputs, write outputs."""
+        ...
+
+    async def stop(self) -> None:
+        """Instance lifetime ends: release resources."""
+        ...
