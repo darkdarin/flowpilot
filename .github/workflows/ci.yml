@@ -21,3 +21,22 @@ jobs:
         run: uv run mypy
       - name: Tests
         run: uv run pytest -q
+
+  # The companion integration inside a real Home Assistant (test harness pinned to one HA release).
+  # test_voice_turn_is_one_flowpilot_turn is the regression test for ADR-012.
+  ha-integration:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ha-integration
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Install ffmpeg (checked when the tts component sets up)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Type check against Home Assistant
+        run: uv run mypy
+      - name: Tests
+        run: uv run pytest -q -p no:logging

@@ -20,6 +20,8 @@ package = false
 
 [tool.uv.workspace]
 members = ["packages/*", "plugins/*"]
+# The HA integration has its own environment (Home Assistant + its test harness).
+exclude = ["ha-integration"]
 
 [tool.uv.sources]
 flowpilot-sdk = { workspace = true }

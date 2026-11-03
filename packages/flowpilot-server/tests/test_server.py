@@ -372,3 +372,23 @@ async def test_protocol_errors(connect: Any) -> None:
     await c.ws.send_bytes(pack_audio(12345, b"\x00\x00"))
     err = await c.wait_for(lambda m: m.get("code") == "unknown_stream")
     assert err["type"] == "error"
+
+
+async def test_shutdown_closes_client_connections() -> None:
+    registry = register_builtin(NodeRegistry())
+    for cls in (ClientSource, ClientSink, HaConversation, FakeStt, FakeTts):
+        registry.register(cls)
+    deployment = Deployment(validate_graph(parse_graph(GRAPH), registry), registry)
+    await deployment.start()
+    ts = TestServer(FlowPilotServer({"main": deployment}, token=TOKEN, default_graph="main").app())
+    await ts.start_server()
+    async with aiohttp.ClientSession() as session:
+        ws = await session.ws_connect(ts.make_url(WS_PATH))
+        await ws.send_json({"type": "hello", "protocol": PROTOCOL_VERSION, "token": TOKEN})
+        await ws.receive_json()
+        started = asyncio.get_running_loop().time()
+        await ts.close()
+        assert asyncio.get_running_loop().time() - started < 5
+        msg = await ws.receive()
+        assert msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED)
+    await deployment.stop()

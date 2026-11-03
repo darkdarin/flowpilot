@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from aiohttp import WSMsgType, web
+from aiohttp import WSCloseCode, WSMsgType, web
 
 from flowpilot_core.runtime import Deployment, TurnStatus
 from flowpilot_sdk import (
@@ -93,6 +93,7 @@ class FlowPilotServer:
         self._token = token
         self.sessions = SessionIndex()
         self._sinks: dict[str, str] = {}
+        self._sockets: set[web.WebSocketResponse] = set()
         for graph_id, d in self.deployments.items():
             g = d.graph
             if g.specs[g.source].type != ClientSource.spec.type:
@@ -105,7 +106,13 @@ class FlowPilotServer:
     def app(self) -> web.Application:
         app = web.Application()
         app.router.add_get(WS_PATH, self._handle_ws)
+        app.on_shutdown.append(self._close_sockets)
         return app
+
+    async def _close_sockets(self, app: web.Application) -> None:
+        """Close client connections on shutdown instead of waiting for clients to hang up."""
+        for ws in list(self._sockets):
+            await ws.close(code=WSCloseCode.GOING_AWAY, message=b"FlowPilot is shutting down")
 
     def required_host_ops(self, graph_id: str) -> set[str]:
         return {op for s in self.deployments[graph_id].graph.specs.values() for op in s.host_ops}
@@ -113,10 +120,12 @@ class FlowPilotServer:
     async def _handle_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
+        self._sockets.add(ws)
         conn = Connection(self, ws)
         try:
             await conn.run()
         finally:
+            self._sockets.discard(ws)
             await conn.close()
         return ws
 

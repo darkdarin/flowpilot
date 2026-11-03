@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from homeassistant.components import conversation
+from homeassistant.components.conversation import async_converse
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers import entity_registry as er
@@ -47,7 +48,7 @@ def build_host_ops(
             user_input.conversation_id if user_input else None
         )
         inner_id = f"{INNER_CONVERSATION_PREFIX}{outer_id}" if outer_id else None
-        result = await conversation.async_converse(
+        result = await async_converse(
             hass,
             text=str(args["text"]),
             conversation_id=inner_id,
