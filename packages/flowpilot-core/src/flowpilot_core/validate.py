@@ -49,27 +49,27 @@ class ValidatedGraph:
     source: str  # node id of the single input adapter
 
 
-def _secret_aware_schema(schema: Any) -> Any:
+def secret_aware_schema(schema: Any) -> Any:
     """Replace ``{"type": "secret"}`` markers with the secret reference object schema."""
     if isinstance(schema, Mapping):
         if schema.get("type") == "secret":
             return copy.deepcopy(SECRET_REF_SCHEMA)
-        return {k: _secret_aware_schema(v) for k, v in schema.items()}
+        return {k: secret_aware_schema(v) for k, v in schema.items()}
     if isinstance(schema, list):
-        return [_secret_aware_schema(v) for v in schema]
+        return [secret_aware_schema(v) for v in schema]
     return schema
 
 
-def _collect_secret_refs(value: Any, out: set[str]) -> None:
+def collect_secret_refs(value: Any, out: set[str]) -> None:
     if isinstance(value, Mapping):
         if set(value) == {"secret"} and isinstance(value["secret"], str):
             out.add(value["secret"])
             return
         for v in value.values():
-            _collect_secret_refs(v, out)
+            collect_secret_refs(v, out)
     elif isinstance(value, list):
         for v in value:
-            _collect_secret_refs(v, out)
+            collect_secret_refs(v, out)
 
 
 def validate_graph(
@@ -107,7 +107,7 @@ def validate_graph(
         specs[node.id] = spec
 
         try:
-            validator = Draft202012Validator(_secret_aware_schema(spec.config_schema))
+            validator = Draft202012Validator(secret_aware_schema(spec.config_schema))
             errors = sorted(validator.iter_errors(dict(node.config)), key=lambda e: list(e.path))
         except SchemaError as schema_err:
             issue(
@@ -120,7 +120,7 @@ def validate_graph(
             where = "".join(f"[{p!r}]" if isinstance(p, int) else f".{p}" for p in config_err.path)
             issue("invalid_config", f"{path}.config{where}", config_err.message)
         refs: set[str] = set()
-        _collect_secret_refs(node.config, refs)
+        collect_secret_refs(node.config, refs)
         secret_refs[node.id] = frozenset(refs)
 
         for grant in sorted(spec.grants):

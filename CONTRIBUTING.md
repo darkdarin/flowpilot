@@ -26,7 +26,22 @@ uv run pytest
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/): `feat: ...`,
   `fix: ...`, `docs: ...`, `chore: ...`.
 - Every node plugin declares typed ports, a documented timeout and failure behaviour, and passes the
-  plugin conformance tests (once available).
+  plugin conformance kit:
+
+  ```python
+  from flowpilot_core.conformance import InputFeed, assert_conforms, check_node
+
+  async def test_my_node_conforms() -> None:
+      report = await check_node(
+          MyNode,
+          config={"uri": "tcp://localhost:10300"},
+          sample={"audio": InputFeed(items=[...], meta=AudioFormat(16000).as_meta())},
+      )
+      assert_conforms(report)
+  ```
+
+  The kit checks the config schema, start/stop, absent and failed inputs, the sample run,
+  cancellation and leaked tasks (see the module docstring for the list of checks).
 - Do not commit secrets, API keys or voice recordings.
 
 ## License of contributions
