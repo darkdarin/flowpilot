@@ -14,6 +14,9 @@ dependencies = [
     "flowpilot-sdk",
 ]
 
+[project.scripts]
+flowpilot-server = "flowpilot_server.__main__:main"
+
 [tool.uv.sources]
 flowpilot-sdk = { workspace = true }
 flowpilot-core = { workspace = true }

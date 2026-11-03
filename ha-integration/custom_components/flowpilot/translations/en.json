@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to FlowPilot",
+        "description": "Address and token of the FlowPilot runtime.",
+        "data": {
+          "url": "Runtime URL",
+          "token": "Token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the FlowPilot runtime.",
+      "invalid_auth": "The runtime rejected the token or the protocol version."
+    },
+    "abort": {
+      "already_configured": "This FlowPilot runtime is already configured."
+    }
+  }
+}
