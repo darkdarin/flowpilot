@@ -1,7 +1,7 @@
 """FlowPilot plugin SDK: message contracts and node interfaces (contracts v1, ADR-013)."""
 
 from .context import DeviceInfo, SessionInfo, SessionState, SourceInfo, TurnContext
-from .host import HostError, HostUnavailable
+from .host import HostAudio, HostError, HostUnavailable
 from .ids import new_ulid
 from .node import Node, NodeContext, NodeSpec, PortSpec, TurnSession
 from .payloads import (
@@ -40,6 +40,7 @@ __all__ = [
     "DeviceInfo",
     "Envelope",
     "Evidence",
+    "HostAudio",
     "HostError",
     "HostUnavailable",
     "InputStream",

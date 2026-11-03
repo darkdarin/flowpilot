@@ -20,7 +20,7 @@ from flowpilot_core.builtin import register_builtin
 from flowpilot_core.runtime import Deployment, ListTraceSink
 from flowpilot_sdk import Node
 from flowpilot_server.devnodes import DEV_NODES
-from flowpilot_server.nodes import ClientSink, ClientSource, HaConversation
+from flowpilot_server.nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
 from flowpilot_server.server import FlowPilotServer
 
 # The test harness puts its own ``custom_components`` package first on sys.path; add ours to it.
@@ -55,6 +55,30 @@ def graph(agent: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+SPEECH_GRAPH: dict[str, Any] = {
+    "schema_version": 1,
+    "id": "test",
+    "nodes": [
+        {"id": "in", "type": "client.source"},
+        {"id": "stt", "type": "ha.stt", "config": {"entity_id": "stt.fake"}},
+        {"id": "utt", "type": "text.first"},
+        {"id": "agent", "type": "dev.echo_agent"},
+        {"id": "tts", "type": "ha.tts", "config": {"engine": "tts.fake"}},
+        {"id": "out", "type": "client.sink"},
+    ],
+    "edges": [
+        {"from": "in.audio", "to": "stt.audio"},
+        {"from": "stt.transcript", "to": "out.transcript"},
+        {"from": "stt.utterance", "to": "utt.primary"},
+        {"from": "in.utterance", "to": "utt.fallback"},
+        {"from": "utt.value", "to": "agent.utterance"},
+        {"from": "agent.delta", "to": "out.delta"},
+        {"from": "agent.delta", "to": "tts.text"},
+        {"from": "tts.speech", "to": "out.speech"},
+        {"from": "agent.response", "to": "out.response"},
+    ],
+}
+
 ECHO_AGENT = {"type": "dev.echo_agent"}
 HA_AGENT = {"type": "ha.conversation", "config": {"agent_id": "conversation.home_assistant"}}
 
@@ -73,14 +97,18 @@ def auto_enable_custom_integrations(enable_custom_integrations: None) -> Iterato
     yield
 
 
-async def _runtime(agent: dict[str, Any]) -> AsyncIterator[Runtime]:
+async def _runtime(
+    agent: dict[str, Any], graph_data: dict[str, Any] | None = None
+) -> AsyncIterator[Runtime]:
     registry = register_builtin(NodeRegistry())
-    classes: list[type[Node]] = [ClientSource, ClientSink, HaConversation, *DEV_NODES]
+    classes: list[type[Node]] = [
+        ClientSource, ClientSink, HaConversation, HaStt, HaTts, *DEV_NODES
+    ]  # fmt: skip
     for cls in classes:
         registry.register(cls)
     trace = ListTraceSink()
     deployment = Deployment(
-        validate_graph(parse_graph(graph(agent)), registry, grants=GrantPolicy()),
+        validate_graph(parse_graph(graph_data or graph(agent)), registry, grants=GrantPolicy()),
         registry,
         trace=trace,
     )
@@ -122,3 +150,9 @@ async def setup_flowpilot(hass: HomeAssistant, runtime: Runtime) -> MockConfigEn
         await asyncio.sleep(0.02)
     assert client.connected
     return entry
+
+
+@pytest.fixture
+async def speech_runtime() -> AsyncIterator[Runtime]:
+    async for rt in _runtime({}, SPEECH_GRAPH):
+        yield rt

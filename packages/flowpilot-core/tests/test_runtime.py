@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import copy
 import time
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterable, AsyncIterator, Mapping
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -22,6 +23,8 @@ from flowpilot_core.runtime import (
     TurnStatus,
 )
 from flowpilot_sdk import (
+    AudioFormat,
+    HostAudio,
     HostUnavailable,
     Principal,
     SessionInfo,
@@ -215,9 +218,41 @@ class FakeHost:
     def offers(self, op: str) -> bool:
         return op in self.ops
 
-    async def call(self, turn_id: str, op: str, args: Mapping[str, Any]) -> Any:
+    async def call(
+        self,
+        turn_id: str,
+        op: str,
+        args: Mapping[str, Any],
+        *,
+        audio_in: AsyncIterable[bytes] | None = None,
+        audio_format: AudioFormat | None = None,
+    ) -> Any:
         self.calls.append((turn_id, op, dict(args)))
+        if audio_in is not None:
+            return {"bytes": sum([len(c) async for c in audio_in])}
         return {"echo": args["x"]}
+
+    @asynccontextmanager
+    async def stream(
+        self, turn_id: str, op: str, args: Mapping[str, Any]
+    ) -> AsyncIterator[HostAudio]:
+        yield FakeAudio([b"ab", b"cd"])
+
+
+class FakeAudio:
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = chunks
+        self.format: AudioFormat | None = AudioFormat(sample_rate=16000)
+
+    async def _iter(self) -> AsyncIterator[bytes]:
+        for c in self._chunks:
+            yield c
+
+    def __aiter__(self) -> AsyncIterator[bytes]:
+        return self._iter()
+
+    async def result(self) -> Any:
+        return {"done": True}
 
 
 def _host_session(host: FakeHost | None) -> RuntimeTurnSession:
@@ -246,3 +281,22 @@ async def test_call_host() -> None:
         await _host_session(None).call_host("ha.conversation.process", {})
     with pytest.raises(HostUnavailable, match="not offered"):
         await _host_session(FakeHost(set())).call_host("ha.conversation.process", {})
+
+
+async def test_host_audio_in_and_out() -> None:
+    turn = _host_session(FakeHost({"ha.conversation.process"}))
+
+    async def pcm() -> AsyncIterator[bytes]:
+        yield b"1234"
+        yield b"56"
+
+    result = await turn.call_host(
+        "ha.conversation.process", {}, audio_in=pcm(), audio_format=AudioFormat(16000)
+    )
+    assert result == {"bytes": 6}
+    with pytest.raises(ValueError, match="audio_format"):
+        await turn.call_host("ha.conversation.process", {}, audio_in=pcm())
+    async with turn.stream_host("ha.conversation.process", {}) as audio:
+        assert audio.format == AudioFormat(16000)
+        assert [c async for c in audio] == [b"ab", b"cd"]
+        assert await audio.result() == {"done": True}

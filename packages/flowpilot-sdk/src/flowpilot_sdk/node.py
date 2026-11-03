@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import AsyncIterable, Mapping
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal, Protocol
 
 from .context import SessionInfo, SessionState, TurnContext
+from .host import HostAudio
+from .payloads import AudioFormat
 from .streams import InputStream, OutputStream
 from .types import PRIVILEGED_TYPES, validate_type_id
 
@@ -102,11 +105,26 @@ class TurnSession(Protocol):
         """Record a trace event. Never pass raw audio; text only where redaction allows."""
         ...
 
-    async def call_host(self, op: str, args: Mapping[str, Any]) -> Any:
+    async def call_host(
+        self,
+        op: str,
+        args: Mapping[str, Any],
+        *,
+        audio_in: AsyncIterable[bytes] | None = None,
+        audio_format: AudioFormat | None = None,
+    ) -> Any:
         """Ask the turn's client to perform ``op`` (declared in ``spec.host_ops``).
 
-        Raises ``HostUnavailable`` if the client does not offer it, ``HostError`` if it failed.
+        With ``audio_in`` the PCM chunks (in ``audio_format``) are streamed to the host while the
+        operation runs (e.g. speech-to-text). Raises ``HostUnavailable`` if the client does not
+        offer the operation, ``HostError`` if it failed.
         """
+        ...
+
+    def stream_host(
+        self, op: str, args: Mapping[str, Any]
+    ) -> AbstractAsyncContextManager[HostAudio]:
+        """Perform ``op`` and stream back the audio it produces (e.g. text-to-speech)."""
         ...
 
 

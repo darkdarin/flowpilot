@@ -5,12 +5,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Mapping
+from collections.abc import AsyncIterable, Mapping
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol
 
-from flowpilot_sdk import HostUnavailable, Node, SessionInfo, SessionState, TurnContext
+from flowpilot_sdk import (
+    AudioFormat,
+    HostAudio,
+    HostUnavailable,
+    Node,
+    SessionInfo,
+    SessionState,
+    TurnContext,
+)
 
 from ..registry import NodeRegistry
 from ..validate import ValidatedGraph
@@ -76,7 +85,19 @@ class HostCaller(Protocol):
 
     def offers(self, op: str) -> bool: ...
 
-    async def call(self, turn_id: str, op: str, args: Mapping[str, Any]) -> Any: ...
+    async def call(
+        self,
+        turn_id: str,
+        op: str,
+        args: Mapping[str, Any],
+        *,
+        audio_in: AsyncIterable[bytes] | None = None,
+        audio_format: AudioFormat | None = None,
+    ) -> Any: ...
+
+    def stream(
+        self, turn_id: str, op: str, args: Mapping[str, Any]
+    ) -> AbstractAsyncContextManager[HostAudio]: ...
 
 
 class RuntimeTurnSession:
@@ -105,7 +126,7 @@ class RuntimeTurnSession:
         self._host = host
         self._host_ops = host_ops
 
-    async def call_host(self, op: str, args: Mapping[str, Any]) -> Any:
+    def _host_for(self, op: str) -> HostCaller:
         if op not in self._host_ops:
             raise RuntimeError(f"node {self._node_id!r} did not declare host operation {op!r}")
         if self._host is None:
@@ -115,7 +136,27 @@ class RuntimeTurnSession:
         self._trace.emit(
             TraceEvent(self.context.turn_id, "host.call", self._node_id, attrs={"op": op})
         )
-        return await self._host.call(self.context.turn_id, op, args)
+        return self._host
+
+    async def call_host(
+        self,
+        op: str,
+        args: Mapping[str, Any],
+        *,
+        audio_in: AsyncIterable[bytes] | None = None,
+        audio_format: AudioFormat | None = None,
+    ) -> Any:
+        if audio_in is not None and audio_format is None:
+            raise ValueError("audio_format is required with audio_in")
+        host = self._host_for(op)
+        return await host.call(
+            self.context.turn_id, op, args, audio_in=audio_in, audio_format=audio_format
+        )
+
+    def stream_host(
+        self, op: str, args: Mapping[str, Any]
+    ) -> AbstractAsyncContextManager[HostAudio]:
+        return self._host_for(op).stream(self.context.turn_id, op, args)
 
     def input(self, name: str) -> RuntimeInputStream:
         try:

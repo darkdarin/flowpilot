@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import AsyncIterable, AsyncIterator, Mapping
+from contextlib import asynccontextmanager
 from typing import Any
 
 from flowpilot_core.conformance import InputFeed, assert_conforms, check_node
 from flowpilot_sdk import (
     AudioChunk,
     AudioFormat,
+    HostAudio,
     Node,
     Principal,
     Response,
@@ -18,7 +20,14 @@ from flowpilot_sdk import (
     TurnContext,
     Utterance,
 )
-from flowpilot_server.nodes import ClientInput, ClientSink, ClientSource, HaConversation
+from flowpilot_server.nodes import (
+    ClientInput,
+    ClientSink,
+    ClientSource,
+    HaConversation,
+    HaStt,
+    HaTts,
+)
 
 FMT = AudioFormat(sample_rate=16000)
 
@@ -48,10 +57,41 @@ class RecordingOutlet:
 
 class FakeHost:
     def offers(self, op: str) -> bool:
-        return op == "ha.conversation.process"
+        return op in {"ha.conversation.process", "ha.stt.process", "ha.tts.synthesize"}
 
-    async def call(self, turn_id: str, op: str, args: Mapping[str, Any]) -> Any:
+    async def call(
+        self,
+        turn_id: str,
+        op: str,
+        args: Mapping[str, Any],
+        *,
+        audio_in: AsyncIterable[bytes] | None = None,
+        audio_format: AudioFormat | None = None,
+    ) -> Any:
+        if audio_in is not None:
+            return {"text": f"{sum([len(c) async for c in audio_in])} bytes"}
         return {"speech": f"echo: {args['text']}"}
+
+    @asynccontextmanager
+    async def stream(
+        self, turn_id: str, op: str, args: Mapping[str, Any]
+    ) -> AsyncIterator[HostAudio]:
+        yield FakeAudio(str(args["text"]).encode())
+
+
+class FakeAudio:
+    def __init__(self, pcm: bytes) -> None:
+        self.pcm = pcm
+        self.format: AudioFormat | None = AudioFormat(sample_rate=16000)
+
+    async def _iter(self) -> AsyncIterator[bytes]:
+        yield self.pcm
+
+    def __aiter__(self) -> AsyncIterator[bytes]:
+        return self._iter()
+
+    async def result(self) -> Any:
+        return {}
 
 
 def prepare_source(node: Node, ctx: TurnContext) -> None:
@@ -99,3 +139,19 @@ async def test_ha_conversation_without_host_fails_closed() -> None:
     # The sample run raises HostUnavailable (fail closed): that is a C5 violation by design,
     # which tells the plugin author the node needs a host in tests.
     assert any(v.startswith("C5") and "HostUnavailable" in v for v in report.violations)
+
+
+async def test_ha_stt_conforms() -> None:
+    audio = InputFeed([AudioChunk(bytes(640), 0)] * 3, meta=FMT.as_meta())
+    report = await check_node(
+        HaStt, config={"entity_id": "stt.cloud"}, sample={"audio": audio}, host=FakeHost()
+    )
+    assert_conforms(report)
+
+
+async def test_ha_tts_conforms() -> None:
+    text = InputFeed([TextDelta("Hello there, my friend. "), TextDelta("Bye.")])
+    report = await check_node(
+        HaTts, config={"engine": "tts.cloud"}, sample={"text": text}, host=FakeHost()
+    )
+    assert_conforms(report)

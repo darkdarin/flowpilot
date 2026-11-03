@@ -9,7 +9,7 @@ import asyncio
 import itertools
 import logging
 import struct
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
@@ -30,11 +30,43 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 _STREAM_ID = struct.Struct(">I")
 
-HostHandler = Callable[["TurnHandle | None", Mapping[str, Any]], Awaitable[Any]]
+HostHandler = Callable[["HostRequest"], Awaitable[Any]]
 
 
 class FlowPilotError(Exception):
     """The runtime is unreachable or rejected a request."""
+
+
+class HostRequest:
+    """One host operation requested by the runtime.
+
+    ``audio()`` yields the PCM the runtime streams in (speech-to-text); ``send_audio()`` streams PCM
+    back (text-to-speech). Both are injectable so handlers can be tested without a connection.
+    """
+
+    def __init__(
+        self,
+        handle: TurnHandle | None,
+        args: Mapping[str, Any],
+        *,
+        audio: AsyncIterator[bytes] | None = None,
+        send_audio: Callable[[Mapping[str, Any], AsyncIterable[bytes]], Awaitable[None]]
+        | None = None,
+    ) -> None:
+        self.handle = handle
+        self.args = args
+        self._audio = audio
+        self._send_audio = send_audio
+
+    def audio(self) -> AsyncIterator[bytes]:
+        if self._audio is None:
+            raise FlowPilotError("this operation carries no audio")
+        return self._audio
+
+    async def send_audio(self, fmt: Mapping[str, Any], chunks: AsyncIterable[bytes]) -> None:
+        if self._send_audio is None:
+            raise FlowPilotError("this operation cannot stream audio back")
+        await self._send_audio(fmt, chunks)
 
 
 class TurnHandle:
@@ -109,6 +141,7 @@ class FlowPilotClient:
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._handles: dict[str, TurnHandle] = {}
         self._host_tasks: set[asyncio.Task[None]] = set()
+        self._host_in: dict[int, asyncio.Queue[bytes | None]] = {}
 
     @property
     def connected(self) -> bool:
@@ -193,6 +226,9 @@ class FlowPilotClient:
         for handle in self._handles.values():
             handle.events.put_nowait({"type": "turn.end", "status": "disconnected"})
         self._handles.clear()
+        for queue in self._host_in.values():
+            queue.put_nowait(None)
+        self._host_in.clear()
         if was_connected:
             _LOGGER.warning("Disconnected from FlowPilot")
             self._set_connected(False)
@@ -268,7 +304,10 @@ class FlowPilotClient:
             if msg.type == aiohttp.WSMsgType.TEXT:
                 self._dispatch(msg.json())
             elif msg.type == aiohttp.WSMsgType.BINARY:
-                continue  # speech streams: not used while Home Assistant TTS speaks
+                (stream,) = _STREAM_ID.unpack_from(msg.data)
+                if (queue := self._host_in.get(stream)) is not None:
+                    queue.put_nowait(msg.data[_STREAM_ID.size :])
+                # other binary streams (turn speech) are not used while HA TTS speaks
             elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR):
                 break
 
@@ -280,7 +319,13 @@ class FlowPilotClient:
             if not fut.done():
                 fut.set_result(msg)
             return
+        if kind == "stream.end" and (queue := self._host_in.pop(msg["stream"], None)):
+            queue.put_nowait(None)
+            return
         if kind == "host.call":
+            audio = (msg.get("args") or {}).get("audio")
+            if audio is not None:  # register before the first audio frame can arrive
+                self._host_in[int(audio["stream"])] = asyncio.Queue()
             task = self.hass.async_create_task(self._serve_host(msg))
             self._host_tasks.add(task)
             task.add_done_callback(self._host_tasks.discard)
@@ -298,11 +343,18 @@ class FlowPilotClient:
     async def _serve_host(self, msg: dict[str, Any]) -> None:
         call, op = msg.get("call"), str(msg.get("op"))
         handler = self.host_ops.get(op)
-        handle = self._handles.get(str(msg.get("turn_id")))
+        args: dict[str, Any] = msg.get("args") or {}
+        audio_stream = args.get("audio", {}).get("stream")
+        request = HostRequest(
+            self._handles.get(str(msg.get("turn_id"))),
+            args,
+            audio=self._audio_in(int(audio_stream)) if audio_stream is not None else None,
+            send_audio=lambda fmt, chunks: self._audio_out(call, fmt, chunks),
+        )
         try:
             if handler is None:
                 raise FlowPilotError(f"operation {op!r} is not supported")
-            result = await handler(handle, msg.get("args") or {})
+            result = await handler(request)
             reply: dict[str, Any] = {
                 "type": "host.result",
                 "call": call,
@@ -312,7 +364,28 @@ class FlowPilotClient:
         except Exception as err:  # noqa: BLE001 - every failure is reported back to the runtime
             _LOGGER.warning("FlowPilot host operation %s failed: %s", op, err)
             reply = {"type": "host.result", "call": call, "ok": False, "error": str(err)}
+        finally:
+            if audio_stream is not None:
+                self._host_in.pop(int(audio_stream), None)
         try:
             await self.send(reply)
         except FlowPilotError:
             _LOGGER.debug("Could not deliver result of %s: disconnected", op)
+
+    async def _audio_in(self, stream: int) -> AsyncIterator[bytes]:
+        queue = self._host_in.get(stream)
+        if queue is None:
+            return
+        while (pcm := await queue.get()) is not None:
+            yield pcm
+
+    async def _audio_out(
+        self, call: Any, fmt: Mapping[str, Any], chunks: AsyncIterable[bytes]
+    ) -> None:
+        stream = next(self._streams)
+        await self.send({"type": "stream.start", "call": call, "stream": stream, "format": fmt})
+        try:
+            async for pcm in chunks:
+                await self.send_bytes(_STREAM_ID.pack(stream) + pcm)
+        finally:
+            await self.send({"type": "stream.end", "stream": stream})

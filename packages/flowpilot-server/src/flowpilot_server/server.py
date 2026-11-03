@@ -8,7 +8,7 @@ import hmac
 import json
 import logging
 import time
-from collections.abc import Mapping
+from collections.abc import AsyncIterable, AsyncIterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -20,6 +20,7 @@ from flowpilot_sdk import (
     AudioFormat,
     DeviceInfo,
     Evidence,
+    HostAudio,
     HostError,
     HostUnavailable,
     Principal,
@@ -193,6 +194,35 @@ class _Outlet:
             self._stream = None
 
 
+class _HostAudio:
+    """Audio streamed back by the client for one host call (``HostAudio``)."""
+
+    def __init__(self, result: asyncio.Future[Any]) -> None:
+        self._result = result
+        self.format: AudioFormat | None = None
+        self.started: asyncio.Future[AudioFormat] = asyncio.get_running_loop().create_future()
+        # Unbounded: the consumer forwards speech straight into the graph.
+        self.queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+        self._finished = False
+
+    def finish(self) -> None:
+        if not self._finished:
+            self._finished = True
+            self.queue.put_nowait(None)
+
+    async def _iter(self) -> AsyncIterator[bytes]:
+        if self.format is None:
+            return
+        while (pcm := await self.queue.get()) is not None:
+            yield pcm
+
+    def __aiter__(self) -> AsyncIterator[bytes]:
+        return self._iter()
+
+    async def result(self) -> Any:
+        return await self._result
+
+
 class Connection:
     """One client connection; also the ``HostCaller`` for the turns it starts."""
 
@@ -205,6 +235,8 @@ class Connection:
         self._turns: dict[str, asyncio.Task[None]] = {}
         self._in_streams: dict[int, tuple[str, asyncio.Queue[bytes | None]]] = {}
         self._calls: dict[int, tuple[str, asyncio.Future[Any]]] = {}
+        self._host_audio: dict[int, _HostAudio] = {}  # by call id
+        self._client_audio: dict[int, _HostAudio] = {}  # by client stream id
         self._next_call = 0
         self._next_stream = 0
         self._authed = False
@@ -214,19 +246,80 @@ class Connection:
     def offers(self, op: str) -> bool:
         return op in self.host_ops
 
-    async def call(self, turn_id: str, op: str, args: Mapping[str, Any]) -> Any:
+    def _register_call(self, op: str) -> tuple[int, asyncio.Future[Any]]:
         if self.ws.closed:
             raise HostUnavailable(op, "client disconnected")
         self._next_call += 1
-        call_id = self._next_call
         fut: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
-        self._calls[call_id] = (op, fut)
+        self._calls[self._next_call] = (op, fut)
+        return self._next_call, fut
+
+    async def call(
+        self,
+        turn_id: str,
+        op: str,
+        args: Mapping[str, Any],
+        *,
+        audio_in: AsyncIterable[bytes] | None = None,
+        audio_format: AudioFormat | None = None,
+    ) -> Any:
+        call_id, fut = self._register_call(op)
+        body = dict(args)
+        stream_id: int | None = None
+        if audio_in is not None:
+            assert audio_format is not None
+            stream_id = self.next_stream_id()
+            body["audio"] = {"stream": stream_id, "format": audio_format.as_meta()}
+        pump: asyncio.Task[None] | None = None
+        try:
+            await self.send(
+                {"type": "host.call", "call": call_id, "turn_id": turn_id, "op": op, "args": body}
+            )
+            if audio_in is None or stream_id is None:
+                return await fut
+            pump = asyncio.create_task(self._pump_audio(stream_id, audio_in))
+            done, _ = await asyncio.wait({fut, pump}, return_when=asyncio.FIRST_COMPLETED)
+            if fut in done:
+                return fut.result()  # the host may answer before all audio was sent
+            pump.result()  # raise if the audio input failed
+            return await fut
+        finally:
+            if pump is not None:
+                pump.cancel()
+                await asyncio.gather(pump, return_exceptions=True)
+            self._calls.pop(call_id, None)
+
+    async def _pump_audio(self, stream_id: int, audio_in: AsyncIterable[bytes]) -> None:
+        try:
+            async for pcm in audio_in:
+                await self.send_bytes(pack_audio(stream_id, pcm))
+        finally:
+            await self.send({"type": "stream.end", "stream": stream_id})
+
+    @contextlib.asynccontextmanager
+    async def stream(
+        self, turn_id: str, op: str, args: Mapping[str, Any]
+    ) -> AsyncIterator[HostAudio]:
+        call_id, fut = self._register_call(op)
+        audio = _HostAudio(fut)
+        self._host_audio[call_id] = audio
         try:
             await self.send(
                 {"type": "host.call", "call": call_id, "turn_id": turn_id, "op": op, "args": args}
             )
-            return await fut
+            # Wait until the host starts streaming audio, or answers without any.
+            await asyncio.wait({audio.started, fut}, return_when=asyncio.FIRST_COMPLETED)
+            if audio.started.done():
+                audio.format = audio.started.result()
+            else:
+                fut.result()  # raises HostError if the operation failed
+                audio.finish()
+            yield audio
         finally:
+            self._host_audio.pop(call_id, None)
+            for stream_id, entry in list(self._client_audio.items()):
+                if entry is audio:
+                    del self._client_audio[stream_id]
             self._calls.pop(call_id, None)
 
     # --- sending --------------------------------------------------------------------------------
@@ -279,10 +372,15 @@ class Connection:
             return
         if kind == "turn.start":
             await self._on_turn_start(msg)
+        elif kind == "stream.start":
+            self._on_host_stream_start(msg)
         elif kind == "stream.end":
-            entry = self._in_streams.pop(int(msg["stream"]), None)
+            stream_id = int(msg["stream"])
+            entry = self._in_streams.pop(stream_id, None)
             if entry is not None:
                 await entry[1].put(None)
+            elif (audio := self._client_audio.pop(stream_id, None)) is not None:
+                audio.finish()
         elif kind == "turn.cancel":
             task = self._turns.get(str(msg["turn_id"]))
             if task is not None:
@@ -295,6 +393,9 @@ class Connection:
                     fut.set_result(msg.get("result"))
                 else:
                     fut.set_exception(HostError(op, str(msg.get("error", "unknown error"))))
+                audio = self._host_audio.get(int(msg["call"]))
+                if audio is not None:
+                    audio.finish()  # no more audio once the result is in
         else:
             raise ProtocolError("unknown_type", f"unknown message type {kind!r}")
 
@@ -321,12 +422,28 @@ class Connection:
             }
         )
 
+    def _on_host_stream_start(self, msg: dict[str, Any]) -> None:
+        """The client starts streaming the audio result of a host call."""
+        audio = self._host_audio.get(int(msg["call"]))
+        if audio is None:
+            raise ProtocolError("unknown_call", f"no pending host call {msg['call']}")
+        stream_id = int(msg["stream"])
+        if stream_id in self._in_streams or stream_id in self._client_audio:
+            raise ProtocolError("stream_in_use", f"stream {stream_id} is already open")
+        self._client_audio[stream_id] = audio
+        if not audio.started.done():
+            audio.started.set_result(AudioFormat.from_meta(msg["format"]))
+
     async def _on_binary(self, data: bytes) -> None:
         stream, pcm = unpack_audio(data)
         entry = self._in_streams.get(stream)
-        if entry is None:
+        if entry is not None:
+            await entry[1].put(pcm)  # blocks when the graph lags: TCP backpressure to the client
+            return
+        audio = self._client_audio.get(stream)
+        if audio is None:
             raise ProtocolError("unknown_stream", f"no open client stream {stream}")
-        await entry[1].put(pcm)  # blocks when the graph lags: TCP backpressure to the client
+        audio.queue.put_nowait(pcm)
 
     async def _on_turn_start(self, msg: dict[str, Any]) -> None:
         ref = msg.get("ref")
@@ -424,6 +541,8 @@ class Connection:
                 )
 
     async def close(self) -> None:
+        for audio in self._host_audio.values():
+            audio.finish()
         for op, fut in self._calls.values():
             if not fut.done():
                 fut.set_exception(HostUnavailable(op, "client disconnected"))

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterable, AsyncIterator, Mapping
+from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime
 from typing import Any, ClassVar
 
@@ -13,6 +14,7 @@ from flowpilot_sdk import (
     IDENTITY_PROVIDER_GRANT,
     AudioChunk,
     AudioFormat,
+    HostAudio,
     HostUnavailable,
     NodeContext,
     NodeSpec,
@@ -176,7 +178,19 @@ class FakeTurn:
     def trace(self, event: str, **attrs: Any) -> None:
         self.events.append(event)
 
-    async def call_host(self, op: str, args: Mapping[str, Any]) -> Any:
+    async def call_host(
+        self,
+        op: str,
+        args: Mapping[str, Any],
+        *,
+        audio_in: AsyncIterable[bytes] | None = None,
+        audio_format: AudioFormat | None = None,
+    ) -> Any:
+        raise HostUnavailable(op, "no client in this test")
+
+    def stream_host(
+        self, op: str, args: Mapping[str, Any]
+    ) -> AbstractAsyncContextManager[HostAudio]:
         raise HostUnavailable(op, "no client in this test")
 
 

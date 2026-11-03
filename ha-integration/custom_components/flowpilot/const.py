@@ -12,6 +12,8 @@ PROTOCOL_VERSION: Final = 1
 WS_PATH: Final = "/api/ws"
 
 HOST_OP_CONVERSATION: Final = "ha.conversation.process"
+HOST_OP_STT: Final = "ha.stt.process"
+HOST_OP_TTS: Final = "ha.tts.synthesize"
 DEFAULT_AGENT_ID: Final = "conversation.home_assistant"
 # Conversation ids that are not ULIDs are kept as-is by Home Assistant, so the inner agent gets a
 # stable dialogue of its own next to the FlowPilot one.

@@ -25,7 +25,7 @@ from flowpilot_sdk import (
     TurnSession,
     Utterance,
 )
-from flowpilot_server.nodes import ClientSink, ClientSource, HaConversation
+from flowpilot_server.nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
 from flowpilot_server.protocol import PROTOCOL_VERSION, WS_PATH, pack_audio, unpack_audio
 from flowpilot_server.server import FlowPilotServer
 
@@ -133,18 +133,28 @@ class Client:
         self._streams = itertools.count(1)
         self._refs = itertools.count(1)
         self._tasks: set[asyncio.Task[None]] = set()
+        self._host_in: dict[int, asyncio.Queue[bytes | None]] = {}
+        self._out_streams = itertools.count(1000)
         self.reader = asyncio.create_task(self._read())
 
     async def _read(self) -> None:
         async for msg in self.ws:
             if msg.type == aiohttp.WSMsgType.BINARY:
                 stream, pcm = unpack_audio(msg.data)
-                self.speech.setdefault(self._stream_turn[stream], bytearray()).extend(pcm)
+                if stream in self._host_in:
+                    self._host_in[stream].put_nowait(pcm)
+                else:
+                    self.speech.setdefault(self._stream_turn[stream], bytearray()).extend(pcm)
                 continue
             data = json.loads(msg.data)
             if data["type"] == "stream.start":
                 self._stream_turn[data["stream"]] = data["turn_id"]
+            if data["type"] == "stream.end" and data["stream"] in self._host_in:
+                self._host_in.pop(data["stream"]).put_nowait(None)
             if data["type"] == "host.call":
+                audio = data["args"].get("audio")
+                if audio is not None:  # register before any audio frame can arrive
+                    self._host_in[audio["stream"]] = asyncio.Queue()
                 task = asyncio.create_task(self._serve(data))
                 self._tasks.add(task)
                 task.add_done_callback(self._tasks.discard)
@@ -156,6 +166,29 @@ class Client:
         self.host_calls.append(call)
         await asyncio.sleep(self.host_delay_s)
         args = call["args"]
+        if call["op"] == "ha.stt.process":
+            queue = self._host_in[args["audio"]["stream"]]
+            received = bytearray()
+            while (pcm := await queue.get()) is not None:
+                received.extend(pcm)
+            tag = bytes(received).rstrip(b"\x00").decode()
+            await self.ws.send_json(
+                {"type": "host.result", "call": call["call"], "ok": True,
+                 "result": {"text": f"heard {tag}"}}
+            )  # fmt: skip
+            return
+        if call["op"] == "ha.tts.synthesize":
+            stream = next(self._out_streams)
+            fmt = {"encoding": "s16le", "sample_rate": 22050, "channels": 1}
+            await self.ws.send_json(
+                {"type": "stream.start", "call": call["call"], "stream": stream, "format": fmt}
+            )
+            await self.ws.send_bytes(pack_audio(stream, args["text"].encode()))
+            await self.ws.send_json({"type": "stream.end", "stream": stream})
+            await self.ws.send_json(
+                {"type": "host.result", "call": call["call"], "ok": True, "result": {}}
+            )
+            return
         await self.ws.send_json(
             {
                 "type": "host.result",
@@ -392,3 +425,60 @@ async def test_shutdown_closes_client_connections() -> None:
         msg = await ws.receive()
         assert msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED)
     await deployment.stop()
+
+
+HA_GRAPH = {
+    "schema_version": 1,
+    "id": "ha",
+    "nodes": [
+        {"id": "in", "type": "client.source"},
+        {"id": "stt", "type": "ha.stt", "config": {"entity_id": "stt.cloud"}},
+        {"id": "utt", "type": "text.first"},
+        {"id": "agent", "type": "ha.conversation"},
+        {"id": "tts", "type": "ha.tts", "config": {"engine": "tts.cloud"}},
+        {"id": "out", "type": "client.sink"},
+    ],
+    "edges": [
+        {"from": "in.audio", "to": "stt.audio"},
+        {"from": "stt.transcript", "to": "out.transcript"},
+        {"from": "stt.utterance", "to": "utt.primary"},
+        {"from": "in.utterance", "to": "utt.fallback"},
+        {"from": "utt.value", "to": "agent.utterance"},
+        {"from": "agent.delta", "to": "tts.text"},
+        {"from": "tts.speech", "to": "out.speech"},
+        {"from": "agent.response", "to": "out.response"},
+    ],
+}
+
+
+async def test_ha_stt_and_tts_stream_audio_through_host_operations() -> None:
+    registry = register_builtin(NodeRegistry())
+    for cls in (ClientSource, ClientSink, HaConversation, HaStt, HaTts):
+        registry.register(cls)
+    deployment = Deployment(validate_graph(parse_graph(HA_GRAPH), registry), registry)
+    await deployment.start()
+    ts = TestServer(FlowPilotServer({"ha": deployment}, token=TOKEN, default_graph="ha").app())
+    await ts.start_server()
+    try:
+        async with aiohttp.ClientSession() as session:
+            c = Client(await session.ws_connect(ts.make_url(WS_PATH)))
+            await c.hello(
+                host_ops=["ha.conversation.process", "ha.stt.process", "ha.tts.synthesize"]
+            )
+            turn_id = await c.voice("alice")
+            end = await c.end(turn_id)
+            assert end["status"] == "ok", end
+            called = [call["op"] for call in c.host_calls]
+            assert called == ["ha.stt.process", "ha.conversation.process", "ha.tts.synthesize"]
+            assert c.host_calls[0]["args"]["entity_id"] == "stt.cloud"
+            assert c.host_calls[2]["args"]["engine"] == "tts.cloud"
+            transcript = c.of(turn_id, "turn.transcript")[0]
+            assert (transcript["text"], transcript["final"]) == ("heard alice", True)
+            assert bytes(c.speech[turn_id]) == b"echo: heard alice"
+            start = c.of(turn_id, "stream.start")[0]
+            assert start["format"]["sample_rate"] == 22050
+            await c.ws.close()
+            await asyncio.gather(c.reader, return_exceptions=True)
+    finally:
+        await ts.close()
+        await deployment.stop()

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from typing import Any, Protocol
+
+from .payloads import AudioFormat
+
 
 class HostUnavailable(Exception):
     """The client of this turn does not provide the requested operation (or there is no client).
@@ -22,3 +27,20 @@ class HostError(Exception):
         super().__init__(f"host operation {op!r} failed: {message}")
         self.op = op
         self.message = message
+
+
+class HostAudio(Protocol):
+    """Audio a host operation streams back (e.g. synthesized speech), then its result."""
+
+    @property
+    def format(self) -> AudioFormat | None:
+        """Format of the audio; ``None`` if the operation returned no audio."""
+        ...
+
+    def __aiter__(self) -> AsyncIterator[bytes]:
+        """Raw PCM chunks as the host produces them."""
+        ...
+
+    async def result(self) -> Any:
+        """The operation's result; raises ``HostError`` if it failed."""
+        ...

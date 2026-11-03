@@ -8,12 +8,14 @@ fails.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from homeassistant.components import stt
+from custom_components.flowpilot.client import HostRequest
+from homeassistant.components import stt, tts
 from homeassistant.components.assist_pipeline import (
     PipelineEvent,
     PipelineEventType,
@@ -133,8 +135,8 @@ async def test_host_operation_refuses_flowpilot_agent(
 ) -> None:
     entry = await setup_flowpilot(hass, ha_agent_runtime)
     handler = entry.runtime_data.host_ops["ha.conversation.process"]
-    with pytest.raises(Exception, match="FlowPilot agent"):
-        await handler(None, {"text": "x", "agent_id": AGENT_ENTITY})
+    with pytest.raises(Exception, match="FlowPilot entity"):
+        await handler(HostRequest(None, {"text": "x", "agent_id": AGENT_ENTITY}))
 
 
 async def test_runtime_unavailable_gives_error_response(hass: HomeAssistant) -> None:
@@ -147,3 +149,43 @@ async def test_runtime_unavailable_gives_error_response(hass: HomeAssistant) -> 
         result = await async_converse(hass, "hi", None, Context(), agent_id=AGENT_ENTITY)
     assert result.response.response_type == intent.IntentResponseType.ERROR
     await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_ha_stt_and_tts_through_the_client(
+    hass: HomeAssistant, speech_runtime: Runtime
+) -> None:
+    """Audio flows runtime -> HA STT entity and HA TTS -> runtime over host operations."""
+    from .test_host_ops import FakeSttEntity, make_wav, pieces
+
+    await setup_flowpilot(hass, speech_runtime)
+    engine = FakeSttEntity()
+    tts_stream = MagicMock()
+    pcm = bytes(range(100)) * 8
+
+    async def tts_result() -> AsyncIterator[bytes]:
+        async for piece in pieces(make_wav(pcm, rate=16000, streaming=True), size=100):
+            yield piece
+
+    tts_stream.async_stream_result = tts_result
+    original = stt.async_get_speech_to_text_entity
+
+    def get_stt(hass_: HomeAssistant, entity_id: str) -> Any:
+        return engine if entity_id == "stt.fake" else original(hass_, entity_id)
+
+    with (
+        patch.object(stt, "async_get_speech_to_text_entity", side_effect=get_stt),
+        patch.object(tts, "async_create_stream", return_value=tts_stream),
+    ):
+        events = await run_voice_turn(hass)
+
+    assert event(events, PipelineEventType.STT_END)["stt_output"]["text"] == "turn on the light"
+    assert engine.received == 100 * 640  # all pipeline audio reached the HA STT entity
+    trace = speech_runtime.trace
+    # The pipeline ends at intent; the runtime finishes synthesizing on its own.
+    for _ in range(100):
+        if trace.named("turn.end"):
+            break
+        await asyncio.sleep(0.02)
+    tts_stream.async_set_message.assert_called_once_with("echo: turn on the light")
+    assert [e.attrs["status"] for e in trace.named("node.end", "tts")] == ["ok"]
+    assert any(e.attrs["port"] == "speech" for e in trace.named("port.first_item", "tts"))

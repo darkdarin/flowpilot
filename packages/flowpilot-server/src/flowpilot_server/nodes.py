@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, ClassVar, Protocol
 
@@ -16,13 +17,17 @@ from flowpilot_sdk import (
     Response,
     StreamError,
     TextDelta,
+    Transcript,
     TurnSession,
     Utterance,
 )
+from flowpilot_sdk.helpers import SpeechWriter, split_sentences
 
 AUDIO = "audio.pcm/1"
 UTTERANCE = "text.utterance/1"
 HA_CONVERSATION_OP = "ha.conversation.process"
+HA_STT_OP = "ha.stt.process"
+HA_TTS_OP = "ha.tts.synthesize"
 
 
 @dataclass
@@ -219,3 +224,138 @@ class HaConversation(_Lifecycle):
                 data={"conversation_id": result.get("conversation_id")},
             )
         )
+
+
+class HaStt(_Lifecycle):
+    """Speech-to-text by any STT entity configured in Home Assistant (via the client).
+
+    Home Assistant STT entities answer once the audio ends, so put ``vad.segmenter`` in front of
+    this node unless the source ends the audio itself.
+    """
+
+    spec: ClassVar[NodeSpec] = NodeSpec(
+        type="ha.stt",
+        version="1.0.0",
+        title="Home Assistant speech-to-text",
+        category="speech",
+        inputs={"audio": PortSpec(AUDIO)},
+        outputs={
+            "transcript": PortSpec("text.transcript/1"),
+            "utterance": PortSpec(UTTERANCE, kind="value"),
+        },
+        config_schema={
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string", "pattern": "^stt\\."},
+                "language": {"type": "string"},
+            },
+            "required": ["entity_id"],
+            "additionalProperties": False,
+        },
+        host_ops=frozenset({HA_STT_OP}),
+        turn_timeout_s=60.0,
+    )
+
+    def __init__(self) -> None:
+        self._entity_id = ""
+        self._language: str | None = None
+
+    async def start(self, ctx: NodeContext) -> None:
+        self._entity_id = str(ctx.config["entity_id"])
+        self._language = ctx.config.get("language")
+
+    async def run_turn(self, turn: TurnSession) -> None:
+        audio = turn.input("audio")
+        header = await audio.header()
+        if header is None:
+            return
+        language = self._language or turn.context.language
+
+        async def pcm() -> AsyncIterator[bytes]:
+            async for chunk in audio:
+                yield chunk.pcm
+
+        result = await turn.call_host(
+            HA_STT_OP,
+            {"entity_id": self._entity_id, "language": language},
+            audio_in=pcm(),
+            audio_format=AudioFormat.from_meta(header.meta),
+        )
+        text = str(result.get("text") or "")
+        await turn.output("transcript").send(Transcript(text, final=True, language=language))
+        if text.strip():
+            await turn.output("utterance").send(Utterance(text, language))
+
+
+class HaTts(_Lifecycle):
+    """Text-to-speech by any TTS entity in Home Assistant, sentence by sentence (via the client)."""
+
+    spec: ClassVar[NodeSpec] = NodeSpec(
+        type="ha.tts",
+        version="1.0.0",
+        title="Home Assistant text-to-speech",
+        category="speech",
+        inputs={"text": PortSpec("text.delta/1")},
+        outputs={"speech": PortSpec(AUDIO)},
+        config_schema={
+            "type": "object",
+            "properties": {
+                "engine": {"type": "string", "pattern": "^tts\\."},
+                "language": {"type": "string"},
+                "voice": {"type": "string"},
+                "sample_rate": {"type": "integer", "minimum": 8000},
+            },
+            "required": ["engine"],
+            "additionalProperties": False,
+        },
+        host_ops=frozenset({HA_TTS_OP}),
+        turn_timeout_s=60.0,
+    )
+
+    def __init__(self) -> None:
+        self._args: dict[str, Any] = {}
+
+    async def start(self, ctx: NodeContext) -> None:
+        cfg = ctx.config
+        self._args = {
+            "engine": str(cfg["engine"]),
+            "language": cfg.get("language"),
+            "voice": cfg.get("voice"),
+            "sample_rate": int(cfg.get("sample_rate", 16000)),
+        }
+
+    async def run_turn(self, turn: TurnSession) -> None:
+        text = turn.input("text")
+        if await text.header() is None:
+            return
+        writer = SpeechWriter(turn.output("speech"))
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        worker = asyncio.create_task(self._speak(turn, queue, writer))
+        try:
+            buffer = ""
+            async for delta in text:
+                buffer += delta.text
+                sentences, buffer = split_sentences(buffer)
+                for sentence in sentences:
+                    queue.put_nowait(sentence)
+            if buffer.strip():
+                queue.put_nowait(buffer.strip())
+            queue.put_nowait(None)
+            await worker
+        finally:
+            worker.cancel()
+            await asyncio.gather(worker, return_exceptions=True)
+
+    async def _speak(
+        self, turn: TurnSession, queue: asyncio.Queue[str | None], writer: SpeechWriter
+    ) -> None:
+        while (sentence := await queue.get()) is not None:
+            args = {**self._args, "text": sentence}
+            if args["language"] is None:
+                args["language"] = turn.context.language
+            async with turn.stream_host(HA_TTS_OP, args) as audio:
+                if audio.format is not None:
+                    await writer.start(audio.format)
+                    async for pcm in audio:
+                        await writer.chunk(pcm)
+                await audio.result()

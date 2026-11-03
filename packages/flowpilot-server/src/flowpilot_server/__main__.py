@@ -36,7 +36,7 @@ from flowpilot_core.runtime import Deployment
 from flowpilot_sdk import Node
 
 from .devnodes import DEV_NODES
-from .nodes import ClientSink, ClientSource, HaConversation
+from .nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
 from .server import FlowPilotServer
 
 _LOGGER = logging.getLogger("flowpilot_server")
@@ -46,7 +46,7 @@ ENTRY_POINT_GROUP = "flowpilot.nodes"
 
 def build_registry(*, dev: bool = False) -> NodeRegistry:
     registry = register_builtin(NodeRegistry())
-    classes: list[type[Node]] = [ClientSource, ClientSink, HaConversation]
+    classes: list[type[Node]] = [ClientSource, ClientSink, HaConversation, HaStt, HaTts]
     if dev:
         classes += DEV_NODES
     for ep in entry_points(group=ENTRY_POINT_GROUP):
