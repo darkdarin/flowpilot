@@ -50,9 +50,13 @@ class NodeSpec:
     isolation: Isolation = "any"
     grants: frozenset[str] = frozenset()
     turn_timeout_s: float | None = None
+    host_ops: frozenset[str] = frozenset()  # host operations the node may call (ADR-014)
     description: str = ""
 
     def __post_init__(self) -> None:
+        for op in self.host_ops:
+            if not NODE_TYPE_RE.match(op):
+                raise ValueError(f"invalid host operation name {op!r} in {self.type}")
         if not NODE_TYPE_RE.match(self.type):
             raise ValueError(f"invalid node type {self.type!r}, expected 'namespace.name'")
         if not SEMVER_RE.match(self.version):
@@ -96,6 +100,13 @@ class TurnSession(Protocol):
 
     def trace(self, event: str, **attrs: Any) -> None:
         """Record a trace event. Never pass raw audio; text only where redaction allows."""
+        ...
+
+    async def call_host(self, op: str, args: Mapping[str, Any]) -> Any:
+        """Ask the turn's client to perform ``op`` (declared in ``spec.host_ops``).
+
+        Raises ``HostUnavailable`` if the client does not offer it, ``HostError`` if it failed.
+        """
         ...
 
 

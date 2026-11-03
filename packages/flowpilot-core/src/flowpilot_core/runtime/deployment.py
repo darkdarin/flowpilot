@@ -8,9 +8,9 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
 
-from flowpilot_sdk import Node, SessionInfo, SessionState, TurnContext
+from flowpilot_sdk import HostUnavailable, Node, SessionInfo, SessionState, TurnContext
 
 from ..registry import NodeRegistry
 from ..validate import ValidatedGraph
@@ -71,6 +71,14 @@ class RuntimeNodeContext:
         return self._secrets[name]
 
 
+class HostCaller(Protocol):
+    """The client side of a turn that can perform host operations (ADR-014)."""
+
+    def offers(self, op: str) -> bool: ...
+
+    async def call(self, turn_id: str, op: str, args: Mapping[str, Any]) -> Any: ...
+
+
 class RuntimeTurnSession:
     """``TurnSession`` for one node in one turn."""
 
@@ -83,6 +91,9 @@ class RuntimeTurnSession:
         inputs: dict[str, RuntimeInputStream],
         outputs: dict[str, RuntimeOutputStream],
         trace: TraceSink,
+        *,
+        host: HostCaller | None = None,
+        host_ops: frozenset[str] = frozenset(),
     ) -> None:
         self.context = context
         self.session = session
@@ -91,6 +102,20 @@ class RuntimeTurnSession:
         self._inputs = inputs
         self._outputs = outputs
         self._trace = trace
+        self._host = host
+        self._host_ops = host_ops
+
+    async def call_host(self, op: str, args: Mapping[str, Any]) -> Any:
+        if op not in self._host_ops:
+            raise RuntimeError(f"node {self._node_id!r} did not declare host operation {op!r}")
+        if self._host is None:
+            raise HostUnavailable(op, "this turn has no client")
+        if not self._host.offers(op):
+            raise HostUnavailable(op)
+        self._trace.emit(
+            TraceEvent(self.context.turn_id, "host.call", self._node_id, attrs={"op": op})
+        )
+        return await self._host.call(self.context.turn_id, op, args)
 
     def input(self, name: str) -> RuntimeInputStream:
         try:
@@ -171,8 +196,13 @@ class Deployment:
             except Exception:
                 _LOGGER.exception("node %s failed to stop", node_id)
 
-    async def run_turn(self, context: TurnContext, session: SessionInfo) -> TurnResult:
-        """Run every node for one turn under the turn deadline."""
+    async def run_turn(
+        self, context: TurnContext, session: SessionInfo, *, host: HostCaller | None = None
+    ) -> TurnResult:
+        """Run every node for one turn under the turn deadline.
+
+        ``host`` is the client of the turn that serves host operations, if any.
+        """
         g = self.graph
         turn_id = context.turn_id
         channels: dict[tuple[str, str], Channel] = {}
@@ -213,6 +243,8 @@ class Deployment:
                 inputs,
                 outputs,
                 self.trace,
+                host=host,
+                host_ops=spec.host_ops,
             )
 
         outcomes: dict[str, NodeOutcome] = {}

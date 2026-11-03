@@ -31,6 +31,7 @@ uv run pytest
   ```python
   from flowpilot_core.conformance import InputFeed, assert_conforms, check_node
 
+
   async def test_my_node_conforms() -> None:
       report = await check_node(
           MyNode,

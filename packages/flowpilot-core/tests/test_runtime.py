@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -15,11 +15,20 @@ from flowpilot_core import GrantPolicy, parse_graph, validate_graph
 from flowpilot_core.runtime import (
     Deployment,
     ListTraceSink,
+    MemorySessionStore,
     NodeStatus,
     RuntimeNodeContext,
+    RuntimeTurnSession,
     TurnStatus,
 )
-from flowpilot_sdk import Principal, SessionInfo, SourceInfo, TurnContext, new_ulid
+from flowpilot_sdk import (
+    HostUnavailable,
+    Principal,
+    SessionInfo,
+    SourceInfo,
+    TurnContext,
+    new_ulid,
+)
 
 from .runtime_nodes import Feed, Sink, Source, behaviour_registry, tagged_audio
 
@@ -196,3 +205,44 @@ def test_node_context_secrets() -> None:
     assert ctx.secret("key") == "v"
     with pytest.raises(KeyError):
         ctx.secret("other")
+
+
+class FakeHost:
+    def __init__(self, ops: set[str]) -> None:
+        self.ops = ops
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    def offers(self, op: str) -> bool:
+        return op in self.ops
+
+    async def call(self, turn_id: str, op: str, args: Mapping[str, Any]) -> Any:
+        self.calls.append((turn_id, op, dict(args)))
+        return {"echo": args["x"]}
+
+
+def _host_session(host: FakeHost | None) -> RuntimeTurnSession:
+    session = new_session()
+    return RuntimeTurnSession(
+        "agent",
+        make_turn(session),
+        session,
+        MemorySessionStore().view(session.session_id, "t"),
+        {},
+        {},
+        ListTraceSink(),
+        host=host,
+        host_ops=frozenset({"ha.conversation.process"}),
+    )
+
+
+async def test_call_host() -> None:
+    host = FakeHost({"ha.conversation.process"})
+    turn = _host_session(host)
+    assert await turn.call_host("ha.conversation.process", {"x": 1}) == {"echo": 1}
+    assert host.calls[0][0] == turn.context.turn_id
+    with pytest.raises(RuntimeError, match="did not declare"):
+        await turn.call_host("ha.states.get", {})
+    with pytest.raises(HostUnavailable, match="no client"):
+        await _host_session(None).call_host("ha.conversation.process", {})
+    with pytest.raises(HostUnavailable, match="not offered"):
+        await _host_session(FakeHost(set())).call_host("ha.conversation.process", {})

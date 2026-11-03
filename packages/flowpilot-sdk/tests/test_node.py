@@ -13,6 +13,7 @@ from flowpilot_sdk import (
     IDENTITY_PROVIDER_GRANT,
     AudioChunk,
     AudioFormat,
+    HostUnavailable,
     NodeContext,
     NodeSpec,
     PortSpec,
@@ -174,6 +175,9 @@ class FakeTurn:
 
     def trace(self, event: str, **attrs: Any) -> None:
         self.events.append(event)
+
+    async def call_host(self, op: str, args: Mapping[str, Any]) -> Any:
+        raise HostUnavailable(op, "no client in this test")
 
 
 class WindowSpeakerId:

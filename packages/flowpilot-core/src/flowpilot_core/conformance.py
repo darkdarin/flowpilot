@@ -40,7 +40,7 @@ from flowpilot_sdk import (
 )
 
 from .runtime.channel import Channel, End, Fail, Item, Message, Open
-from .runtime.deployment import RuntimeNodeContext, RuntimeTurnSession
+from .runtime.deployment import HostCaller, RuntimeNodeContext, RuntimeTurnSession
 from .runtime.state import MemorySessionStore
 from .runtime.streams import RuntimeInputStream, RuntimeOutputStream
 from .runtime.trace import ListTraceSink
@@ -167,6 +167,7 @@ async def run_node_once(
     budget_s: float = DEFAULT_BUDGET_S,
     prepare: Prepare | None = None,
     cancel_after_s: float | None = None,
+    host: HostCaller | None = None,
 ) -> NodeRun:
     """Run one turn of a started node against fed inputs, capturing outputs.
 
@@ -207,6 +208,8 @@ async def run_node_once(
         in_streams,
         out_streams,
         trace,
+        host=host,
+        host_ops=spec.host_ops,
     )
 
     started = time.monotonic()
@@ -257,6 +260,7 @@ async def check_node(
     sample: Mapping[str, InputFeed] | None = None,
     prepare: Prepare | None = None,
     grace_s: float = DEFAULT_GRACE_S,
+    host: HostCaller | None = None,
 ) -> ConformanceReport:
     """Run all conformance checks for ``node_cls``."""
     spec = node_cls.spec
@@ -297,15 +301,15 @@ async def check_node(
 
     try:
         absent_inputs = {name: InputFeed(end="absent") for name in spec.inputs}
-        run = await run_node_once(node, absent_inputs, budget_s=budget, prepare=prepare)
+        run = await run_node_once(node, absent_inputs, budget_s=budget, prepare=prepare, host=host)
         _check_run(report, "C3", "absent inputs", run, raising_is_violation=True)
 
         failed = {name: InputFeed(end="fail") for name in spec.inputs}
-        run = await run_node_once(node, failed, budget_s=budget, prepare=prepare)
+        run = await run_node_once(node, failed, budget_s=budget, prepare=prepare, host=host)
         _check_run(report, "C4", "failed inputs", run, raising_is_violation=False)
 
         if sample is not None:
-            run = await run_node_once(node, sample, budget_s=budget, prepare=prepare)
+            run = await run_node_once(node, sample, budget_s=budget, prepare=prepare, host=host)
             _check_run(report, "C5", "sample inputs", run, raising_is_violation=True)
             if run.error is None:
                 for name, out in run.outputs.items():
@@ -320,7 +324,7 @@ async def check_node(
             for name, f in hanging.items()
         }
         run = await run_node_once(
-            node, hanging, budget_s=grace_s, prepare=prepare, cancel_after_s=0.05
+            node, hanging, budget_s=grace_s, prepare=prepare, cancel_after_s=0.05, host=host
         )
         if isinstance(run.error, TimeoutError):
             violation("C6", f"did not stop within {grace_s}s after cancellation")

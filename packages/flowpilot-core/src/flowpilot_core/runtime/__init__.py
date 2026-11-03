@@ -3,6 +3,7 @@
 from .channel import Channel
 from .deployment import (
     Deployment,
+    HostCaller,
     NodeOutcome,
     NodeStatus,
     RuntimeNodeContext,
@@ -17,6 +18,7 @@ from .trace import ListTraceSink, NullTraceSink, TraceEvent, TraceSink
 __all__ = [
     "Channel",
     "Deployment",
+    "HostCaller",
     "ListTraceSink",
     "MemorySessionStore",
     "NodeOutcome",
