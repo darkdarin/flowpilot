@@ -12,18 +12,20 @@ dependencies = [
     "flowpilot-sdk",
     "flowpilot-core",
     "flowpilot-server",
+    "flowpilot-wyoming",
 ]
 
 [tool.uv]
 package = false
 
 [tool.uv.workspace]
-members = ["packages/*"]
+members = ["packages/*", "plugins/*"]
 
 [tool.uv.sources]
 flowpilot-sdk = { workspace = true }
 flowpilot-core = { workspace = true }
 flowpilot-server = { workspace = true }
+flowpilot-wyoming = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -37,7 +39,7 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-testpaths = ["packages"]
+testpaths = ["packages", "plugins"]
 addopts = "--import-mode=importlib"
 
 [tool.ruff]
@@ -48,7 +50,7 @@ target-version = "py314"
 select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "BLE"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["flowpilot_sdk", "flowpilot_core", "flowpilot_server"]
+known-first-party = ["flowpilot_sdk", "flowpilot_core", "flowpilot_server", "flowpilot_wyoming"]
 
 [tool.mypy]
 python_version = "3.14"
@@ -60,4 +62,6 @@ files = [
     "packages/flowpilot-core/tests",
     "packages/flowpilot-server/src",
     "packages/flowpilot-server/tests",
+    "plugins/flowpilot-wyoming/src",
+    "plugins/flowpilot-wyoming/wyoming_tests",
 ]

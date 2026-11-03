@@ -12,6 +12,7 @@ members = [
     "flowpilot-sdk",
     "flowpilot-server",
     "flowpilot-workspace",
+    "flowpilot-wyoming",
 ]
 
 [[package]]
@@ -262,6 +263,7 @@ dependencies = [
     { name = "flowpilot-core" },
     { name = "flowpilot-sdk" },
     { name = "flowpilot-server" },
+    { name = "flowpilot-wyoming" },
 ]
 
 [package.dev-dependencies]
@@ -278,6 +280,7 @@ requires-dist = [
     { name = "flowpilot-core", editable = "packages/flowpilot-core" },
     { name = "flowpilot-sdk", editable = "packages/flowpilot-sdk" },
     { name = "flowpilot-server", editable = "packages/flowpilot-server" },
+    { name = "flowpilot-wyoming", editable = "plugins/flowpilot-wyoming" },
 ]
 
 [package.metadata.requires-dev]
@@ -287,6 +290,21 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.4.1.post1" },
     { name = "ruff", specifier = ">=0.17.3" },
     { name = "types-jsonschema", specifier = ">=4.23" },
+]
+
+[[package]]
+name = "flowpilot-wyoming"
+version = "0.0.1"
+source = { editable = "plugins/flowpilot-wyoming" }
+dependencies = [
+    { name = "flowpilot-sdk" },
+    { name = "wyoming" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flowpilot-sdk", editable = "packages/flowpilot-sdk" },
+    { name = "wyoming", specifier = "==1.10.2" },
 ]
 
 [[package]]
@@ -855,6 +873,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f6/cc/6253133b5bb138fc3306cebfbda2c520f545d36b5be2c7255cc528bb45d6/typing_extensions-4.16.0.tar.gz", hash = "sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5", size = 113555, upload-time = "2026-07-02T08:40:05.92Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl", hash = "sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8", size = 45571, upload-time = "2026-07-02T08:40:04.659Z" },
+]
+
+[[package]]
+name = "wyoming"
+version = "1.10.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/de/37/bfc5d51c916c4bdab16cb7eb62556d3eaaa8b5f8eba33dbe992780dc4a46/wyoming-1.10.2.tar.gz", hash = "sha256:2a84035d9e51f4be68b27c9791273c5bce29f79f0c37137ea49cc417294f9080", size = 45540, upload-time = "2026-08-27T16:30:49.154Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/08/98/512f8d7d95eeedbf157994c39572822e3f8ae724ccbb5ae027caa09cf707/wyoming-1.10.2-py3-none-any.whl", hash = "sha256:08aec17ccad4d72fc3f919ab741beacf3f23a1df24c8b9a317ebc6e02d2b227c", size = 44869, upload-time = "2026-08-27T16:30:47.72Z" },
 ]
 
 [[package]]
