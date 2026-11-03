@@ -1,58 +1,67 @@
 # AGENTS.md
 
-**FlowPilot** — визуальный оркестратор голосовых и AI-потоков для пользователей Home Assistant с ядром,
-не зависящим от HA. Граф типизированных нод (STT, Speaker ID, policy, агенты, TTS) вместо фиксированного
-Assist pipeline; провайдеры и устройства — плагины.
+**FlowPilot** is a visual orchestrator for voice and AI flows, built for Home Assistant users, with a
+core that does not depend on Home Assistant. A graph of typed nodes (STT, speaker ID, policy, agents,
+TTS) replaces the fixed Assist pipeline; providers and devices are plugins.
 
-## Документация (читать перед работой)
+## Language
 
-Документация разработки ведётся в **Notion**, страница
-[FlowPilot](https://app.notion.com/p/40de74ee720f8085816fccb77ca103f7), читать и править через Notion MCP.
-В репозитории — только пользовательская документация на английском (`README.md`, `CONTRIBUTING.md`).
+- Everything inside this repository is in **English**: code, identifiers, comments, docstrings,
+  README/CONTRIBUTING, this file, commit messages.
+- Research, planning, architecture decisions (ADRs) and the roadmap live in **Notion, in Russian**.
 
-- [01 · Концепция, цели и требования](https://app.notion.com/p/40de74ee720f81a3902bdd50f9dde41c)
-- [02 · Архитектура и runtime](https://app.notion.com/p/40de74ee720f8181975ce70e9ee8b6b3)
-- [03 · Каталог нод и контракты](https://app.notion.com/p/40de74ee720f81a5b404d5b0cf65d433)
-- [04 · Интеграции: HA, Яндекс Станция, Soniox, Wyoming](https://app.notion.com/p/40de74ee720f8139b4afff9b2b9d55f8)
-- [05 · Идентификация говорящего, безопасность и детский режим](https://app.notion.com/p/40de74ee720f81869845d32daf4a8625)
-- [07 · Roadmap, backlog и архитектурные решения (ADR)](https://app.notion.com/p/40de74ee720f81fdad0ac07cab8fe6c8)
-- [08 · Разработка: окружение и команды](https://app.notion.com/p/40de74ee720f8129b245de50c6bfa7e1)
+## Documentation (read before working)
 
-Страница «06 · Прототип v0.1» описывает архив-заготовку, которого в репозитории нет; это справочный материал.
+Development documentation is kept in **Notion**, page
+[FlowPilot](https://app.notion.com/p/40de74ee720f8085816fccb77ca103f7); read and edit it via the Notion MCP.
 
-## Компоненты
+- [01 · Concept, goals and requirements](https://app.notion.com/p/40de74ee720f81a3902bdd50f9dde41c)
+- [02 · Architecture and runtime](https://app.notion.com/p/40de74ee720f8181975ce70e9ee8b6b3)
+- [03 · Node catalog and contracts](https://app.notion.com/p/40de74ee720f81a5b404d5b0cf65d433) —
+  contracts v1 (ADR-013); the code in `packages/flowpilot-sdk` is the source of truth for signatures
+- [04 · Integrations: HA, Yandex Station, Soniox, Wyoming](https://app.notion.com/p/40de74ee720f8139b4afff9b2b9d55f8)
+- [05 · Speaker identification, security and child mode](https://app.notion.com/p/40de74ee720f81869845d32daf4a8625)
+- [07 · Roadmap, backlog and architecture decisions (ADR)](https://app.notion.com/p/40de74ee720f81fdad0ac07cab8fe6c8)
+- [08 · Development: environment and commands](https://app.notion.com/p/40de74ee720f8129b245de50c6bfa7e1)
 
-| Путь | Что |
+Page "06 · Prototype v0.1" describes a starter archive that is not in this repository; reference only.
+
+## Components
+
+| Path | What |
 |---|---|
-| `packages/flowpilot-sdk/` | Plugin SDK: контракты сообщений (`Envelope`, `AudioFrame`) и интерфейс ноды |
-| `packages/flowpilot-core/` | Runtime: валидация и исполнение графа |
-| `plugins/` | Ноды-плагины |
-| `ha-integration/` | Companion-интеграция HA (режим A, ADR-011/012) |
-| `editor/` | Визуальный редактор (Vue 3 + Vue Flow) |
+| `packages/flowpilot-sdk/` | Plugin SDK: payload types, `Envelope`, stream and node interfaces |
+| `packages/flowpilot-core/` | Runtime: graph validation and execution |
+| `plugins/` | Node plugins |
+| `ha-integration/` | Home Assistant companion integration (Assist mode, ADR-011/012) |
+| `editor/` | Visual graph editor (Vue 3 + Vue Flow) |
 
-## Рабочее окружение
+## Environment
 
-- Python 3.14, `uv` workspace. Проверки: `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy`,
-  `uv run pytest`.
-- Разработка в первую очередь на **локальном HA** `~/Projects/ha-dev` (HA core из исходников, версии как на
-  живом HA; подробности — Notion «08 · Разработка»). Живой HA владельца (RPi 5) — только для финальных
-  проверок; перезапуск HA и изменения на устройствах касаются живого дома: делать осознанно и сообщать.
-- Эталонный сценарий использует соседние репозитории владельца: `~/Projects/ha-yandex-station`
-  (интеграция Яндекс Станции) и `~/Projects/ha-wyoming-soniox` (Wyoming-сервер Soniox).
+- Python 3.14, `uv` workspace. Checks: `uv run ruff check .`, `uv run ruff format --check .`,
+  `uv run mypy`, `uv run pytest` (the same steps run in CI).
+- Develop against the **local Home Assistant** in `~/Projects/ha-dev` first (HA core from source, same
+  versions as the owner's production HA; see Notion "08 · Development"). The owner's live HA (RPi 5) is
+  only for final checks: restarting it or changing devices affects a real home, so do it deliberately and
+  say so.
+- The reference scenario uses the owner's sibling repositories: `~/Projects/ha-yandex-station`
+  (Yandex Station integration) and `~/Projects/ha-wyoming-soniox` (Soniox Wyoming server).
 
-## Репозиторий
+## Repository
 
-- GitHub: `darkdarin/flowpilot`, основная ветка `main`. Аккаунт `gh` для этого репозитория — личный
-  (`darkdarin`), не рабочий.
-- Коммиты — Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`), автор — личный адрес владельца.
-- Лицензия Apache-2.0 (ADR-010), CLA нет.
+- GitHub: `darkdarin/flowpilot`, default branch `main`, push over SSH.
+- The global `gh` account is a work account; do not run `gh auth switch`. Use the personal account per
+  command: `GH_TOKEN="$(gh auth token --user darkdarin)" gh ...` and never print the token.
+- Commits follow Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `ci:`); the git author is
+  configured locally in this repository.
+- License: Apache-2.0 (ADR-010), no CLA.
 
-## Правила
+## Rules
 
-- Документация разработки — в Notion, на русском; код, идентификаторы, комментарии и документация
-  в репозитории — на английском.
-- Архитектурные решения фиксировать как ADR в Notion (раздел 07) с компромиссами.
-- Ядро и SDK не импортируют код Home Assistant (ADR-008); всё HA-специфичное — в `ha-integration/` и адаптерах.
-- Не опираться на приватные части HA без регрессионного теста; monkeypatch Assist запрещён (ADR-011).
-- Не отмечать интеграцию как готовую без реального end-to-end теста.
-- Не коммитить секреты, токены и записи звука из дома.
+- Record architecture decisions as ADRs in Notion (page 07), including trade-offs.
+- The core and the SDK never import Home Assistant code (ADR-008); everything HA-specific lives in
+  `ha-integration/` and adapters.
+- Do not rely on private Home Assistant internals without a regression test; monkeypatching Assist is
+  forbidden (ADR-011).
+- Do not mark an integration as done without a real end-to-end test.
+- Never commit secrets, tokens or voice recordings; never read `.env`/`.envrc` files with secrets.
