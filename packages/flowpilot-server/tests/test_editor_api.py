@@ -253,7 +253,7 @@ async def test_trace_stream_for_live_debug(env: Any) -> None:
         assert await ws.receive_json() == {"type": "subscribed", "graph": "main"}
 
         assert await ask(session, url) == "v1"
-        events = []
+        events: list[dict[str, Any]] = []
         while not events or events[-1]["event"] != "turn.end":
             events.append(await asyncio.wait_for(ws.receive_json(), 5))
         kinds = {(e["event"], e["node"]) for e in events}
