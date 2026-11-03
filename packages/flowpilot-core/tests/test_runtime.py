@@ -98,10 +98,33 @@ async def test_voice_turn(harness_factory: Any) -> None:
         "who",
         "utt",
         "agent",
+        "tts",
         "out",
     }
     assert h.trace.named("port.first_item", "stt")
     assert h.trace.named("speaker.window", "spk")[0].attrs == {"chunks": 1}
+    assert out["speech"] == b"alice: heard alice"
+
+
+async def test_pipeline_streams_without_waiting_for_nodes(harness_factory: Any) -> None:
+    """TTS audio starts while the agent is still generating; audio while STT still listens."""
+    h: Harness = await harness_factory()
+    result, out = await h.turn(Feed(audio=tagged_audio("alice"), chunk_delay_s=0.005))
+    assert result.status is TurnStatus.OK
+
+    def first_item(node: str, port: str) -> int:
+        events = [e for e in h.trace.named("port.first_item", node) if e.attrs["port"] == port]
+        return events[0].t_mono_ns
+
+    def node_end(node: str) -> int:
+        return h.trace.named("node.end", node)[0].t_mono_ns
+
+    # Speech reaches the sink before the agent has finished its answer.
+    assert first_item("tts", "speech") < first_item("agent", "response")
+    assert first_item("tts", "speech") < node_end("agent")
+    # Partial transcripts flow while the source is still sending audio.
+    assert first_item("stt", "transcript") < node_end("in")
+    assert out["speech"] == b"alice: heard alice"
 
 
 async def test_text_turn_has_no_voice_identity(harness_factory: Any) -> None:

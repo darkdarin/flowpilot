@@ -13,6 +13,8 @@
     { "id": "utt", "type": "text.first", "version": "^1", "config": {} },
     { "id": "agent", "type": "ha.conversation", "version": "^1",
       "config": { "agent_id": "conversation.home_assistant" } },
+    { "id": "tts", "type": "wyoming.tts", "version": "^1",
+      "config": { "uri": "tcp://local-piper:10200", "voice": "ru_RU-irina-medium" } },
     { "id": "out", "type": "ha.assist.sink", "version": "^1", "config": {} }
   ],
   "edges": [
@@ -24,6 +26,8 @@
     { "from": "in.utterance", "to": "utt.fallback" },
     { "from": "who.principal", "to": "agent.principal" },
     { "from": "utt.value", "to": "agent.utterance" },
+    { "from": "agent.delta", "to": "tts.text" },
+    { "from": "tts.speech", "to": "out.speech" },
     { "from": "agent.response", "to": "out.response" }
   ],
   "ui": { "nodes": { "in": { "x": 40, "y": 120 } } }

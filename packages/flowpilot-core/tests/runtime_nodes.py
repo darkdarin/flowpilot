@@ -24,6 +24,7 @@ from flowpilot_sdk import (
     SpeakerMatch,
     SpeakerStatus,
     StreamError,
+    TextDelta,
     Transcript,
     TurnSession,
     Utterance,
@@ -170,31 +171,69 @@ class Agent(Base):
         who = principal.user_id if principal and principal.user_id else "unknown"
         count = (await turn.state.get("turns") or 0) + 1
         await turn.state.set("turns", count)
-        await turn.output("response").send(
-            Response(text=f"{who}: {utterance.text}", data={"turns": count})
-        )
+        text = f"{who}: {utterance.text}"
+        # Stream the answer word by word, like an LLM, then publish the final response.
+        delta = turn.output("delta")
+        for i, word in enumerate(text.split(" ")):
+            await delta.send(TextDelta(word if i == 0 else f" {word}"))
+            await asyncio.sleep(self.config.get("token_delay_s", 0.02))
+        await delta.end()
+        await turn.output("response").send(Response(text=text, data={"turns": count}))
+
+
+class Tts(Base):
+    """Synthesizes each delta as soon as it arrives (one fake chunk per delta)."""
+
+    spec = SPECS["wyoming.tts"]
+
+    async def run_turn(self, turn: TurnSession) -> None:
+        text = turn.input("text")
+        if await text.header() is None:
+            return
+        speech = turn.output("speech")
+        await speech.open(FMT.as_meta())
+        offset = 0
+        async for delta in text:
+            pcm = delta.text.encode()
+            await speech.send(AudioChunk(pcm, offset))
+            offset += len(pcm) // FMT.bytes_per_sample
 
 
 class Sink(Base):
+    """Reads all inputs concurrently, as a real sink must (it forwards audio while text streams)."""
+
     spec = SPECS["ha.assist.sink"]
 
     def __init__(self) -> None:
         self.results: dict[str, dict[str, Any]] = {}
 
     async def run_turn(self, turn: TurnSession) -> None:
-        # A sink must survive a failed transcript: the response matters more.
-        finals: list[str] = []
-        try:
-            finals = [t.text async for t in turn.input("transcript") if t.final]
-        except StreamError:
-            finals = []
-        response = await turn.input("response").value()
-        self.results[turn.context.turn_id] = {"finals": finals, "response": response}
+        async def finals() -> list[str]:
+            # A sink must survive a failed transcript: the response matters more.
+            try:
+                return [t.text async for t in turn.input("transcript") if t.final]
+            except StreamError:
+                return []
+
+        async def speech() -> bytes:
+            try:
+                return b"".join([c.pcm async for c in turn.input("speech")])
+            except StreamError:
+                return b""
+
+        got_finals, got_speech, response = await asyncio.gather(
+            finals(), speech(), turn.input("response").value()
+        )
+        self.results[turn.context.turn_id] = {
+            "finals": got_finals,
+            "speech": got_speech,
+            "response": response,
+        }
 
 
 def behaviour_registry() -> NodeRegistry:
     reg = NodeRegistry()
-    classes: list[type[Node]] = [Source, Stt, Speaker, Resolve, First, Agent, Sink]
+    classes: list[type[Node]] = [Source, Stt, Speaker, Resolve, First, Agent, Tts, Sink]
     for cls in classes:
         reg.register(cls)
     return reg

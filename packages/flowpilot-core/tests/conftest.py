@@ -122,11 +122,30 @@ def example_specs() -> list[NodeSpec]:
                 "principal": PortSpec("identity.principal/1", kind="value"),
                 "utterance": PortSpec(UTTERANCE, kind="value"),
             },
-            outputs={"response": PortSpec("agent.response/1", kind="value")},
+            outputs={
+                # Standard agent outputs: streamed text for TTS/UI, optional separate spoken
+                # stream, and the final response.
+                "delta": PortSpec("text.delta/1"),
+                "speech_delta": PortSpec("text.delta/1"),
+                "response": PortSpec("agent.response/1", kind="value"),
+            },
             config_schema={
                 "type": "object",
                 "properties": {"agent_id": {"type": "string"}},
                 "required": ["agent_id"],
+            },
+        ),
+        NodeSpec(
+            type="wyoming.tts",
+            version="1.0.0",
+            title="Wyoming TTS",
+            category="speech",
+            inputs={"text": PortSpec("text.delta/1")},
+            outputs={"speech": PortSpec(AUDIO)},
+            config_schema={
+                "type": "object",
+                "properties": {"uri": {"type": "string"}, "voice": {"type": "string"}},
+                "required": ["uri"],
             },
         ),
         NodeSpec(

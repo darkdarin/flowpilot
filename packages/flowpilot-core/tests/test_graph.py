@@ -12,7 +12,7 @@ from flowpilot_core import GraphError, PortRef, parse_graph
 def test_example_parses(example: dict[str, Any]) -> None:
     g = parse_graph(example)
     assert g.id == "family-assistant"
-    assert len(g.nodes) == 7 and len(g.edges) == 9
+    assert len(g.nodes) == 8 and len(g.edges) == 11
     assert g.edges[0].src == PortRef("in", "audio")
     assert g.settings.turn_timeout_ms == 30000
     assert g.ui["nodes"]["in"]["x"] == 40
