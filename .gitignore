@@ -1,0 +1,23 @@
+# Secrets
+.env
+*.env
+.envrc
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+
+# Frontend
+node_modules/
+
+# Local audio recordings
+*.wav
+*.raw
+
+# Local Claude Code settings
+.claude/settings.local.json
