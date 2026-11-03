@@ -11,6 +11,7 @@ requires-python = ">=3.14"
 dependencies = [
     "flowpilot-sdk",
     "flowpilot-core",
+    "flowpilot-server",
 ]
 
 [tool.uv]
@@ -22,6 +23,7 @@ members = ["packages/*"]
 [tool.uv.sources]
 flowpilot-sdk = { workspace = true }
 flowpilot-core = { workspace = true }
+flowpilot-server = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -46,7 +48,7 @@ target-version = "py314"
 select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "BLE"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["flowpilot_sdk", "flowpilot_core"]
+known-first-party = ["flowpilot_sdk", "flowpilot_core", "flowpilot_server"]
 
 [tool.mypy]
 python_version = "3.14"
@@ -56,4 +58,6 @@ files = [
     "packages/flowpilot-sdk/tests",
     "packages/flowpilot-core/src",
     "packages/flowpilot-core/tests",
+    "packages/flowpilot-server/src",
+    "packages/flowpilot-server/tests",
 ]
