@@ -14,6 +14,11 @@ WS_PATH: Final = "/api/ws"
 HOST_OP_CONVERSATION: Final = "ha.conversation.process"
 HOST_OP_STT: Final = "ha.stt.process"
 HOST_OP_TTS: Final = "ha.tts.synthesize"
+HOST_OP_ENTITIES: Final = "ha.entities.list"
+# Kinds of graph references to Home Assistant (``x-flowpilot-options`` in node config schemas).
+OPTION_STT: Final = "ha.stt"
+OPTION_TTS: Final = "ha.tts"
+OPTION_CONVERSATION: Final = "ha.conversation"
 DEFAULT_AGENT_ID: Final = "conversation.home_assistant"
 # Conversation ids that are not ULIDs are kept as-is by Home Assistant, so the inner agent gets a
 # stable dialogue of its own next to the FlowPilot one.
@@ -29,6 +34,9 @@ TRANSCRIPT_TIMEOUT_S: Final = 15.0
 RESPONSE_TIMEOUT_S: Final = 30.0
 
 SIGNAL_CONNECTION: Final = "flowpilot_connection_{entry_id}"
+# Debounce for checking graph references after entity registry changes.
+REFERENCE_CHECK_DELAY_S: Final = 3.0
+REFERENCE_CHECK_INTERVAL_S: Final = 300.0
 
 STT_LANGUAGES: Final = [
     "ar", "bg", "ca", "cs", "da", "de", "el", "en", "es", "et", "fa", "fi", "fr", "he", "hi",

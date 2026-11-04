@@ -8,6 +8,7 @@ from typing import Any
 from homeassistant.components import conversation, stt, tts
 from homeassistant.components.conversation import async_converse
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
@@ -17,9 +18,13 @@ from .const import (
     DEFAULT_AGENT_ID,
     DOMAIN,
     HOST_OP_CONVERSATION,
+    HOST_OP_ENTITIES,
     HOST_OP_STT,
     HOST_OP_TTS,
     INNER_CONVERSATION_PREFIX,
+    OPTION_CONVERSATION,
+    OPTION_STT,
+    OPTION_TTS,
 )
 from .wav import open_wav
 
@@ -117,7 +122,47 @@ def build_host_ops(
         await request.send_audio(fmt.as_meta(), pcm)
         return {"sample_rate": fmt.sample_rate}
 
+    async def entities_list(request: HostRequest) -> Any:
+        """What graphs may refer to: STT/TTS/conversation entities and known Wyoming services."""
+        registry = er.async_get(hass)
+
+        def foreign(entity_id: str) -> bool:
+            entity = registry.async_get(entity_id)
+            return entity is None or entity.platform != DOMAIN
+
+        def states(domain: str) -> list[dict[str, str]]:
+            return [
+                {"id": state.entity_id, "name": state.name}
+                for state in hass.states.async_all(domain)
+                if foreign(state.entity_id)
+            ]
+
+        wyoming: dict[str, list[dict[str, str]]] = {"wyoming.asr": [], "wyoming.tts": []}
+        for wy in hass.config_entries.async_entries("wyoming", include_disabled=False):
+            host, port = wy.data.get(CONF_HOST), wy.data.get(CONF_PORT)
+            if not host or not port:
+                continue
+            domains = {e.domain for e in er.async_entries_for_config_entry(registry, wy.entry_id)}
+            option = {"id": f"tcp://{host}:{port}", "name": wy.title}
+            if "stt" in domains:
+                wyoming["wyoming.asr"].append(option)
+            if "tts" in domains:
+                wyoming["wyoming.tts"].append(option)
+
+        return {
+            "options": {
+                OPTION_STT: states("stt"),
+                OPTION_TTS: states("tts"),
+                OPTION_CONVERSATION: states("conversation"),
+                **wyoming,
+            },
+            # Entities outside these lists cannot work; Wyoming services are only suggestions,
+            # FlowPilot connects to them directly.
+            "strict": [OPTION_STT, OPTION_TTS, OPTION_CONVERSATION],
+        }
+
     return {
+        HOST_OP_ENTITIES: entities_list,
         HOST_OP_CONVERSATION: conversation_process,
         HOST_OP_STT: stt_process,
         HOST_OP_TTS: tts_synthesize,

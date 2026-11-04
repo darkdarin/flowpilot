@@ -50,11 +50,19 @@ from .protocol import (
     pack_audio,
     unpack_audio,
 )
+from .references import (
+    HOST_OP_OPTIONS,
+    OPTIONS_CACHE_S,
+    merge_options,
+    reference_warnings,
+    references,
+)
 from .tracehub import EDITOR_WS_PATH, TraceHub, editor_socket
 
 _LOGGER = logging.getLogger(__name__)
 
 SESSION_IDLE_S = 3600.0
+OPTIONS_TIMEOUT_S = 5.0
 AUDIO_QUEUE_CHUNKS = 64
 MAX_HTTP_AUDIO_BYTES = 16 * 1024 * 1024
 
@@ -152,8 +160,69 @@ class FlowPilotServer:
         self.sessions = SessionIndex()
         self._sockets: set[web.WebSocketResponse] = set()
         self.trace_hub = TraceHub()
-        self.manager.set_trace(
-            self.trace_hub.sink, lambda graph_id: self.trace_hub.announce(graph_id, "deployed")
+        self.manager.set_trace(self.trace_hub.sink, self._on_deployed)
+        self.connections: set[Connection] = set()
+        self._options_cache: tuple[float, dict[str, Any]] | None = None
+        self._background: set[asyncio.Task[None]] = set()
+
+    def _on_deployed(self, graph_id: str) -> None:
+        self.trace_hub.announce(graph_id, "deployed")
+        self._spawn(self.broadcast_references())
+
+    def _spawn(self, coro: Any) -> None:
+        task = asyncio.get_running_loop().create_task(coro)
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+
+    # --- host options and references ------------------------------------------------------------
+
+    def deployed_references(self) -> dict[str, list[dict[str, Any]]]:
+        registry = self.manager.registry
+        return {
+            graph_id: [r.as_dict() for r in references(d.graph.graph.to_dict(), registry)]
+            for graph_id, d in self.deployments.items()
+        }
+
+    async def broadcast_references(self) -> None:
+        """Tell hosts which of their entities the deployed graphs use (repair issues in HA)."""
+        msg = {"type": "references", "graphs": self.deployed_references()}
+        for conn in list(self.connections):
+            if conn.offers(HOST_OP_OPTIONS):
+                with contextlib.suppress(ConnectionError, HostUnavailable):
+                    await conn.send(msg)
+
+    async def host_options(self, *, max_age_s: float = OPTIONS_CACHE_S) -> dict[str, Any]:
+        """What connected hosts offer for marked settings; cached briefly."""
+        now = time.monotonic()
+        if self._options_cache is not None and now - self._options_cache[0] < max_age_s:
+            return self._options_cache[1]
+        hosts = [c for c in list(self.connections) if c.offers(HOST_OP_OPTIONS)]
+
+        async def ask(conn: Connection) -> Any:
+            async with asyncio.timeout(OPTIONS_TIMEOUT_S):
+                return await conn.call(None, HOST_OP_OPTIONS, {})
+
+        results = await asyncio.gather(*(ask(c) for c in hosts), return_exceptions=True)
+        ok = [r for r in results if not isinstance(r, BaseException)]
+        for conn, r in zip(hosts, results, strict=True):
+            if isinstance(r, BaseException):
+                _LOGGER.warning("host %s did not list options: %s", conn.client.get("name"), r)
+        options, strict = merge_options(ok)
+        value = {
+            "available": bool(ok),
+            "hosts": [str(c.client.get("name") or "client") for c in hosts],
+            "options": options,
+            "strict": strict,
+        }
+        self._options_cache = (now, value)
+        return value
+
+    async def reference_warnings(self, data: Any) -> list[dict[str, Any]]:
+        options = await self.host_options()
+        if not options["available"]:
+            return []
+        return reference_warnings(
+            data, self.manager.registry, options["options"], options["strict"]
         )
 
     def track_socket(self, ws: web.WebSocketResponse) -> None:
@@ -286,6 +355,8 @@ class FlowPilotServer:
             await conn.run()
         finally:
             self._sockets.discard(ws)
+            self.connections.discard(conn)
+            self._options_cache = None
             await conn.close()
         return ws
 
@@ -503,7 +574,7 @@ class Connection:
 
     async def call(
         self,
-        turn_id: str,
+        turn_id: str | None,
         op: str,
         args: Mapping[str, Any],
         *,
@@ -668,6 +739,10 @@ class Connection:
                 "missing_host_ops": {g: ops for g, ops in missing.items() if ops},
             }
         )
+        self.server.connections.add(self)
+        self.server._options_cache = None
+        if self.offers(HOST_OP_OPTIONS):
+            await self.send({"type": "references", "graphs": self.server.deployed_references()})
 
     def _on_host_stream_start(self, msg: dict[str, Any]) -> None:
         """The client starts streaming the audio result of a host call."""

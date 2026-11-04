@@ -42,7 +42,22 @@ export type JsonSchema = {
   minLength?: number;
   items?: JsonSchema;
   additionalProperties?: boolean | JsonSchema;
+  /** names something a host provides, e.g. "ha.stt" (see OPTIONS_KEY in the SDK) */
+  "x-flowpilot-options"?: string;
 };
+
+export interface HostOption {
+  id: string;
+  name: string;
+}
+
+export interface HostOptions {
+  available: boolean;
+  hosts: string[];
+  options: Record<string, HostOption[]>;
+  /** kinds whose lists are complete: anything else cannot work */
+  strict: string[];
+}
 
 export interface GraphNode {
   id: string;
@@ -72,6 +87,7 @@ export interface Issue {
   message: string;
   node?: string;
   edge?: number;
+  field?: string;
 }
 
 export interface GraphSummary {
@@ -88,6 +104,7 @@ export interface GraphDetail {
   draft: GraphDoc | null;
   live: boolean;
   issues: Issue[];
+  warnings: Issue[];
 }
 
 export interface TraceMsg {
@@ -139,6 +156,9 @@ export class Api {
   catalog() {
     return this.call<Catalog>("GET", "/catalog");
   }
+  options(refresh = false) {
+    return this.call<HostOptions>("GET", `/options${refresh ? "?refresh=1" : ""}`);
+  }
   graphs() {
     return this.call<{ graphs: GraphSummary[] }>("GET", "/graphs");
   }
@@ -146,10 +166,10 @@ export class Api {
     return this.call<GraphDetail>("GET", `/graphs/${id}`);
   }
   create(id: string, name: string) {
-    return this.call<{ id: string; draft: GraphDoc; issues: Issue[] }>("POST", "/graphs", { id, name });
+    return this.call<{ id: string; draft: GraphDoc; issues: Issue[]; warnings: Issue[] }>("POST", "/graphs", { id, name });
   }
   saveDraft(id: string, doc: GraphDoc) {
-    return this.call<{ issues: Issue[] }>("PUT", `/graphs/${id}/draft`, doc);
+    return this.call<{ issues: Issue[]; warnings: Issue[] }>("PUT", `/graphs/${id}/draft`, doc);
   }
   discardDraft(id: string) {
     return this.call<{ ok: boolean }>("DELETE", `/graphs/${id}/draft`);

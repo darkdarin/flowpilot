@@ -14,6 +14,7 @@ from wyoming.client import AsyncTcpClient
 from wyoming.event import Event
 
 from flowpilot_sdk import (
+    OPTIONS_KEY,
     AudioFormat,
     InputStream,
     NodeContext,
@@ -52,7 +53,7 @@ class WyomingStt:
         config_schema={
             "type": "object",
             "properties": {
-                "uri": {"type": "string", "pattern": "^tcp://"},
+                "uri": {"type": "string", "pattern": "^tcp://", OPTIONS_KEY: "wyoming.asr"},
                 "language": {"type": "string"},
                 "model": {"type": "string"},
                 "connect_timeout_s": {"type": "number", "exclusiveMinimum": 0},

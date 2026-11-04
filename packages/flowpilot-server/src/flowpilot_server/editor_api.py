@@ -3,10 +3,14 @@
 All routes need ``Authorization: Bearer <token>``.
 
 - ``GET  /api/editor/catalog``                node types (ports, config schemas) and payload types
+- ``GET  /api/editor/options``                what connected hosts offer for marked settings
+                                              (``?refresh=1`` skips the short cache)
 - ``GET  /api/editor/graphs``                 graphs with deploy/draft state
 - ``POST /api/editor/graphs``                 ``{id, name}``: create a draft for a new graph
 - ``GET  /api/editor/graphs/{id}``            deployed graph, draft and the draft's issues
 - ``PUT  /api/editor/graphs/{id}/draft``      save a draft (may be invalid); returns its issues
+
+Issues block a deploy; ``warnings`` (references to entities the host does not list) do not.
 - ``DELETE /api/editor/graphs/{id}/draft``    discard the draft
 - ``POST /api/editor/graphs/{id}/deploy``     validate and deploy the draft (409 no draft,
   422 invalid with issues, 500 the graph is valid but failed to start)
@@ -22,9 +26,11 @@ from aiohttp import web
 from flowpilot_core import GraphError
 
 from .manager import GRAPH_ID_RE, DeployError, GraphManager, GraphStore, issue_dicts
+from .references import OPTIONS_CACHE_S
 
 if TYPE_CHECKING:
     from .server import FlowPilotServer
+
 
 PREFIX = "/api/editor"
 
@@ -77,6 +83,10 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
     async def catalog(request: web.Request) -> web.Response:
         return web.json_response(manager.catalog())
 
+    async def options(request: web.Request) -> web.Response:
+        max_age = 0.0 if request.query.get("refresh") else OPTIONS_CACHE_S
+        return web.json_response(await server.host_options(max_age_s=max_age))
+
     async def list_graphs(request: web.Request) -> web.Response:
         st = store()
         ids = sorted(set(st.ids()) | {p.name.removesuffix(".draft.json")
@@ -107,7 +117,14 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
             return _error(409, f"graph {graph_id!r} already exists")
         data = new_graph(graph_id, str(body.get("name") or graph_id))
         st.save(graph_id, data, draft=True)
-        return web.json_response({"id": graph_id, "draft": data, "issues": manager.issues(data)})
+        return web.json_response(
+            {
+                "id": graph_id,
+                "draft": data,
+                "issues": manager.issues(data),
+                "warnings": await server.reference_warnings(data),
+            }
+        )
 
     async def get_graph(request: web.Request) -> web.Response:
         st, graph_id = store(), graph_id_of(request)
@@ -122,6 +139,7 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
                 "draft": draft,
                 "live": graph_id in manager.deployments,
                 "issues": manager.issues(current),
+                "warnings": await server.reference_warnings(current),
             }
         )
 
@@ -129,7 +147,9 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
         st, graph_id = store(), graph_id_of(request)
         data = await request.json()
         st.save(graph_id, data, draft=True)
-        return web.json_response({"issues": manager.issues(data)})
+        return web.json_response(
+            {"issues": manager.issues(data), "warnings": await server.reference_warnings(data)}
+        )
 
     async def discard_draft(request: web.Request) -> web.Response:
         store().delete_draft(graph_id_of(request))
@@ -150,6 +170,7 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
 
     routes = [
         ("GET", f"{PREFIX}/catalog", catalog),
+        ("GET", f"{PREFIX}/options", options),
         ("GET", f"{PREFIX}/graphs", list_graphs),
         ("POST", f"{PREFIX}/graphs", create_graph),
         ("GET", f"{PREFIX}/graphs/{{graph_id}}", get_graph),

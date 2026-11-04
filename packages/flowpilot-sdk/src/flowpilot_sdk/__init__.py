@@ -3,7 +3,7 @@
 from .context import DeviceInfo, SessionInfo, SessionState, SourceInfo, TurnContext
 from .host import HostAudio, HostError, HostUnavailable
 from .ids import new_ulid
-from .node import Node, NodeContext, NodeSpec, PortSpec, TurnSession
+from .node import OPTIONS_KEY, Node, NodeContext, NodeSpec, PortSpec, TurnSession
 from .payloads import (
     IDENTITY_PROVIDER_GRANT,
     Assurance,
@@ -33,6 +33,7 @@ __version__ = "0.0.1"
 
 __all__ = [
     "IDENTITY_PROVIDER_GRANT",
+    "OPTIONS_KEY",
     "PRIVILEGED_TYPES",
     "Assurance",
     "AudioChunk",

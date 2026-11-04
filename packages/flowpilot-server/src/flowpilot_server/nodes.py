@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, Protocol
 
 from flowpilot_sdk import (
+    OPTIONS_KEY,
     AudioChunk,
     AudioFormat,
     NodeContext,
@@ -180,7 +181,9 @@ class HaConversation(_Lifecycle):
         },
         config_schema={
             "type": "object",
-            "properties": {"agent_id": {"type": "string", "minLength": 1}},
+            "properties": {
+                "agent_id": {"type": "string", "minLength": 1, OPTIONS_KEY: "ha.conversation"}
+            },
             "additionalProperties": False,
         },
         host_ops=frozenset({HA_CONVERSATION_OP}),
@@ -246,7 +249,7 @@ class HaStt(_Lifecycle):
         config_schema={
             "type": "object",
             "properties": {
-                "entity_id": {"type": "string", "pattern": "^stt\\."},
+                "entity_id": {"type": "string", "pattern": "^stt\\.", OPTIONS_KEY: "ha.stt"},
                 "language": {"type": "string"},
             },
             "required": ["entity_id"],
@@ -300,7 +303,7 @@ class HaTts(_Lifecycle):
         config_schema={
             "type": "object",
             "properties": {
-                "engine": {"type": "string", "pattern": "^tts\\."},
+                "engine": {"type": "string", "pattern": "^tts\\.", OPTIONS_KEY: "ha.tts"},
                 "language": {"type": "string"},
                 "voice": {"type": "string"},
                 "sample_rate": {"type": "integer", "minimum": 8000},

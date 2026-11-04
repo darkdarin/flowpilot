@@ -4,6 +4,7 @@
 import { computed, ref, watch } from "vue";
 import type { JsonSchema } from "../api";
 import { t } from "../i18n";
+import { hostOptions, refreshOptions } from "../store";
 
 const props = defineProps<{ name: string; schema: JsonSchema; required: boolean; modelValue: unknown }>();
 const emit = defineEmits<{ "update:modelValue": [value: unknown] }>();
@@ -36,6 +37,18 @@ function setNumber(value: string) {
   const n = Number(value);
   if (!Number.isNaN(n)) emit("update:modelValue", props.schema.type === "integer" ? Math.trunc(n) : n);
 }
+
+// Settings that name something a host provides get its list; strict kinds warn about unknown ids.
+const optionKind = computed(() => props.schema["x-flowpilot-options"]);
+const choices = computed(() => (optionKind.value ? (hostOptions.value.options[optionKind.value] ?? []) : []));
+const chosen = computed(() => choices.value.find((c) => c.id === stringValue.value));
+const unknownRef = computed(
+  () =>
+    !!optionKind.value &&
+    hostOptions.value.strict.includes(optionKind.value) &&
+    stringValue.value !== "" &&
+    !chosen.value,
+);
 
 const secretName = computed(() => {
   const v = props.modelValue as { secret?: string } | undefined;
@@ -122,6 +135,26 @@ const hint = computed(() => {
       <small>{{ t("form.secretHint") }}</small>
     </template>
 
+    <template v-else-if="kind === 'string' && optionKind">
+      <input
+        :id="inputId"
+        class="field"
+        :class="{ invalid: invalidPattern, warn: unknownRef }"
+        :list="`${inputId}-list`"
+        :value="stringValue"
+        :placeholder="t('form.choose')"
+        autocomplete="off"
+        @input="setString(($event.target as HTMLInputElement).value)"
+      />
+      <datalist :id="`${inputId}-list`">
+        <option v-for="c in choices" :key="c.id" :value="c.id">{{ c.name }}</option>
+      </datalist>
+      <small v-if="chosen" class="chosen">{{ chosen.name }}</small>
+      <small v-else-if="unknownRef" class="warn">{{ t("form.notFound") }}</small>
+      <small v-else-if="!hostOptions.available">{{ t("form.noHost") }}</small>
+      <button type="button" class="refresh" @click="refreshOptions()">{{ t("form.refresh") }}</button>
+    </template>
+
     <input
       v-else-if="kind === 'string'"
       :id="inputId"
@@ -137,7 +170,7 @@ const hint = computed(() => {
       <small v-if="jsonBad" class="bad">{{ t("form.invalidJson") }}</small>
     </template>
 
-    <small v-if="hint && kind !== 'secret'">{{ hint }}</small>
+    <small v-if="hint && kind !== 'secret' && !optionKind">{{ hint }}</small>
   </div>
 </template>
 
@@ -171,6 +204,32 @@ small {
 
 small.bad {
   color: var(--danger);
+}
+
+small.warn {
+  color: var(--warn);
+}
+
+small.chosen {
+  color: var(--muted);
+}
+
+.field.warn {
+  border-color: var(--warn);
+}
+
+.refresh {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--focus);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.refresh:hover {
+  text-decoration: underline;
 }
 
 .check {

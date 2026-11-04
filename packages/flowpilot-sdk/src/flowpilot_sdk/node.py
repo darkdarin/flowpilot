@@ -39,6 +39,14 @@ class PortSpec:
             raise ValueError("port buffer must be at least 1")
 
 
+# JSON Schema keyword for a config property that names something a host provides, e.g.
+# ``{"type": "string", OPTIONS_KEY: "ha.stt"}``. Editors offer the host's list for it and Home
+# Assistant raises a repair issue when a deployed graph refers to something that is gone.
+# Kinds: ``ha.stt``, ``ha.tts``, ``ha.conversation`` (entity ids), ``wyoming.asr``,
+# ``wyoming.tts`` (``tcp://host:port`` of services Home Assistant knows).
+OPTIONS_KEY = "x-flowpilot-options"
+
+
 @dataclass(frozen=True, slots=True)
 class NodeSpec:
     """Static declaration of a node type."""

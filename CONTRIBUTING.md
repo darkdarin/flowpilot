@@ -43,6 +43,10 @@ uv run pytest
 
   The kit checks the config schema, start/stop, absent and failed inputs, the sample run,
   cancellation and leaked tasks (see the module docstring for the list of checks).
+- A setting that names something a host provides (a Home Assistant entity, a Wyoming service) is
+  marked in the config schema, e.g. `{"type": "string", OPTIONS_KEY: "ha.stt"}` with
+  `from flowpilot_sdk import OPTIONS_KEY`. The editor then offers the host's list for it, and Home
+  Assistant raises a repair issue when a deployed graph refers to something that is gone.
 - Do not commit secrets, API keys or voice recordings.
 
 ## License of contributions

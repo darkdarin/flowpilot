@@ -19,6 +19,7 @@ from wyoming.tts import (
 )
 
 from flowpilot_sdk import (
+    OPTIONS_KEY,
     AudioFormat,
     InputStream,
     NodeContext,
@@ -57,7 +58,7 @@ class WyomingTts:
         config_schema={
             "type": "object",
             "properties": {
-                "uri": {"type": "string", "pattern": "^tcp://"},
+                "uri": {"type": "string", "pattern": "^tcp://", OPTIONS_KEY: "wyoming.tts"},
                 "voice": {"type": "string"},
                 "speaker": {"type": "string"},
                 "streaming": {"enum": ["auto", "on", "off"]},

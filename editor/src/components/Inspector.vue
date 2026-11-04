@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { t } from "../i18n";
-import { issues, nodeIssues, removeNode, renameNode, selectedId, selectedNode, specs } from "../store";
+import { issues, nodeIssues, nodeWarnings, removeNode, renameNode, selectedId, selectedNode, specs } from "../store";
 import { categoryColor, typeColor } from "../types";
 import SchemaField from "./SchemaField.vue";
 
@@ -9,6 +9,10 @@ const spec = computed(() => (selectedNode.value ? specs.value.get(selectedNode.v
 const props = computed(() => Object.entries(spec.value?.config_schema.properties ?? {}));
 const required = computed(() => new Set(spec.value?.config_schema.required ?? []));
 const problems = computed(() => (selectedId.value ? (nodeIssues.value.get(selectedId.value) ?? []) : []));
+// warnings tied to a setting are shown next to it, in the UI language
+const cautions = computed(() =>
+  (selectedId.value ? (nodeWarnings.value.get(selectedId.value) ?? []) : []).filter((w) => !w.field),
+);
 const graphProblems = computed(() => issues.value.filter((i) => !i.node));
 
 const idDraft = ref("");
@@ -46,6 +50,10 @@ function setConfig(key: string, value: unknown) {
 
       <ul v-if="problems.length" class="problems">
         <li v-for="p in problems" :key="p.path + p.code">{{ p.message }}</li>
+      </ul>
+
+      <ul v-if="cautions.length" class="problems cautions">
+        <li v-for="w in cautions" :key="w.path">{{ w.message }}</li>
       </ul>
 
       <section>
@@ -182,6 +190,11 @@ section > h3 {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.problems.cautions {
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
 }
 
 .problems code {

@@ -14,7 +14,7 @@ from aiohttp.test_utils import TestServer
 
 from flowpilot_core import NodeRegistry
 from flowpilot_core.builtin import register_builtin
-from flowpilot_sdk import NodeContext, NodeSpec, PortSpec, Response, TurnSession
+from flowpilot_sdk import OPTIONS_KEY, NodeContext, NodeSpec, PortSpec, Response, TurnSession
 from flowpilot_server.manager import GraphManager, GraphStore, issue_dicts
 from flowpilot_server.nodes import ClientSink, ClientSource
 from flowpilot_server.protocol import TURN_PATH
@@ -36,7 +36,10 @@ class Reply:
         outputs={"response": PortSpec("agent.response/1", kind="value")},
         config_schema={
             "type": "object",
-            "properties": {"text": {"type": "string"}},
+            "properties": {
+                "text": {"type": "string"},
+                "agent": {"type": "string", OPTIONS_KEY: "ha.conversation"},
+            },
             "required": ["text"],
         },
         turn_timeout_s=5.0,
@@ -296,3 +299,92 @@ async def test_editor_root_redirects(env: Any) -> None:
     session, url, _ = env
     resp = await session.get(url("/editor"), allow_redirects=False)
     assert resp.status == 302 and resp.headers["Location"] == "/editor/"
+
+
+async def host_client(session: aiohttp.ClientSession, url: Any, agents: list[str]) -> Any:
+    """A client that offers ha.entities.list and records references messages."""
+    ws = await session.ws_connect(url("/api/ws"))
+    await ws.send_json(
+        {
+            "type": "hello",
+            "protocol": 1,
+            "token": TOKEN,
+            "client": {"name": "home-assistant"},
+            "host_ops": ["ha.entities.list"],
+        }
+    )
+    assert (await ws.receive_json())["type"] == "hello.ok"
+    received: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+    async def serve() -> None:
+        async for msg in ws:
+            data = json.loads(msg.data)
+            if data["type"] == "host.call":
+                assert data["turn_id"] is None and data["op"] == "ha.entities.list"
+                options = {"ha.conversation": [{"id": a, "name": a.upper()} for a in agents]}
+                await ws.send_json(
+                    {"type": "host.result", "call": data["call"], "ok": True,
+                     "result": {"options": options, "strict": ["ha.conversation"]}}
+                )  # fmt: skip
+            else:
+                received.put_nowait(data)
+
+    task = asyncio.create_task(serve())
+    return ws, task, received
+
+
+async def test_host_options_and_reference_warnings(env: Any) -> None:
+    session, url, _ = env
+    body = await (await session.get(url("/api/editor/options"), headers=AUTH)).json()
+    assert body == {"available": False, "hosts": [], "options": {}, "strict": []}
+
+    with_agent = graph("v1")
+    with_agent["nodes"][1]["config"]["agent"] = "conversation.gone"
+    resp = await session.put(url("/api/editor/graphs/main/draft"), json=with_agent, headers=AUTH)
+    assert (await resp.json())["warnings"] == []  # no host to compare against
+
+    ws, task, _ = await host_client(session, url, ["conversation.home_assistant"])
+    try:
+        body = await (
+            await session.get(url("/api/editor/options"), params={"refresh": "1"}, headers=AUTH)
+        ).json()
+        assert body["available"] is True and body["hosts"] == ["home-assistant"]
+        assert body["options"]["ha.conversation"] == [
+            {"id": "conversation.home_assistant", "name": "CONVERSATION.HOME_ASSISTANT"}
+        ]
+        resp = await session.put(
+            url("/api/editor/graphs/main/draft"), json=with_agent, headers=AUTH
+        )
+        result = await resp.json()
+        assert result["issues"] == []
+        assert [(w["node"], w["field"]) for w in result["warnings"]] == [("agent", "agent")]
+        # a warning never blocks the deploy
+        resp = await session.post(url("/api/editor/graphs/main/deploy"), headers=AUTH)
+        assert resp.status == 200
+    finally:
+        await ws.close()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_hosts_learn_references_on_hello_and_deploy(env: Any) -> None:
+    session, url, manager = env
+    ws, task, received = await host_client(session, url, [])
+    try:
+        first = await asyncio.wait_for(received.get(), 5)
+        assert first == {"type": "references", "graphs": {"main": []}}
+
+        with_agent = graph("v2")
+        with_agent["nodes"][1]["config"]["agent"] = "conversation.kids"
+        await manager.deploy_data("main", with_agent)
+        second = await asyncio.wait_for(received.get(), 5)
+        assert second["graphs"]["main"] == [
+            {
+                "node": "agent",
+                "field": "agent",
+                "kind": "ha.conversation",
+                "id": "conversation.kids",
+            }
+        ]
+    finally:
+        await ws.close()
+        await asyncio.gather(task, return_exceptions=True)

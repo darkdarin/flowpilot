@@ -35,6 +35,29 @@ async def async_setup_entry(
     async_add_entities([FlowPilotConversationEntity(entry)])
 
 
+# What the user hears when a turn has no answer. Details go to the log and the editor's live debug.
+SPOKEN_ERRORS: dict[str, dict[str, str]] = {
+    "unavailable": {
+        "en": "FlowPilot is not reachable right now.",
+        "ru": "FlowPilot сейчас недоступен.",
+    },
+    "timeout": {
+        "en": "FlowPilot did not answer in time.",
+        "ru": "FlowPilot не успел ответить.",
+    },
+    "failed": {
+        "en": "No answer: a step of the voice flow failed.",
+        "ru": "Не получилось ответить: в голосовом сценарии произошла ошибка.",
+    },
+}
+
+
+def spoken_error(reason: str, language: str | None) -> str:
+    texts = SPOKEN_ERRORS.get(reason, SPOKEN_ERRORS["failed"])
+    base = (language or "en").replace("_", "-").split("-")[0].lower()
+    return texts.get(base, texts["en"])
+
+
 class FlowPilotConversationEntity(conversation.ConversationEntity):
     """Conversation agent backed by a FlowPilot graph."""
 
@@ -92,7 +115,9 @@ class FlowPilotConversationEntity(conversation.ConversationEntity):
                     user_id=user_input.context.user_id,
                 )
             except FlowPilotError as err:
-                return self._error(user_input, chat_log, f"FlowPilot is unavailable: {err}")
+                return self._error(
+                    user_input, chat_log, "unavailable", f"FlowPilot is unavailable: {err}"
+                )
             _LOGGER.debug(
                 "Text turn %s (session %s) for %s",
                 handle.turn_id,
@@ -108,14 +133,14 @@ class FlowPilotConversationEntity(conversation.ConversationEntity):
             )
         handle.attach(user_input)
 
-        state: dict[str, object] = {"continue": False, "error": None}
+        state: dict[str, object] = {"continue": False, "error": None, "reason": "failed"}
         async for _ in chat_log.async_add_delta_content_stream(
             self.entity_id, self._deltas(handle, state)
         ):
             pass
 
         if state["error"] is not None and not chat_log.content[-1].role == "assistant":
-            return self._error(user_input, chat_log, str(state["error"]))
+            return self._error(user_input, chat_log, str(state["reason"]), str(state["error"]))
         result = conversation.async_get_result_from_chat_log(user_input, chat_log)
         result.continue_conversation = bool(state["continue"]) or result.continue_conversation
         return result
@@ -132,6 +157,7 @@ class FlowPilotConversationEntity(conversation.ConversationEntity):
                 msg = await handle.next_event(RESPONSE_TIMEOUT_S)
             except TimeoutError:
                 state["error"] = "FlowPilot did not answer in time"
+                state["reason"] = "timeout"
                 await handle.cancel()
                 return
             kind = msg["type"]
@@ -153,11 +179,15 @@ class FlowPilotConversationEntity(conversation.ConversationEntity):
         self,
         user_input: conversation.ConversationInput,
         chat_log: conversation.ChatLog,
-        message: str,
+        reason: str,
+        detail: str,
     ) -> conversation.ConversationResult:
-        _LOGGER.warning(message)
+        """Log the technical detail; say a short reason in the language of the turn."""
+        _LOGGER.warning(detail)
         response = intent.IntentResponse(language=user_input.language)
-        response.async_set_error(intent.IntentResponseErrorCode.UNKNOWN, message)
+        response.async_set_error(
+            intent.IntentResponseErrorCode.UNKNOWN, spoken_error(reason, user_input.language)
+        )
         return conversation.ConversationResult(
             response=response, conversation_id=chat_log.conversation_id
         )

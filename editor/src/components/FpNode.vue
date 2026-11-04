@@ -2,13 +2,14 @@
 import { Handle, Position, type NodeProps } from "@vue-flow/core";
 import { computed } from "vue";
 import { t } from "../i18n";
-import { currentTurn, debug, edges, nodeIssues, specs, type FpNodeData } from "../store";
+import { currentTurn, debug, edges, nodeIssues, nodeWarnings, specs, type FpNodeData } from "../store";
 import { categoryColor, typeColor, typeShort } from "../types";
 
 const props = defineProps<NodeProps<FpNodeData>>();
 
 const spec = computed(() => specs.value.get(props.data.type));
 const problems = computed(() => nodeIssues.value.get(props.id) ?? []);
+const cautions = computed(() => nodeWarnings.value.get(props.id) ?? []);
 const run = computed(() => (debug.enabled ? currentTurn.value?.nodes[props.id] : undefined));
 
 const connected = computed(() => {
@@ -42,6 +43,9 @@ const summary = computed(() => {
         <span class="name">{{ spec?.title ?? data.type }}</span>
         <span v-if="problems.length" class="badge problem" :title="problems.map((p) => p.message).join('\n')">
           {{ problems.length }}
+        </span>
+        <span v-if="cautions.length" class="badge caution" :title="cautions.map((p) => p.message).join('\n')">
+          !
         </span>
         <span v-if="run" class="badge run" :title="run.error ?? ''">
           <template v-if="run.status === 'running'">{{ t("status.running") }}</template>
@@ -162,20 +166,35 @@ header::before {
   color: var(--danger);
 }
 
+.badge.caution {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: var(--warn);
+}
+
 .badge.run {
   background: color-mix(in srgb, var(--ok) 16%, transparent);
   color: var(--ok);
   font-variant-numeric: tabular-nums;
 }
 
-.run-running .badge.run {
+.run-running .badge.caution {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: var(--warn);
+}
+
+.badge.run {
   color: var(--warn);
   background: color-mix(in srgb, var(--warn) 16%, transparent);
 }
 
 .run-error .badge.run,
 .run-timeout .badge.run,
-.run-cancelled .badge.run {
+.run-cancelled .badge.caution {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: var(--warn);
+}
+
+.badge.run {
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 16%, transparent);
 }

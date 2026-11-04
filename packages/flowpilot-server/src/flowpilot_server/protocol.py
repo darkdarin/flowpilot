@@ -28,6 +28,10 @@ Server → client
 - ``stream.start``   ``{turn_id, stream, kind: "speech", format}`` then binary frames, then
   ``stream.end {stream}``.
 - ``host.call``      ``{call, turn_id, op, args}`` — the client answers with ``host.result``.
+  ``turn_id`` is ``null`` for calls outside a turn (``ha.entities.list`` for the editor).
+- ``references``     ``{graphs: {graph: [{node, field, kind, id}, ...]}}`` — what the deployed
+  graphs use from the host (see ``references.py``); sent after ``hello.ok`` and after each deploy
+  to clients that offer ``ha.entities.list``. Clients ignore message types they do not know.
 - ``turn.end``       ``{turn_id, status: ok|degraded|timeout|cancelled, nodes: {id: status}}``
 - ``error``          ``{code, message, ref?}``
 

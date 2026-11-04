@@ -142,6 +142,9 @@ class FlowPilotClient:
         self._handles: dict[str, TurnHandle] = {}
         self._host_tasks: set[asyncio.Task[None]] = set()
         self._host_in: dict[int, asyncio.Queue[bytes | None]] = {}
+        # Called with ``{graph: [{node, field, kind, id}]}`` whenever the runtime reports what its
+        # deployed graphs use from Home Assistant.
+        self.on_references: Callable[[dict[str, list[dict[str, Any]]]], None] | None = None
 
     @property
     def connected(self) -> bool:
@@ -321,6 +324,10 @@ class FlowPilotClient:
             return
         if kind == "stream.end" and (queue := self._host_in.pop(msg["stream"], None)):
             queue.put_nowait(None)
+            return
+        if kind == "references":
+            if self.on_references is not None:
+                self.on_references(dict(msg.get("graphs") or {}))
             return
         if kind == "host.call":
             audio = (msg.get("args") or {}).get("audio")

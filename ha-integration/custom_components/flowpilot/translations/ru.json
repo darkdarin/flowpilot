@@ -1,0 +1,27 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Подключение к FlowPilot",
+        "description": "Адрес и токен рантайма FlowPilot.",
+        "data": {
+          "url": "URL рантайма",
+          "token": "Токен"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Не удаётся подключиться к рантайму FlowPilot.",
+      "invalid_auth": "Рантайм не принял токен или версию протокола."
+    },
+    "abort": {
+      "already_configured": "Этот рантайм FlowPilot уже настроен."
+    }
+  },
+  "issues": {
+    "missing_references": {
+      "title": "Граф FlowPilot {graph} использует то, чего больше нет",
+      "description": "Развёрнутый граф FlowPilot **{graph}** ссылается на сущности или агентов Home Assistant, которые не существуют или не загружены:\n\n{references}\n\nХоды, доходящие до этих нод, завершаются ошибкой. Верните их в Home Assistant или откройте редактор FlowPilot, выберите другие и разверните граф. Проблема исчезнет сама, когда ссылки снова будут работать."
+    }
+  }
+}

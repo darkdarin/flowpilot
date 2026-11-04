@@ -26,6 +26,7 @@ import {
   hasDraft,
   issues,
   live,
+  warnings,
   makeEdge,
   nodes,
   notice,
@@ -192,6 +193,7 @@ function legendTypes() {
         <i />{{ stateLabel }}
       </span>
       <span class="issues" :class="{ bad: issues.length }">{{ issueLabel }}</span>
+      <span v-if="warnings.length" class="issues warn">{{ t("issues.warnings", { n: warnings.length }) }}</span>
 
       <div class="spacer" />
 
@@ -401,6 +403,10 @@ function legendTypes() {
 
 .issues.bad {
   color: var(--danger);
+}
+
+.issues.warn {
+  color: var(--warn);
 }
 
 .spacer {

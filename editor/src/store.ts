@@ -8,6 +8,7 @@ import {
   type Catalog,
   type GraphDoc,
   type GraphSummary,
+  type HostOptions,
   type Issue,
   type NodeInfo,
   type TraceMsg,
@@ -57,6 +58,8 @@ export const extra = ref<Pick<GraphDoc, "settings" | "schema_version">>({ schema
 export const nodes = ref([]) as Ref<FpNode[]>;
 export const edges = ref([]) as Ref<FpEdge[]>;
 export const issues = ref<Issue[]>([]);
+export const warnings = ref<Issue[]>([]);
+export const hostOptions = shallowRef<HostOptions>({ available: false, hosts: [], options: {}, strict: [] });
 export const hasDraft = ref(false);
 export const live = ref(false);
 export const saving = ref(false);
@@ -90,6 +93,20 @@ export const nodeIssues = computed(() => {
   for (const i of issues.value) if (i.node) map.set(i.node, [...(map.get(i.node) ?? []), i]);
   return map;
 });
+
+export const nodeWarnings = computed(() => {
+  const map = new Map<string, Issue[]>();
+  for (const w of warnings.value) if (w.node) map.set(w.node, [...(map.get(w.node) ?? []), w]);
+  return map;
+});
+
+export async function refreshOptions(refresh = true) {
+  try {
+    hostOptions.value = await api.value!.options(refresh);
+  } catch {
+    hostOptions.value = { available: false, hosts: [], options: {}, strict: [] };
+  }
+}
 
 export const brokenEdges = computed(() => {
   const set = new Set<string>();
@@ -232,6 +249,8 @@ export async function openGraph(id: string) {
   extra.value = { schema_version: doc.schema_version, settings: doc.settings };
   toCanvas(doc);
   issues.value = detail.issues;
+  warnings.value = detail.warnings ?? [];
+  void refreshOptions();
   hasDraft.value = detail.draft !== null;
   live.value = detail.live;
   selectedId.value = null;
@@ -271,6 +290,7 @@ async function save() {
     const result = await api.value!.saveDraft(id, doc);
     if (graphId.value === id) {
       issues.value = result.issues;
+      warnings.value = result.warnings ?? [];
       hasDraft.value = true;
     }
   } catch (err) {
