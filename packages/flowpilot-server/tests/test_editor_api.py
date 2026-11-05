@@ -386,9 +386,10 @@ async def test_hosts_learn_references_and_graphs(env: Any) -> None:
     ws, task, received = await host_client(session, url, [])
 
     async def next_of(kind: str) -> dict[str, Any]:
-        while (msg := await asyncio.wait_for(received.get(), 5))["type"] != kind:
-            pass
-        return msg
+        while True:
+            msg: dict[str, Any] = await asyncio.wait_for(received.get(), 5)
+            if msg["type"] == kind:
+                return msg
 
     try:
         assert await next_of("references") == {"type": "references", "graphs": {"main": []}}

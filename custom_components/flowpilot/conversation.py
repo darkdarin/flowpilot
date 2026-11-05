@@ -23,6 +23,7 @@ from .client import FlowPilotClient, FlowPilotError, TurnHandle
 from .const import RESPONSE_TIMEOUT_S, SIGNAL_CONNECTION
 from .correlation import take_voice_turn
 from .entity import service_device
+from .graphs import GraphEntity, async_track_graphs, graph_unique_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,6 +34,13 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     async_add_entities([FlowPilotConversationEntity(entry)])
+    async_track_graphs(
+        hass,
+        entry,
+        async_add_entities,
+        "conversation",
+        lambda g, n: FlowPilotConversationEntity(entry, g, n),
+    )
 
 
 # What the user hears when a turn has no answer. Details go to the log and the editor's live debug.
@@ -58,17 +66,24 @@ def spoken_error(reason: str, language: str | None) -> str:
     return texts.get(base, texts["en"])
 
 
-class FlowPilotConversationEntity(conversation.ConversationEntity):
+class FlowPilotConversationEntity(GraphEntity, conversation.ConversationEntity):
     """Conversation agent backed by a FlowPilot graph."""
 
     _attr_has_entity_name = True
-    _attr_name = "Agent"
+    _domain = "conversation"
+    _base_name = "Agent"
     _attr_supports_streaming = True
 
-    def __init__(self, entry: ConfigEntry[FlowPilotClient]) -> None:
+    def __init__(
+        self,
+        entry: ConfigEntry[FlowPilotClient],
+        graph: str | None = None,
+        graph_name: str | None = None,
+    ) -> None:
         self._entry = entry
         self._client = entry.runtime_data
-        self._attr_unique_id = f"{entry.entry_id}-conversation"
+        self.setup_graph(graph, graph_name)
+        self._attr_unique_id = graph_unique_id(entry, "conversation", graph)
         self._attr_device_info = service_device(entry)
 
     async def async_added_to_hass(self) -> None:
@@ -113,6 +128,7 @@ class FlowPilotConversationEntity(conversation.ConversationEntity):
                     conversation_id=conversation_id,
                     utterance=user_input.text,
                     user_id=user_input.context.user_id,
+                    graph=self.graph,
                 )
             except FlowPilotError as err:
                 return self._error(
@@ -131,6 +147,16 @@ class FlowPilotConversationEntity(conversation.ConversationEntity):
                 handle.session_id,
                 handle.conversation_id,
             )
+            if handle.graph != self.graph:
+                # The voice turn already runs the graph of the assistant's speech-to-text entity.
+                _LOGGER.warning(
+                    "The assistant pairs a FlowPilot speech-to-text entity of graph %s with %s "
+                    "of graph %s; the turn runs graph %s. Pick the same graph for both",
+                    handle.graph or "(default)",
+                    self.entity_id,
+                    self.graph or "(default)",
+                    handle.graph or "(default)",
+                )
         handle.attach(user_input)
 
         state: dict[str, object] = {"continue": False, "error": None, "reason": "failed"}

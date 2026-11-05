@@ -85,6 +85,7 @@ class TurnHandle:
         self.session_id = session_id
         self.conversation_id = conversation_id
         self.audio_stream = audio_stream
+        self.graph: str | None = None  # as requested; None is the runtime's default graph
         self.events: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self.attached: asyncio.Future[ConversationInput] = (
             asyncio.get_running_loop().create_future()
@@ -130,6 +131,7 @@ class FlowPilotClient:
         self.url = url.rstrip("/") + WS_PATH
         self._token = token
         self._signal = signal
+        self.graphs_signal = f"{signal}_graphs"  # dispatched when the graph list changes
         self.host_ops: dict[str, HostHandler] = dict(host_ops or {})
         self.server_info: dict[str, Any] = {}
         self._ws: aiohttp.ClientWebSocketResponse | None = None
@@ -145,6 +147,10 @@ class FlowPilotClient:
         # Called with ``{graph: [{node, field, kind, id}]}`` whenever the runtime reports what its
         # deployed graphs use from Home Assistant.
         self.on_references: Callable[[dict[str, list[dict[str, Any]]]], None] | None = None
+        # Deployed graphs (id -> name) and the default one, as the runtime last reported them.
+        self.graphs: dict[str, str] = {}
+        self.default_graph: str | None = None
+        self.graphs_known = False
 
     @property
     def connected(self) -> bool:
@@ -259,6 +265,7 @@ class FlowPilotClient:
         utterance: str | None = None,
         audio_format: Mapping[str, Any] | None = None,
         user_id: str | None = None,
+        graph: str | None = None,
     ) -> TurnHandle:
         try:
             async with asyncio.timeout(START_TIMEOUT_S):
@@ -277,6 +284,8 @@ class FlowPilotClient:
         }
         if user_id:
             body["user_id"] = user_id
+        if graph is not None:  # None: the runtime's default graph
+            body["graph"] = graph
         audio_stream: int | None = None
         if utterance is not None:
             body["input"]["utterance"] = {"text": utterance}
@@ -297,6 +306,7 @@ class FlowPilotClient:
         handle = TurnHandle(
             self, reply["turn_id"], reply["session_id"], conversation_id, audio_stream
         )
+        handle.graph = graph
         self._handles[handle.turn_id] = handle
         return handle
 
@@ -324,6 +334,14 @@ class FlowPilotClient:
             return
         if kind == "stream.end" and (queue := self._host_in.pop(msg["stream"], None)):
             queue.put_nowait(None)
+            return
+        if kind == "graphs":
+            self.graphs = {
+                str(g["id"]): str(g.get("name") or g["id"]) for g in msg.get("graphs") or []
+            }
+            self.default_graph = msg.get("default")
+            self.graphs_known = True
+            async_dispatcher_send(self.hass, self.graphs_signal)
             return
         if kind == "references":
             if self.on_references is not None:

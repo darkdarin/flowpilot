@@ -43,15 +43,17 @@ async def silence(frames: int = 100) -> AsyncIterator[bytes]:
         yield bytes(640)
 
 
-async def run_voice_turn(hass: HomeAssistant) -> list[PipelineEvent]:
+async def run_voice_turn(
+    hass: HomeAssistant, stt_entity: str = STT_ENTITY, agent: str = AGENT_ENTITY
+) -> list[PipelineEvent]:
     data: PipelineData = hass.data["assist_pipeline"]
     pipeline = await data.pipeline_store.async_create_item(
         {
-            "name": "FlowPilot test",
+            "name": f"FlowPilot test {stt_entity} {agent}",
             "language": "en",
-            "conversation_engine": AGENT_ENTITY,
+            "conversation_engine": agent,
             "conversation_language": "en",
-            "stt_engine": STT_ENTITY,
+            "stt_engine": stt_entity,
             "stt_language": "en",
             "tts_engine": None,
             "tts_language": None,

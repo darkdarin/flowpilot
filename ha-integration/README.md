@@ -16,6 +16,11 @@ It connects Home Assistant to a FlowPilot runtime (WebSocket, ADR-014) and provi
   the graph's `ha.conversation` node), `ha.stt.process` and `ha.tts.synthesize` (any STT/TTS entity,
   audio streamed both ways) and `ha.entities.list` (what the editor offers in its pickers);
 - **repair issues** for deployed graphs that refer to entities or agents that are gone.
+- **one speech-to-text and agent entity per deployed graph** (`stt.flowpilot_<graph>`,
+  `conversation.flowpilot_<graph>`), so each Assist assistant picks its graph; the plain
+  "Speech-to-text" and "Agent" follow the runtime's main graph. A voice turn runs the graph of its
+  speech-to-text entity (it starts the turn); a different graph's agent in the same assistant only
+  logs a warning.
 
 The STT and conversation stages of one pipeline run are linked with a context variable (ADR-012);
 this relies on Home Assistant internals and is verified per release with `scripts/e2e_ha.py`

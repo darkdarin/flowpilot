@@ -83,9 +83,12 @@ The app is the FlowPilot runtime with the graph editor.
 ### Step 3. Make an assistant use FlowPilot
 
 1. **Settings → Voice assistants → Add assistant** (or edit one).
-2. Set **Conversation agent** and **Speech-to-text** to **FlowPilot**. Text-to-speech stays your
-   usual one: Home Assistant speaks the answer.
-3. Pick this assistant on the satellite's device page.
+2. Set **Speech-to-text** and **Conversation agent** to the same FlowPilot graph: every deployed
+   graph has its own pair named after it (`stt.flowpilot_<graph>`, `conversation.flowpilot_<graph>`).
+   **FlowPilot Speech-to-text** and **FlowPilot Agent** follow the main graph, the one starred in
+   the editor. Text-to-speech stays your usual one: Home Assistant speaks the answer.
+3. Pick this assistant on the satellite's device page. Different assistants can run different
+   graphs, for example one per room.
 
 Try it in the Assist chat first: the starter graph `main` answers typed text with the Home
 Assistant agent.

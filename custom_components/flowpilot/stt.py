@@ -19,6 +19,7 @@ from .client import FlowPilotClient, FlowPilotError, TurnHandle
 from .const import SIGNAL_CONNECTION, STT_LANGUAGES, TRANSCRIPT_TIMEOUT_S
 from .correlation import CURRENT_TURN
 from .entity import service_device
+from .graphs import GraphEntity, async_track_graphs, graph_unique_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,18 +30,28 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     async_add_entities([FlowPilotSpeechToText(entry)])
+    async_track_graphs(
+        hass, entry, async_add_entities, "stt", lambda g, n: FlowPilotSpeechToText(entry, g, n)
+    )
 
 
-class FlowPilotSpeechToText(stt.SpeechToTextEntity):
+class FlowPilotSpeechToText(GraphEntity, stt.SpeechToTextEntity):
     """Starts a FlowPilot voice turn; the graph decides how speech is recognized."""
 
     _attr_has_entity_name = True
-    _attr_name = "Speech-to-text"
+    _domain = "stt"
+    _base_name = "Speech-to-text"
 
-    def __init__(self, entry: ConfigEntry[FlowPilotClient]) -> None:
+    def __init__(
+        self,
+        entry: ConfigEntry[FlowPilotClient],
+        graph: str | None = None,
+        graph_name: str | None = None,
+    ) -> None:
         self._entry = entry
         self._client = entry.runtime_data
-        self._attr_unique_id = f"{entry.entry_id}-stt"
+        self.setup_graph(graph, graph_name)
+        self._attr_unique_id = graph_unique_id(entry, "stt", graph)
         self._attr_device_info = service_device(entry)
 
     async def async_added_to_hass(self) -> None:
@@ -108,6 +119,7 @@ class FlowPilotSpeechToText(stt.SpeechToTextEntity):
                     "sample_rate": int(metadata.sample_rate),
                     "channels": int(metadata.channel),
                 },
+                graph=self.graph,  # a voice turn runs the graph its speech-to-text belongs to
             )
         except FlowPilotError as err:
             _LOGGER.error("Cannot start FlowPilot turn: %s", err)
