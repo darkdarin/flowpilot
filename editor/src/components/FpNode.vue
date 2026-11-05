@@ -1,9 +1,18 @@
 <script setup lang="ts">
 import { Handle, Position, type NodeProps } from "@vue-flow/core";
 import { computed } from "vue";
-import { t } from "../i18n";
-import { currentTurn, debug, edges, nodeIssues, nodeWarnings, specs, type FpNodeData } from "../store";
-import { nodeDescription, nodeTitle, portDescription } from "../texts";
+import { languageName, t } from "../i18n";
+import {
+  currentTurn,
+  debug,
+  edges,
+  hostOptions,
+  nodeIssues,
+  nodeWarnings,
+  specs,
+  type FpNodeData,
+} from "../store";
+import { fieldTitle, nodeDescription, nodeTitle, portDescription } from "../texts";
 import { categoryColor, typeColor, typeShort } from "../types";
 
 const props = defineProps<NodeProps<FpNodeData>>();
@@ -31,10 +40,22 @@ function portRun(port: string) {
   return debug.enabled ? currentTurn.value?.ports[`${props.id}.${port}`] : undefined;
 }
 
+// The setting that says most about the node, shown under its title by name rather than raw value:
+// a choice from a list first (a Wyoming service, an entity), then a required one, then any.
 const summary = computed(() => {
   const cfg = props.data.config;
-  const first = Object.entries(cfg).find(([, v]) => typeof v === "string" || typeof v === "number");
-  return first ? `${first[0]}: ${first[1]}` : "";
+  const props_ = spec.value?.config_schema.properties ?? {};
+  const required = new Set(spec.value?.config_schema.required ?? []);
+  const shown = Object.entries(cfg).filter(([, v]) => typeof v === "string" || typeof v === "number");
+  const rank = ([key]: [string, unknown]) =>
+    props_[key]?.["x-flowpilot-options"] ? 0 : required.has(key) ? 1 : 2;
+  const [key, value] = [...shown].sort((a, b) => rank(a) - rank(b))[0] ?? [];
+  if (key === undefined) return "";
+  const schema = props_[key] ?? {};
+  const kind = schema["x-flowpilot-options"];
+  const known = kind ? hostOptions.value.options[kind]?.find((o) => o.id === value) : undefined;
+  const text = known?.name || (schema.format === "language" ? languageName(String(value)) : String(value));
+  return `${fieldTitle(spec.value, key) || key}: ${text}`;
 });
 </script>
 
