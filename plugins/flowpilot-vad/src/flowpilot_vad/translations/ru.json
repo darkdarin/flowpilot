@@ -11,7 +11,11 @@
     "config": {
       "engine": {
         "title": "Детектор",
-        "description": "micro — детектор речи из Assist (pymicro-vad); energy — порог громкости."
+        "description": "micro — детектор речи из Assist (pymicro-vad); energy — порог громкости.",
+        "options": {
+          "micro": "Детектор речи (micro)",
+          "energy": "Порог громкости (energy)"
+        }
       },
       "speech_s": {
         "title": "Речь для начала, с",

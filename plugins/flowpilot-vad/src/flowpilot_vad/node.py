@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from flowpilot_sdk import (
+    ENUM_TITLES_KEY,
     AudioFormat,
     InputStream,
     NodeContext,
@@ -48,6 +49,10 @@ class VadSegmenter:
                         "threshold."
                     ),
                     "enum": ["micro", "energy"],
+                    ENUM_TITLES_KEY: {
+                        "micro": "Speech detector (micro)",
+                        "energy": "Loudness threshold (energy)",
+                    },
                 },
                 "speech_s": {
                     "title": "Speech to start, s",

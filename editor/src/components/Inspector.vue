@@ -3,7 +3,14 @@ import { computed, ref, watch } from "vue";
 import { t } from "../i18n";
 import { issues, nodeIssues, nodeWarnings, removeNode, renameNode, selectedId, selectedNode, specs } from "../store";
 import { categoryColor, typeColor } from "../types";
-import { fieldDescription, fieldTitle, nodeDescription, nodeTitle, portDescription } from "../texts";
+import {
+  fieldDescription,
+  fieldOptionTitles,
+  fieldTitle,
+  nodeDescription,
+  nodeTitle,
+  portDescription,
+} from "../texts";
 import SchemaField from "./SchemaField.vue";
 
 const spec = computed(() => (selectedNode.value ? specs.value.get(selectedNode.value.data!.type) : undefined));
@@ -76,6 +83,7 @@ function setConfig(key: string, value: unknown) {
           :description="fieldDescription(spec, key)"
           :node-type="selectedNode.data!.type"
           :config="selectedNode.data!.config"
+          :option-titles="fieldOptionTitles(spec, key)"
           :model-value="selectedNode.data!.config[key]"
           @update:model-value="setConfig(key, $event)"
         />

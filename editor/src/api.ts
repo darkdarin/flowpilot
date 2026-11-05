@@ -15,7 +15,7 @@ export interface NodeTexts {
   description?: string;
   inputs?: Record<string, string>;
   outputs?: Record<string, string>;
-  config?: Record<string, { title?: string; description?: string }>;
+  config?: Record<string, { title?: string; description?: string; options?: Record<string, string> }>;
 }
 
 export interface NodeInfo {
@@ -57,6 +57,8 @@ export type JsonSchema = {
   "x-flowpilot-options"?: string;
   /** the node lists the choices itself from the rest of its config (POST /node-options) */
   "x-flowpilot-node-options"?: boolean;
+  /** English labels of an enum's values (translations: config.<setting>.options) */
+  "x-flowpilot-enum-titles"?: Record<string, string>;
   format?: string;
 };
 

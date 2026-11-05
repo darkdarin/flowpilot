@@ -41,6 +41,11 @@ class InputStream[T](Protocol):
     ``None``, iteration yields nothing and ``value()`` returns ``None``.
     """
 
+    @property
+    def connected(self) -> bool:
+        """A wire feeds this input in the graph; an unconnected input is always absent."""
+        ...
+
     async def header(self) -> StreamHeader | None: ...
 
     def __aiter__(self) -> AsyncIterator[T]: ...

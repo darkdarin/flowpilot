@@ -100,6 +100,10 @@ class RuntimeInputStream:
         self._iterating = False
         self._value: Any = _UNSET
 
+    @property
+    def connected(self) -> bool:
+        return self._channel is not None
+
     async def _next(self) -> Open | Item | End | Fail:
         assert self._channel is not None
         return await self._channel.get()

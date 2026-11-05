@@ -29,3 +29,11 @@ export function fieldTitle(node: NodeInfo | undefined, field: string): string {
 export function fieldDescription(node: NodeInfo | undefined, field: string): string {
   return pick(node)?.config?.[field]?.description || node?.config_schema.properties?.[field]?.description || "";
 }
+
+/** Labels of an enum setting's values: translation, then the English labels in the schema. */
+export function fieldOptionTitles(node: NodeInfo | undefined, field: string): Record<string, string> {
+  return {
+    ...(node?.config_schema.properties?.[field]?.["x-flowpilot-enum-titles"] ?? {}),
+    ...(pick(node)?.config?.[field]?.options ?? {}),
+  };
+}

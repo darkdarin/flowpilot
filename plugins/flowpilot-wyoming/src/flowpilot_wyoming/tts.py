@@ -20,6 +20,7 @@ from wyoming.tts import (
 )
 
 from flowpilot_sdk import (
+    ENUM_TITLES_KEY,
     NODE_OPTIONS_KEY,
     OPTIONS_KEY,
     AudioFormat,
@@ -98,6 +99,11 @@ class WyomingTts:
                         "sentence by sentence."
                     ),
                     "enum": ["auto", "on", "off"],
+                    ENUM_TITLES_KEY: {
+                        "auto": "When the service supports it",
+                        "on": "Always stream",
+                        "off": "Sentence by sentence",
+                    },
                 },
                 "connect_timeout_s": {
                     "title": "Connect timeout, s",

@@ -11,7 +11,8 @@ JSON files shipped inside the plugin package, one per language, covering all nod
         "description": "...",
         "inputs": {"audio": "..."},
         "outputs": {"transcript": "..."},
-        "config": {"uri": {"title": "...", "description": "..."}}
+        "config": {"uri": {"title": "...", "description": "..."},
+                   "mode": {"title": "...", "options": {"fast": "..."}}}
       }
     }
 
@@ -37,6 +38,8 @@ LANGUAGE_RE = re.compile(r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
 class FieldText:
     title: str | None = None
     description: str | None = None
+    # labels of an enum setting's values; English ones are ENUM_TITLES_KEY in the config schema
+    options: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +58,11 @@ class NodeText:
         if unknown:
             raise ValueError(f"unknown keys in node texts: {sorted(unknown)}")
         config = {
-            name: FieldText(title=value.get("title"), description=value.get("description"))
+            name: FieldText(
+                title=value.get("title"),
+                description=value.get("description"),
+                options=dict(value.get("options") or {}),
+            )
             for name, value in (data.get("config") or {}).items()
         }
         return cls(
@@ -77,11 +84,17 @@ class NodeText:
         if self.outputs:
             data["outputs"] = dict(self.outputs)
         if self.config:
-            data["config"] = {
-                name: {k: v for k, v in (("title", f.title), ("description", f.description)) if v}
-                for name, f in self.config.items()
-            }
+            data["config"] = {name: _field_dict(f) for name, f in self.config.items()}
         return data
+
+
+def _field_dict(text: FieldText) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        k: v for k, v in (("title", text.title), ("description", text.description)) if v
+    }
+    if text.options:
+        data["options"] = dict(text.options)
+    return data
 
 
 @cache

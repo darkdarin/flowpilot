@@ -103,6 +103,10 @@ class FakeInput:
         self._items = items
         self.closed = False
 
+    @property
+    def connected(self) -> bool:
+        return True
+
     async def header(self) -> StreamHeader | None:
         return self._header
 

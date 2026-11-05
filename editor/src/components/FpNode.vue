@@ -12,7 +12,7 @@ import {
   specs,
   type FpNodeData,
 } from "../store";
-import { fieldTitle, nodeDescription, nodeTitle, portDescription } from "../texts";
+import { fieldOptionTitles, fieldTitle, nodeDescription, nodeTitle, portDescription } from "../texts";
 import { categoryColor, typeColor, typeShort } from "../types";
 
 const props = defineProps<NodeProps<FpNodeData>>();
@@ -54,7 +54,9 @@ const summary = computed(() => {
   const schema = props_[key] ?? {};
   const kind = schema["x-flowpilot-options"];
   const known = kind ? hostOptions.value.options[kind]?.find((o) => o.id === value) : undefined;
-  const text = known?.name || (schema.format === "language" ? languageName(String(value)) : String(value));
+  const label = fieldOptionTitles(spec.value, key)[String(value)];
+  const text =
+    known?.name || label || (schema.format === "language" ? languageName(String(value)) : String(value));
   return `${fieldTitle(spec.value, key) || key}: ${text}`;
 });
 </script>

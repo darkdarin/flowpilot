@@ -16,6 +16,7 @@ const props = defineProps<{
   description?: string; // localized description
   nodeType?: string; // for choices the node lists itself
   config?: Record<string, unknown>; // the node's whole config (those choices depend on it)
+  optionTitles?: Record<string, string>; // labels of enum values, localized
 }>();
 const emit = defineEmits<{ "update:modelValue": [value: unknown] }>();
 
@@ -122,7 +123,10 @@ const usePicker = computed(
 const pickerOptions = computed<PickerOption[]>(() => {
   let list: PickerOption[] =
     kind.value === "enum"
-      ? (props.schema.enum ?? []).map((v) => ({ id: String(v) }))
+      ? (props.schema.enum ?? []).map((v) => {
+          const label = props.optionTitles?.[String(v)];
+          return label ? { id: String(v), name: label, description: String(v) } : { id: String(v) };
+        })
       : optionKind.value
         ? choices.value
         : dynamic.value.options;
@@ -136,7 +140,8 @@ const pickerOptions = computed<PickerOption[]>(() => {
 const emptyLabel = computed(() => {
   if (props.required) return undefined;
   const fallback = props.schema.default;
-  return fallback === undefined ? t("picker.default") : `${t("picker.default")}: ${String(fallback)}`;
+  if (fallback === undefined) return t("picker.default");
+  return `${t("picker.default")}: ${props.optionTitles?.[String(fallback)] ?? String(fallback)}`;
 });
 
 const secretName = computed(() => {

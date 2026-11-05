@@ -4,6 +4,7 @@ from .context import DeviceInfo, SessionInfo, SessionState, SourceInfo, TurnCont
 from .host import HostAudio, HostError, HostUnavailable
 from .ids import new_ulid
 from .node import (
+    ENUM_TITLES_KEY,
     NODE_OPTIONS_KEY,
     OPTIONS_KEY,
     ConfigOption,
@@ -42,6 +43,7 @@ from .types import (
 __version__ = "0.1.1"
 
 __all__ = [
+    "ENUM_TITLES_KEY",
     "ConfigOption",
     "NODE_OPTIONS_KEY",
     "FieldText",

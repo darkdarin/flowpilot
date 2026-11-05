@@ -60,6 +60,11 @@ OPTIONS_KEY = "x-flowpilot-options"
 # Language settings carry ``"format": "language"`` so editors show language names for the codes.
 NODE_OPTIONS_KEY = "x-flowpilot-node-options"
 
+# JSON Schema keyword with English labels for the values of an ``enum`` setting:
+# ``{"enum": ["whole", "words"], ENUM_TITLES_KEY: {"whole": "At once", "words": "Word by word"}}``.
+# Translations carry the same under ``config.<setting>.options``.
+ENUM_TITLES_KEY = "x-flowpilot-enum-titles"
+
 
 @dataclass(frozen=True, slots=True)
 class ConfigOption:
@@ -120,6 +125,10 @@ class NodeSpec:
                 raise ValueError(f"{where}: translations for unknown outputs {sorted(unknown)}")
             if unknown := set(text.config) - settings:
                 raise ValueError(f"{where}: translations for unknown settings {sorted(unknown)}")
+            for name, field_text in text.config.items():
+                values = {str(v) for v in self.config_schema["properties"][name].get("enum", [])}
+                if unknown := set(field_text.options) - values:
+                    raise ValueError(f"{where}: labels for unknown values of {name}: {unknown}")
 
 
 class NodeContext(Protocol):
