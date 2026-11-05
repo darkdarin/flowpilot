@@ -32,7 +32,8 @@ Server → client
 - ``references``     ``{graphs: {graph: [{node, field, kind, id}, ...]}}`` — what the deployed
   graphs use from the host (see ``references.py``); sent after ``hello.ok`` and after each deploy
   to clients that offer ``ha.entities.list``. Clients ignore message types they do not know.
-- ``graphs``         ``{graphs: [{id, name}], default}`` — deployed graphs and the default one;
+- ``graphs``         ``{graphs: [{id, name, version}], default}`` — deployed graphs (``version``
+  changes when a deploy changes what the graph does) and the default one;
   sent to the same clients after ``hello.ok``, after each deploy and when the default changes.
   ``turn.start`` without ``graph`` goes to ``default``.
 - ``turn.end``       ``{turn_id, status: ok|degraded|timeout|cancelled, nodes: {id: status}}``

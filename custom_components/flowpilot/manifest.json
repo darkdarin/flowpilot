@@ -11,7 +11,8 @@
   "dependencies": [
     "assist_pipeline",
     "conversation",
-    "stt"
+    "stt",
+    "tts"
   ],
   "documentation": "https://github.com/darkdarin/flowpilot",
   "integration_type": "service",

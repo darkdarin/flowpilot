@@ -393,11 +393,10 @@ async def test_hosts_learn_references_and_graphs(env: Any) -> None:
 
     try:
         assert await next_of("references") == {"type": "references", "graphs": {"main": []}}
-        assert await next_of("graphs") == {
-            "type": "graphs",
-            "graphs": [{"id": "main", "name": "Main"}],
-            "default": "main",
-        }
+        first = await next_of("graphs")
+        assert first["default"] == "main"
+        assert [(g["id"], g["name"]) for g in first["graphs"]] == [("main", "Main")]
+        version = first["graphs"][0]["version"]
 
         with_agent = graph("v2")
         with_agent["nodes"][1]["config"]["agent"] = "conversation.kids"
@@ -410,7 +409,13 @@ async def test_hosts_learn_references_and_graphs(env: Any) -> None:
                 "id": "conversation.kids",
             }
         ]
-        assert (await next_of("graphs"))["default"] == "main"
+        second = await next_of("graphs")
+        assert second["default"] == "main"
+        assert second["graphs"][0]["version"] != version  # the deploy changed what it does
+
+        moved = {**with_agent, "ui": {"nodes": {"agent": {"x": 500, "y": 5}}}}
+        await manager.deploy_data("main", moved)
+        assert (await next_of("graphs"))["graphs"][0]["version"] == second["graphs"][0]["version"]
 
         await manager.deploy_data("kids", graph("kid answer", graph_id="kids"))
         assert [g["id"] for g in (await next_of("graphs"))["graphs"]] == ["kids", "main"]

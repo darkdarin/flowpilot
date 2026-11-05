@@ -69,6 +69,44 @@ class HostRequest:
         await self._send_audio(fmt, chunks)
 
 
+class SpeechBuffer:
+    """The speech a turn's graph synthesizes, kept until our text-to-speech entity plays it.
+
+    ``format`` resolves with the audio format when the speech starts, or ``None`` when the turn
+    ended without speech (the graph has no text-to-speech, or it failed).
+    """
+
+    def __init__(self) -> None:
+        self.format: asyncio.Future[dict[str, Any] | None] = (
+            asyncio.get_running_loop().create_future()
+        )
+        self._chunks: asyncio.Queue[bytes | None] = asyncio.Queue()
+        self._ended = False
+
+    def open(self, fmt: Mapping[str, Any]) -> None:
+        if not self.format.done():
+            self.format.set_result(dict(fmt))
+
+    def put(self, pcm: bytes) -> None:
+        if not self._ended:
+            self._chunks.put_nowait(pcm)
+
+    def end(self) -> None:
+        if not self._ended:
+            self._ended = True
+            self._chunks.put_nowait(None)
+
+    def finish(self) -> None:
+        """The turn is over: no speech is coming any more."""
+        if not self.format.done():
+            self.format.set_result(None)
+        self.end()
+
+    async def chunks(self) -> AsyncIterator[bytes]:
+        while (pcm := await self._chunks.get()) is not None:
+            yield pcm
+
+
 class TurnHandle:
     """One FlowPilot turn as seen from Home Assistant."""
 
@@ -91,6 +129,8 @@ class TurnHandle:
             asyncio.get_running_loop().create_future()
         )
         self._audio_open = audio_stream is not None
+        self.speech = SpeechBuffer()
+        self.speech_taken = False  # played by a text-to-speech entity (once per turn)
 
     async def send_audio(self, pcm: bytes) -> None:
         if self._audio_open and self.audio_stream is not None:
@@ -144,11 +184,14 @@ class FlowPilotClient:
         self._handles: dict[str, TurnHandle] = {}
         self._host_tasks: set[asyncio.Task[None]] = set()
         self._host_in: dict[int, asyncio.Queue[bytes | None]] = {}
+        self._speech_in: dict[int, SpeechBuffer] = {}  # turn speech by stream id
         # Called with ``{graph: [{node, field, kind, id}]}`` whenever the runtime reports what its
         # deployed graphs use from Home Assistant.
         self.on_references: Callable[[dict[str, list[dict[str, Any]]]], None] | None = None
-        # Deployed graphs (id -> name) and the default one, as the runtime last reported them.
+        # Deployed graphs (id -> name), their versions and the default one, as the runtime last
+        # reported them.
         self.graphs: dict[str, str] = {}
+        self.graph_versions: dict[str, str] = {}
         self.default_graph: str | None = None
         self.graphs_known = False
 
@@ -234,7 +277,11 @@ class FlowPilotClient:
         self._pending.clear()
         for handle in self._handles.values():
             handle.events.put_nowait({"type": "turn.end", "status": "disconnected"})
+            handle.speech.finish()
         self._handles.clear()
+        for speech in self._speech_in.values():
+            speech.finish()
+        self._speech_in.clear()
         for queue in self._host_in.values():
             queue.put_nowait(None)
         self._host_in.clear()
@@ -320,7 +367,8 @@ class FlowPilotClient:
                 (stream,) = _STREAM_ID.unpack_from(msg.data)
                 if (queue := self._host_in.get(stream)) is not None:
                     queue.put_nowait(msg.data[_STREAM_ID.size :])
-                # other binary streams (turn speech) are not used while HA TTS speaks
+                elif (speech := self._speech_in.get(stream)) is not None:
+                    speech.put(msg.data[_STREAM_ID.size :])
             elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR):
                 break
 
@@ -332,12 +380,17 @@ class FlowPilotClient:
             if not fut.done():
                 fut.set_result(msg)
             return
-        if kind == "stream.end" and (queue := self._host_in.pop(msg["stream"], None)):
-            queue.put_nowait(None)
+        if kind == "stream.end":
+            if (queue := self._host_in.pop(msg["stream"], None)) is not None:
+                queue.put_nowait(None)
+            elif (speech := self._speech_in.pop(msg["stream"], None)) is not None:
+                speech.end()
             return
         if kind == "graphs":
-            self.graphs = {
-                str(g["id"]): str(g.get("name") or g["id"]) for g in msg.get("graphs") or []
+            graphs = msg.get("graphs") or []
+            self.graphs = {str(g["id"]): str(g.get("name") or g["id"]) for g in graphs}
+            self.graph_versions = {
+                str(g["id"]): str(g["version"]) for g in graphs if g.get("version")
             }
             self.default_graph = msg.get("default")
             self.graphs_known = True
@@ -361,9 +414,14 @@ class FlowPilotClient:
             if kind == "error":
                 _LOGGER.warning("FlowPilot error: %s", msg.get("message"))
             return
+        if kind == "stream.start" and msg.get("kind") == "speech":
+            handle.speech.open(msg.get("format") or {})
+            self._speech_in[int(msg["stream"])] = handle.speech
+            return
         handle.events.put_nowait(msg)
         if kind == "turn.end":
             self._handles.pop(handle.turn_id, None)
+            handle.speech.finish()
 
     async def _serve_host(self, msg: dict[str, Any]) -> None:
         call, op = msg.get("call"), str(msg.get("op"))

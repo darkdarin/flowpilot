@@ -13,13 +13,15 @@ from typing import Any
 
 import aiohttp
 import probatio
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import selector
 from homeassistant.helpers.hassio import is_hassio
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 
 from .client import FlowPilotClient, FlowPilotError
-from .const import CONF_TOKEN, CONF_URL, DOMAIN
+from .const import CONF_FALLBACK_TTS, CONF_TOKEN, CONF_URL, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,6 +57,11 @@ class FlowPilotConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._discovered: dict[str, Any] = {}
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> FlowPilotOptionsFlow:
+        return FlowPilotOptionsFlow()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is None and (found := await async_find_app(self.hass)) is not None:
@@ -122,3 +129,32 @@ class FlowPilotConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={"addon": str(self._discovered["addon"])},
             errors=errors,
         )
+
+
+class FlowPilotOptionsFlow(OptionsFlow):
+    """The fallback voice: speaks what FlowPilot has no speech for (see tts.py)."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            options = {k: v for k, v in user_input.items() if v}
+            return self.async_create_entry(data=options)
+        ours = [
+            e.entity_id
+            for e in er.async_entries_for_config_entry(
+                er.async_get(self.hass), self.config_entry.entry_id
+            )
+            if e.domain == "tts"
+        ]
+        schema = probatio.Schema(
+            {
+                probatio.Optional(
+                    CONF_FALLBACK_TTS,
+                    description={
+                        "suggested_value": self.config_entry.options.get(CONF_FALLBACK_TTS)
+                    },
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="tts", exclude_entities=ours)
+                ),
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)

@@ -186,6 +186,7 @@ class FlowPilotServer:
         """Deployed graphs for hosts (Home Assistant makes an assistant choice per graph)."""
         graphs = [
             {"id": graph_id, "name": d.graph.graph.name or graph_id}
+            | ({"version": v} if (v := self.manager.versions.get(graph_id)) else {})
             for graph_id, d in sorted(self.deployments.items())
         ]
         return {"type": "graphs", "graphs": graphs, "default": self.default_graph}

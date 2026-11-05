@@ -90,8 +90,13 @@ The app is the FlowPilot runtime with the graph editor.
 2. Set **Speech-to-text** and **Conversation agent** to the same FlowPilot graph: every deployed
    graph has its own pair named after it (`stt.flowpilot_<graph>`, `conversation.flowpilot_<graph>`).
    **FlowPilot Speech-to-text** and **FlowPilot Agent** follow the main graph, the one starred in
-   the editor. Text-to-speech stays your usual one: Home Assistant speaks the answer.
-3. Pick this assistant on the satellite's device page. Different assistants can run different
+   the editor.
+3. **Text-to-speech**: keep your usual voice, and Home Assistant speaks the answer; or pick the
+   same graph's `tts.flowpilot_<graph>`, and the answer is spoken by the graph's own text-to-speech
+   nodes (any Wyoming or Home Assistant voice, a different voice per graph). For what FlowPilot has
+   no speech for (answers of local intents, satellite announcements, `tts.speak`, a graph without
+   text-to-speech), choose a **fallback voice** in the FlowPilot integration's options.
+4. Pick this assistant on the satellite's device page. Different assistants can run different
    graphs, for example one per room.
 
 Try it in the Assist chat first: the starter graph `main` answers typed text with the Home
@@ -121,7 +126,7 @@ On the **Configuration** tab of the app. Usually there is nothing to change.
 | Option | What for |
 |---|---|
 | `log_level` | how much the runtime writes to the app log (`debug` for troubleshooting) |
-| `dev_nodes` | nodes for testing without speech services: a fixed-phrase speech-to-text and an echo agent |
+| `dev_nodes` | nodes for testing without speech services: a fixed-phrase speech-to-text and a beeping text-to-speech |
 
 ### Data
 
@@ -157,9 +162,9 @@ satellite ──> Assist ──> FlowPilot STT entity ─┐            ┌─> 
                                                     (runtime + editor)            agents (host operations)
 ```
 
-The integration (`custom_components/flowpilot`) gives Assist a speech-to-text engine and a
-conversation agent that hand the audio to the FlowPilot runtime and take its answer back; both
-stages of one Assist run are linked into one FlowPilot turn. The runtime (the app, `addon/`)
+The integration (`custom_components/flowpilot`) gives Assist a speech-to-text engine, a
+conversation agent and a text-to-speech voice that hand the audio to the FlowPilot runtime and take
+its answer and speech back; the stages of one Assist run are linked into one FlowPilot turn. The runtime (the app, `addon/`)
 executes the graph and calls back into Home Assistant for its STT, TTS and agents. The core does
 not depend on Home Assistant, so the runtime also runs on its own:
 

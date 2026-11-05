@@ -21,7 +21,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .client import FlowPilotClient, FlowPilotError, TurnHandle
 from .const import RESPONSE_TIMEOUT_S, SIGNAL_CONNECTION
-from .correlation import take_voice_turn
+from .correlation import CURRENT_SPEECH, take_voice_turn
 from .entity import service_device
 from .graphs import GraphEntity, async_track_graphs, graph_unique_id
 
@@ -158,6 +158,9 @@ class FlowPilotConversationEntity(GraphEntity, conversation.ConversationEntity):
                     handle.graph or "(default)",
                 )
         handle.attach(user_input)
+        # Our text-to-speech entity, if the assistant uses it, plays this turn's speech; set before
+        # the first delta, since streaming synthesis starts from the deltas (ADR-017).
+        CURRENT_SPEECH.set(handle)
 
         state: dict[str, object] = {"continue": False, "error": None, "reason": "failed"}
         async for _ in chat_log.async_add_delta_content_stream(

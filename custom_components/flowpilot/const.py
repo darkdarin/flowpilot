@@ -7,6 +7,8 @@ from typing import Final
 DOMAIN: Final = "flowpilot"
 CONF_URL: Final = "url"
 CONF_TOKEN: Final = "token"
+# Options: the Home Assistant voice for texts FlowPilot has no speech for (tts.py).
+CONF_FALLBACK_TTS: Final = "fallback_tts"
 
 PROTOCOL_VERSION: Final = 1
 WS_PATH: Final = "/api/ws"

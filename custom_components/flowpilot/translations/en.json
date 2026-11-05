@@ -28,5 +28,19 @@
       "title": "FlowPilot graph {graph} uses something that is gone",
       "description": "The deployed FlowPilot graph **{graph}** refers to Home Assistant entities or agents that do not exist or are not loaded:\n\n{references}\n\nTurns that reach these nodes fail. Restore them in Home Assistant, or open the FlowPilot editor, pick another one and deploy the graph. This issue clears itself once the references resolve."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "FlowPilot options",
+        "description": "Assistants that use a FlowPilot text-to-speech entity hear the speech of the FlowPilot graph.",
+        "data": {
+          "fallback_tts": "Fallback voice"
+        },
+        "data_description": {
+          "fallback_tts": "Speaks what FlowPilot has no speech for: answers of local intents, satellite announcements, tts.speak, and graphs without text-to-speech."
+        }
+      }
+    }
   }
 }

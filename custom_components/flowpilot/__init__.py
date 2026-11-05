@@ -11,7 +11,7 @@ from .const import CONF_TOKEN, CONF_URL, SIGNAL_CONNECTION
 from .host import build_host_ops
 from .references import ReferenceMonitor
 
-PLATFORMS = [Platform.CONVERSATION, Platform.STT]
+PLATFORMS = [Platform.CONVERSATION, Platform.STT, Platform.TTS]
 
 type FlowPilotConfigEntry = ConfigEntry[FlowPilotClient]
 

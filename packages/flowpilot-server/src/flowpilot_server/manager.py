@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -80,6 +81,19 @@ class GraphStore:
         self._path(graph_id, draft=True).unlink(missing_ok=True)
 
 
+def graph_version(data: Any) -> str:
+    """What the graph does, as a short hash: nodes, edges and settings, not its name or layout.
+
+    Hosts key caches on it (Home Assistant's text-to-speech cache): a deploy that changes what the
+    graph does gets a new version, moving nodes around in the editor does not.
+    """
+    body = (
+        {k: data.get(k) for k in ("nodes", "edges", "settings")} if isinstance(data, dict) else {}
+    )
+    digest = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode())
+    return digest.hexdigest()[:12]
+
+
 def issue_dicts(issues: list[GraphIssue], data: Any) -> list[dict[str, Any]]:
     """Issues as JSON, with the node id or edge index they point to, for the editor."""
     nodes = data.get("nodes", []) if isinstance(data, Mapping) else []
@@ -120,6 +134,7 @@ class GraphManager:
         self._on_deployed: Callable[[str], None] | None = None
         self._watching: Callable[[str], bool] | None = None
         self.deployments: dict[str, Deployment] = {}
+        self.versions: dict[str, str] = {}  # graph_version() of each deployed graph
         self._active: dict[Deployment, int] = {}
         self._idle = asyncio.Condition()
         self._retiring: set[asyncio.Task[None]] = set()
@@ -202,6 +217,7 @@ class GraphManager:
         async with self._lock:
             old = self.deployments.get(graph_id)
             self.deployments[graph_id] = deployment
+            self.versions[graph_id] = graph_version(data)
             if persist and self.store is not None:
                 self.store.save(graph_id, data)
                 self.store.delete_draft(graph_id)

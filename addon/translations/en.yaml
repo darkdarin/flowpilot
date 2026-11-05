@@ -4,6 +4,6 @@ configuration:
     description: How much the runtime writes to the add-on log.
   dev_nodes:
     name: Development nodes
-    description: Offer nodes for testing without speech services (fixed phrase STT, echo agent).
+    description: Offer nodes for testing without speech services (fixed phrase speech-to-text, beeping text-to-speech).
 network:
   8765/tcp: Runtime API for clients outside Home Assistant; the integration does not need it.

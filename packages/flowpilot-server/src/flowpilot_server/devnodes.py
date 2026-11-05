@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import ClassVar
 
 from flowpilot_sdk import (
+    AudioChunk,
+    AudioFormat,
     Node,
     NodeContext,
     NodeSpec,
@@ -89,4 +91,51 @@ class FixedStt:
         return None
 
 
-DEV_NODES: list[type[Node]] = [FixedStt]
+class BeepTts:
+    """Pretends to speak: a fixed tone per character, so tests can tell the speech of a turn."""
+
+    RATE = 16000
+    SAMPLES_PER_CHAR = 160  # 10 ms
+    LEVEL = 1000
+
+    spec: ClassVar[NodeSpec] = NodeSpec(
+        type="dev.beep_tts",
+        translations=node_translations(__package__, "dev.beep_tts"),
+        version="1.0.0",
+        title="Beeping TTS (dev)",
+        category="speech",
+        inputs={"text": PortSpec("text.delta/1", description="Text to speak.")},
+        outputs={
+            "speech": PortSpec(
+                "audio.pcm/1", description="10 ms of a constant tone per character, 16 kHz."
+            )
+        },
+        turn_timeout_s=30.0,
+        description=(
+            "For testing without a speech service: speaks every character as 10 ms of a tone, "
+            "so the length of the speech tells which text it was."
+        ),
+    )
+
+    async def start(self, ctx: NodeContext) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    async def run_turn(self, turn: TurnSession) -> None:
+        text = turn.input("text")
+        if await text.header() is None:
+            return
+        speech = turn.output("speech")
+        await speech.open(AudioFormat(sample_rate=self.RATE).as_meta())
+        offset = 0
+        sample = self.LEVEL.to_bytes(2, "little", signed=True)
+        async for piece in text:
+            samples = len(piece.text) * self.SAMPLES_PER_CHAR
+            if samples:
+                await speech.send(AudioChunk(sample * samples, offset))
+                offset += samples
+
+
+DEV_NODES: list[type[Node]] = [FixedStt, BeepTts]
