@@ -252,6 +252,8 @@ function legendTypes() {
         :max-zoom="2"
         :snap-to-grid="true"
         :snap-grid="[11, 11]"
+        :pan-on-scroll="true"
+        :zoom-on-scroll="false"
         delete-key-code="Delete"
         @connect="onConnect"
         @node-click="({ node }) => (selectedId = node.id)"

@@ -67,18 +67,17 @@ const dynamicLoading = ref(false);
 let dynamicTimer: number | undefined;
 let dynamicSeq = 0;
 
-function loadDynamic() {
+async function loadDynamic(): Promise<void> {
   if (!fromNode.value) return;
   const seq = ++dynamicSeq;
   const config = { ...(props.config ?? {}) };
   delete config[props.name];
   dynamicLoading.value = true;
   dynamic.value = { options: [] }; // the old list belongs to the old config
-  void nodeOptions(props.nodeType!, props.name, config).then((result) => {
-    if (seq !== dynamicSeq) return;
-    dynamic.value = result;
-    dynamicLoading.value = false;
-  });
+  const result = await nodeOptions(props.nodeType!, props.name, config);
+  if (seq !== dynamicSeq) return;
+  dynamic.value = result;
+  dynamicLoading.value = false;
 }
 
 watch(
@@ -89,16 +88,32 @@ watch(
   },
   (key) => {
     window.clearTimeout(dynamicTimer);
-    if (key) dynamicTimer = window.setTimeout(loadDynamic, 300);
+    if (key) dynamicTimer = window.setTimeout(() => void loadDynamic(), 300);
   },
   { immediate: true },
 );
 onBeforeUnmount(() => window.clearTimeout(dynamicTimer));
 
-function refresh() {
-  void refreshOptions();
-  loadDynamic();
+// "Refreshing…" stays long enough to be seen even when the answer is instant, then "Refreshed".
+const refreshing = ref(false);
+const refreshed = ref(false);
+let refreshedTimer: number | undefined;
+
+async function refresh() {
+  if (refreshing.value) return;
+  refreshing.value = true;
+  refreshed.value = false;
+  window.clearTimeout(refreshedTimer);
+  const minimum = new Promise((resolve) => window.setTimeout(resolve, 500));
+  try {
+    await Promise.all([refreshOptions(), loadDynamic(), minimum]);
+  } finally {
+    refreshing.value = false;
+    refreshed.value = true;
+    refreshedTimer = window.setTimeout(() => (refreshed.value = false), 1800);
+  }
 }
+onBeforeUnmount(() => window.clearTimeout(refreshedTimer));
 
 const isLanguage = computed(() => props.schema.format === "language");
 const usePicker = computed(
@@ -188,7 +203,11 @@ const hint = computed(() => {
       />
       <small v-if="unknownRef" class="warn">{{ t("form.notFound") }}</small>
       <small v-else-if="optionKind && !hostOptions.available">{{ t("form.noHost") }}</small>
-      <button v-if="optionKind || fromNode" type="button" class="refresh" @click="refresh">{{ t("form.refresh") }}</button>
+      <button v-if="optionKind || fromNode" type="button" class="refresh" :disabled="refreshing" :aria-busy="refreshing" @click="refresh">
+        <svg v-if="refreshing" class="spin" viewBox="0 0 16 16" aria-hidden="true"><path d="M14 8a6 6 0 1 1-6-6" /></svg>
+        <svg v-else-if="refreshed" class="done" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5 6.5 12 13 4.5" /></svg>
+        {{ refreshing ? t("form.refreshing") : refreshed ? t("form.refreshed") : t("form.refresh") }}
+      </button>
     </template>
 
     <label v-else-if="kind === 'boolean'" class="check">
@@ -310,8 +329,45 @@ small.chosen {
   cursor: pointer;
 }
 
-.refresh:hover {
+.refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.refresh:hover:not(:disabled) {
   text-decoration: underline;
+}
+
+.refresh:disabled {
+  color: var(--muted);
+  cursor: progress;
+}
+
+.done {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: var(--ok);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.spin {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .check {
