@@ -2,7 +2,7 @@
 import { Background } from "@vue-flow/background";
 import { type Connection, VueFlow, useVueFlow } from "@vue-flow/core";
 import { MiniMap } from "@vue-flow/minimap";
-import { computed, markRaw, nextTick, onMounted, ref } from "vue";
+import { computed, markRaw, nextTick, onMounted, ref, watch } from "vue";
 import DebugPanel from "./components/DebugPanel.vue";
 import FpNode from "./components/FpNode.vue";
 import Inspector from "./components/Inspector.vue";
@@ -40,7 +40,26 @@ import { typeColor } from "./types";
 
 const nodeTypes = { fp: markRaw(FpNode) };
 const edgeTypes = { typed: markRaw(TypedEdge) };
-const { screenToFlowCoordinate, fitView, onNodesInitialized } = useVueFlow();
+const {
+  screenToFlowCoordinate,
+  fitView,
+  onNodesInitialized,
+  findNode,
+  getSelectedNodes,
+  addSelectedNodes,
+  removeSelectedNodes,
+} = useVueFlow();
+
+// The inspector follows selectedId; keep the canvas selection in step when it is set elsewhere
+// (debug timeline, a node added from the palette, a renamed node).
+watch(selectedId, async (id) => {
+  await nextTick(); // a node added just now is not on the canvas yet
+  const current = getSelectedNodes.value;
+  if (current.length === 1 && current[0].id === id) return;
+  removeSelectedNodes(current);
+  const node = id ? findNode(id) : undefined;
+  if (node) addSelectedNodes([node]);
+});
 
 const booting = ref(Boolean(token.value));
 const theme = ref(document.documentElement.dataset.theme ?? "dark");
@@ -237,6 +256,7 @@ function legendTypes() {
         delete-key-code="Delete"
         @connect="onConnect"
         @node-click="({ node }) => (selectedId = node.id)"
+        @node-drag-start="({ node }) => (selectedId = node.id)"
         @pane-click="selectedId = null"
       >
         <Background :gap="22" :size="1.4" pattern-color="var(--canvas-dot)" />
