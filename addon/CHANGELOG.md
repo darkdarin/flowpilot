@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- Adding the integration by hand on Home Assistant OS finds the FlowPilot app by itself instead of
+  asking for an address and a token.
+- New icons and logos for the app and the integration (light and dark), and the same mark in the
+  editor.
+
 ## 0.1.0
 
 - First release: the FlowPilot runtime with the graph editor in the Home Assistant sidebar

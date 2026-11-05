@@ -30,7 +30,7 @@ from .types import (
     validate_type_id,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "FieldText",
