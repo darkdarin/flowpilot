@@ -58,6 +58,15 @@ const en = {
   "form.noHost": "Connect Home Assistant to choose from its list.",
   "form.refresh": "Refresh list",
   "form.choose": "Choose or type",
+  "picker.default": "Default",
+  "picker.unset": "Not set",
+  "picker.custom": "Enter manually…",
+  "picker.customValue": "your value",
+  "picker.customHint": "Type a value and press Enter",
+  "picker.loading": "Loading…",
+  "picker.search": "Search",
+  "picker.none": "Nothing to choose from",
+  "picker.unreachable": "Could not get the list: {msg}",
   "issues.warnings": "Warnings: {n}",
   "issues.none": "No problems",
   "issues.count": "{n} problems",
@@ -141,6 +150,15 @@ const ru: Record<Key, string> = {
   "form.noHost": "Подключите Home Assistant, чтобы выбрать из списка.",
   "form.refresh": "Обновить список",
   "form.choose": "Выберите или введите",
+  "picker.default": "По умолчанию",
+  "picker.unset": "Не задано",
+  "picker.custom": "Указать вручную…",
+  "picker.customValue": "своё значение",
+  "picker.customHint": "Введите значение и нажмите Enter",
+  "picker.loading": "Загружаю…",
+  "picker.search": "Поиск",
+  "picker.none": "Выбрать не из чего",
+  "picker.unreachable": "Не удалось получить список: {msg}",
   "issues.warnings": "Предупреждений: {n}",
   "issues.none": "Проблем нет",
   "issues.count": "Проблем: {n}",
@@ -189,4 +207,15 @@ export function t(key: Key, params: Record<string, string | number> = {}): strin
 export function categoryLabel(category: string): string {
   const key = `category.${category}` as Key;
   return key in en ? t(key) : category;
+}
+
+/** "ru" → "русский" (in the UI language); unknown codes stay as they are. */
+export function languageName(code: string): string {
+  try {
+    const names = new Intl.DisplayNames([locale.value], { type: "language" });
+    const name = names.of(code);
+    return name && name !== code ? name.charAt(0).toUpperCase() + name.slice(1) : code;
+  } catch {
+    return code;
+  }
 }

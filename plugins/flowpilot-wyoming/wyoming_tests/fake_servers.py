@@ -15,7 +15,16 @@ from wyoming.asr import Transcribe, Transcript, TranscriptChunk, TranscriptStart
 from wyoming.audio import AudioChunk, AudioStart, AudioStop
 from wyoming.error import Error
 from wyoming.event import Event
-from wyoming.info import AsrModel, AsrProgram, Attribution, Describe, Info, TtsProgram, TtsVoice
+from wyoming.info import (
+    AsrModel,
+    AsrProgram,
+    Attribution,
+    Describe,
+    Info,
+    TtsProgram,
+    TtsVoice,
+    TtsVoiceSpeaker,
+)
 from wyoming.server import AsyncEventHandler, AsyncTcpServer
 from wyoming.tts import (
     Synthesize,
@@ -58,7 +67,11 @@ class AsrHandler(AsyncEventHandler):
             program = AsrProgram(
                 name="fake-asr", description="", attribution=ATTR, installed=True, version="1",
                 models=[AsrModel(name="m", description="", attribution=ATTR, installed=True,
-                                 languages=["en"], version="1")],
+                                 languages=["en"], version="1"),
+                        AsrModel(name="large", description="Large model", attribution=ATTR,
+                                 installed=True, languages=["ru", "en"], version="3"),
+                        AsrModel(name="missing", description="", attribution=ATTR,
+                                 installed=False, languages=["de"], version="1")],
                 supports_transcript_streaming=self.streaming,
                 requires_external_vad=not self.own_vad,
             )  # fmt: skip
@@ -110,7 +123,11 @@ class TtsHandler(AsyncEventHandler):
             program = TtsProgram(
                 name="fake-tts", description="", attribution=ATTR, installed=True, version="1",
                 voices=[TtsVoice(name="v", description="", attribution=ATTR, installed=True,
-                                 languages=["en"], version="1")],
+                                 languages=["en"], version="1"),
+                        TtsVoice(name="anna", description="Anna", attribution=ATTR, installed=True,
+                                 languages=["ru"], version="1",
+                                 speakers=[TtsVoiceSpeaker(name="calm"),
+                                           TtsVoiceSpeaker(name="lively")])],
                 supports_synthesize_streaming=self.streaming,
             )  # fmt: skip
             await self.write_event(Info(tts=[program]).event())

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import Mapping
 from typing import Any, ClassVar
 
 from wyoming.asr import Transcribe, TranscriptChunk, TranscriptStart, TranscriptStop
@@ -14,8 +15,10 @@ from wyoming.client import AsyncTcpClient
 from wyoming.event import Event
 
 from flowpilot_sdk import (
+    NODE_OPTIONS_KEY,
     OPTIONS_KEY,
     AudioFormat,
+    ConfigOption,
     InputStream,
     NodeContext,
     NodeSpec,
@@ -33,7 +36,9 @@ from .common import (
     WyomingError,
     connect,
     describe,
+    describe_config,
     explain_send_failure,
+    languages_option,
     raise_on_error,
 )
 
@@ -75,6 +80,8 @@ class WyomingStt:
                     OPTIONS_KEY: "wyoming.asr",
                 },
                 "language": {
+                    NODE_OPTIONS_KEY: True,
+                    "format": "language",
                     "title": "Language",
                     "description": (
                         "Recognition language, for example ru; the turn's language when not set."
@@ -82,6 +89,7 @@ class WyomingStt:
                     "type": "string",
                 },
                 "model": {
+                    NODE_OPTIONS_KEY: True,
                     "title": "Model",
                     "description": (
                         "Model name when the service offers several; its default when not set."
@@ -123,6 +131,29 @@ class WyomingStt:
         self._connect_timeout_s = DEFAULT_CONNECT_TIMEOUT_S
         self._final_timeout_s = 15.0
         self.streams_partials: bool | None = None  # from describe; None = unknown
+
+    @classmethod
+    async def config_options(cls, field: str, config: Mapping[str, Any]) -> list[ConfigOption]:
+        """Models and languages the service in ``uri`` offers (for the editor)."""
+        info = await describe_config(config)
+        if info is None:
+            return []
+        programs = [p for p in info.asr if p.installed]
+        models = [(p, m) for p in programs for m in p.models if m.installed]
+        if field == "model":
+            return [
+                ConfigOption(
+                    m.name,
+                    m.description or m.name,
+                    " · ".join(x for x in (p.name, m.version or "") if x and x != m.name),
+                )
+                for p, m in models
+            ]
+        if field == "language":
+            chosen = [m for _, m in models if m.name == config.get("model")]
+            return languages_option(lang for m in (chosen or [m for _, m in models])
+                                    for lang in m.languages)  # fmt: skip
+        return []
 
     async def start(self, ctx: NodeContext) -> None:
         cfg = ctx.config

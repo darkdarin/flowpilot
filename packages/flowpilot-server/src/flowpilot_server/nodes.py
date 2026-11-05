@@ -328,6 +328,7 @@ class HaStt(_Lifecycle):
                     OPTIONS_KEY: "ha.stt",
                 },
                 "language": {
+                    "format": "language",
                     "title": "Language",
                     "description": (
                         "Recognition language, for example ru; the turn's language when not set."
@@ -407,6 +408,7 @@ class HaTts(_Lifecycle):
                     OPTIONS_KEY: "ha.tts",
                 },
                 "language": {
+                    "format": "language",
                     "title": "Language",
                     "description": "Language of the voice; the turn's language when not set.",
                     "type": "string",

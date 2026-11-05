@@ -40,9 +40,10 @@ join branches, and watch every turn flow through the graph live.
 - **Works with any satellite.** ESPHome and Voice PE, Wyoming satellites, VoIP and third-party
   ones (such as [Yandex Quasar](https://github.com/darkdarin/yandex-quasar)): FlowPilot plugs into
   Assist as its speech-to-text engine and conversation agent.
-- **Home Assistant entities from a list.** Settings that name an entity or a Wyoming service offer
-  what Home Assistant has; a deployed graph that refers to something you removed raises a repair
-  issue.
+- **Choose from lists, not ids.** Settings that name an entity or a Wyoming service offer what Home
+  Assistant has, with your own value one click away; a Wyoming service's models, languages, voices
+  and speakers come from the service itself. A deployed graph that refers to something you removed
+  raises a repair issue.
 
 ## What you need
 

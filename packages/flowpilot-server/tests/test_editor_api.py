@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -14,7 +14,15 @@ from aiohttp.test_utils import TestServer
 
 from flowpilot_core import NodeRegistry
 from flowpilot_core.builtin import register_builtin
-from flowpilot_sdk import OPTIONS_KEY, NodeContext, NodeSpec, PortSpec, Response, TurnSession
+from flowpilot_sdk import (
+    OPTIONS_KEY,
+    ConfigOption,
+    NodeContext,
+    NodeSpec,
+    PortSpec,
+    Response,
+    TurnSession,
+)
 from flowpilot_server.manager import GraphManager, GraphStore, issue_dicts
 from flowpilot_server.nodes import ClientSink, ClientSource
 from flowpilot_server.protocol import TURN_PATH
@@ -46,6 +54,12 @@ class Reply:
     )
     gate: ClassVar[asyncio.Event | None] = None
     entered: ClassVar[asyncio.Event | None] = None
+
+    @classmethod
+    async def config_options(cls, field: str, config: Mapping[str, Any]) -> list[ConfigOption]:
+        if config.get("text") == "explode":
+            raise RuntimeError("lookup failed")
+        return [ConfigOption("a1", "Agent one", field)] if field == "agent" else []
 
     async def start(self, ctx: NodeContext) -> None:
         self.text = str(ctx.config["text"])
@@ -389,3 +403,20 @@ async def test_hosts_learn_references_on_hello_and_deploy(env: Any) -> None:
     finally:
         await ws.close()
         await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_node_options_come_from_the_node_class(env: Any) -> None:
+    session, url, _ = env
+
+    async def ask_options(body: dict[str, Any]) -> Any:
+        resp = await session.post(url("/api/editor/node-options"), json=body, headers=AUTH)
+        assert resp.status == 200
+        return await resp.json()
+
+    body = {"type": "test.reply", "field": "agent", "config": {"text": "x"}}
+    assert await ask_options(body) == {
+        "options": [{"id": "a1", "name": "Agent one", "description": "agent"}]
+    }
+    assert (await ask_options({**body, "config": {"text": "explode"}}))["error"] == "lookup failed"
+    assert await ask_options({"type": "client.sink", "field": "x", "config": {}}) == {"options": []}
+    assert await ask_options({"type": "no.such", "field": "x"}) == {"options": []}

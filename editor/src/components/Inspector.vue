@@ -74,6 +74,8 @@ function setConfig(key: string, value: unknown) {
           :required="required.has(key)"
           :label="fieldTitle(spec, key)"
           :description="fieldDescription(spec, key)"
+          :node-type="selectedNode.data!.type"
+          :config="selectedNode.data!.config"
           :model-value="selectedNode.data!.config[key]"
           @update:model-value="setConfig(key, $event)"
         />

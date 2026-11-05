@@ -48,6 +48,26 @@ class PortSpec:
 # ``wyoming.tts`` (``tcp://host:port`` of services Home Assistant knows).
 OPTIONS_KEY = "x-flowpilot-options"
 
+# JSON Schema keyword (``true``) for a config property whose choices the node lists itself from the
+# rest of its config, e.g. the models of the Wyoming service in ``uri``. The node class then has
+#
+#     @classmethod
+#     async def config_options(cls, field: str, config: Mapping[str, Any]) -> list[ConfigOption]
+#
+# which editors call while the node is being configured (no instance, no turn). Return what fits
+# the given config, or ``[]`` when it cannot tell (for example the service is unreachable).
+# Language settings carry ``"format": "language"`` so editors show language names for the codes.
+NODE_OPTIONS_KEY = "x-flowpilot-node-options"
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigOption:
+    """One choice for a config setting: the value, and how to show it."""
+
+    id: str
+    name: str = ""  # human-readable; editors fall back to ``id``
+    description: str = ""
+
 
 @dataclass(frozen=True, slots=True)
 class NodeSpec:

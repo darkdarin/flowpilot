@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // One config property rendered from its JSON Schema. Secrets ({"type": "secret"}) become a
 // reference to the runtime secrets file: {"secret": "<name>"}.
-import { computed, ref, watch } from "vue";
-import type { JsonSchema } from "../api";
-import { t } from "../i18n";
-import { hostOptions, refreshOptions } from "../store";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
+import type { HostOption, JsonSchema } from "../api";
+import { languageName, t } from "../i18n";
+import { hostOptions, nodeOptions, refreshOptions } from "../store";
+import OptionPicker, { type PickerOption } from "./OptionPicker.vue";
 
 const props = defineProps<{
   name: string;
@@ -13,6 +14,8 @@ const props = defineProps<{
   modelValue: unknown;
   label?: string; // localized title; the property name is shown next to it
   description?: string; // localized description
+  nodeType?: string; // for choices the node lists itself
+  config?: Record<string, unknown>; // the node's whole config (those choices depend on it)
 }>();
 const emit = defineEmits<{ "update:modelValue": [value: unknown] }>();
 
@@ -56,6 +59,70 @@ const unknownRef = computed(
     stringValue.value !== "" &&
     !chosen.value,
 );
+
+// Choices the node lists itself from the rest of its config (e.g. a Wyoming service's models).
+const fromNode = computed(() => !!props.schema["x-flowpilot-node-options"] && !!props.nodeType);
+const dynamic = ref<{ options: HostOption[]; error?: string }>({ options: [] });
+const dynamicLoading = ref(false);
+let dynamicTimer: number | undefined;
+let dynamicSeq = 0;
+
+function loadDynamic() {
+  if (!fromNode.value) return;
+  const seq = ++dynamicSeq;
+  const config = { ...(props.config ?? {}) };
+  delete config[props.name];
+  dynamicLoading.value = true;
+  dynamic.value = { options: [] }; // the old list belongs to the old config
+  void nodeOptions(props.nodeType!, props.name, config).then((result) => {
+    if (seq !== dynamicSeq) return;
+    dynamic.value = result;
+    dynamicLoading.value = false;
+  });
+}
+
+watch(
+  () => {
+    const config = { ...(props.config ?? {}) };
+    delete config[props.name];
+    return fromNode.value ? JSON.stringify([props.nodeType, config]) : "";
+  },
+  (key) => {
+    window.clearTimeout(dynamicTimer);
+    if (key) dynamicTimer = window.setTimeout(loadDynamic, 300);
+  },
+  { immediate: true },
+);
+onBeforeUnmount(() => window.clearTimeout(dynamicTimer));
+
+function refresh() {
+  void refreshOptions();
+  loadDynamic();
+}
+
+const isLanguage = computed(() => props.schema.format === "language");
+const usePicker = computed(
+  () => kind.value === "enum" || (kind.value === "string" && (!!optionKind.value || fromNode.value)),
+);
+const pickerOptions = computed<PickerOption[]>(() => {
+  let list: PickerOption[] =
+    kind.value === "enum"
+      ? (props.schema.enum ?? []).map((v) => ({ id: String(v) }))
+      : optionKind.value
+        ? choices.value
+        : dynamic.value.options;
+  if (isLanguage.value) {
+    list = list
+      .map((o) => ({ id: o.id, name: languageName(o.id), description: o.id }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return list;
+});
+const emptyLabel = computed(() => {
+  if (props.required) return undefined;
+  const fallback = props.schema.default;
+  return fallback === undefined ? t("picker.default") : `${t("picker.default")}: ${String(fallback)}`;
+});
 
 const secretName = computed(() => {
   const v = props.modelValue as { secret?: string } | undefined;
@@ -106,10 +173,23 @@ const hint = computed(() => {
     </label>
     <p v-if="description" class="desc">{{ description }}</p>
 
-    <select v-if="kind === 'enum'" :id="inputId" class="field" :value="stringValue" @change="setString(($event.target as HTMLSelectElement).value)">
-      <option value="">{{ schema.default !== undefined ? String(schema.default) : t("form.unset") }}</option>
-      <option v-for="opt in schema.enum" :key="String(opt)" :value="String(opt)">{{ opt }}</option>
-    </select>
+    <template v-if="usePicker">
+      <OptionPicker
+        :input-id="inputId"
+        :model-value="stringValue"
+        :options="pickerOptions"
+        :empty-label="emptyLabel"
+        :allow-custom="kind !== 'enum'"
+        :loading="fromNode && dynamicLoading"
+        :error="fromNode ? dynamic.error : undefined"
+        :warn="unknownRef"
+        :invalid="!!invalidPattern"
+        @update:model-value="setString"
+      />
+      <small v-if="unknownRef" class="warn">{{ t("form.notFound") }}</small>
+      <small v-else-if="optionKind && !hostOptions.available">{{ t("form.noHost") }}</small>
+      <button v-if="optionKind || fromNode" type="button" class="refresh" @click="refresh">{{ t("form.refresh") }}</button>
+    </template>
 
     <label v-else-if="kind === 'boolean'" class="check">
       <input :id="inputId" type="checkbox" :checked="modelValue === true" @change="emit('update:modelValue', ($event.target as HTMLInputElement).checked)" />
@@ -143,25 +223,6 @@ const hint = computed(() => {
       <small>{{ t("form.secretHint") }}</small>
     </template>
 
-    <template v-else-if="kind === 'string' && optionKind">
-      <input
-        :id="inputId"
-        class="field"
-        :class="{ invalid: invalidPattern, warn: unknownRef }"
-        :list="`${inputId}-list`"
-        :value="stringValue"
-        :placeholder="t('form.choose')"
-        autocomplete="off"
-        @input="setString(($event.target as HTMLInputElement).value)"
-      />
-      <datalist :id="`${inputId}-list`">
-        <option v-for="c in choices" :key="c.id" :value="c.id">{{ c.name }}</option>
-      </datalist>
-      <small v-if="chosen" class="chosen">{{ chosen.name }}</small>
-      <small v-else-if="unknownRef" class="warn">{{ t("form.notFound") }}</small>
-      <small v-else-if="!hostOptions.available">{{ t("form.noHost") }}</small>
-      <button type="button" class="refresh" @click="refreshOptions()">{{ t("form.refresh") }}</button>
-    </template>
 
     <input
       v-else-if="kind === 'string'"
@@ -178,7 +239,8 @@ const hint = computed(() => {
       <small v-if="jsonBad" class="bad">{{ t("form.invalidJson") }}</small>
     </template>
 
-    <small v-if="hint && kind !== 'secret' && !optionKind">{{ hint }}</small>
+    <small v-if="isLanguage && !usePicker && stringValue">{{ languageName(stringValue) }}</small>
+    <small v-if="hint && kind !== 'secret' && !usePicker">{{ hint }}</small>
   </div>
 </template>
 

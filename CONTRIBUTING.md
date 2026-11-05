@@ -53,6 +53,11 @@ uv run pytest
   marked in the config schema, e.g. `{"type": "string", OPTIONS_KEY: "ha.stt"}` with
   `from flowpilot_sdk import OPTIONS_KEY`. The editor then offers the host's list for it, and Home
   Assistant raises a repair issue when a deployed graph refers to something that is gone.
+- A setting whose choices the node can list itself from the rest of its config (the models of the
+  service in `uri`) is marked `{NODE_OPTIONS_KEY: True}`, and the node class implements
+  `async def config_options(cls, field, config) -> list[ConfigOption]` (a classmethod; return `[]`
+  when it cannot tell yet, raise to explain why the list is empty). Language settings add
+  `"format": "language"` so the editor shows language names.
 - Do not commit secrets, API keys or voice recordings.
 
 ## License of contributions

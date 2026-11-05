@@ -55,11 +55,15 @@ export type JsonSchema = {
   additionalProperties?: boolean | JsonSchema;
   /** names something a host provides, e.g. "ha.stt" (see OPTIONS_KEY in the SDK) */
   "x-flowpilot-options"?: string;
+  /** the node lists the choices itself from the rest of its config (POST /node-options) */
+  "x-flowpilot-node-options"?: boolean;
+  format?: string;
 };
 
 export interface HostOption {
   id: string;
   name: string;
+  description?: string;
 }
 
 export interface HostOptions {
@@ -175,6 +179,9 @@ export class Api {
   }
   options(refresh = false) {
     return this.call<HostOptions>("GET", `/options${refresh ? "?refresh=1" : ""}`);
+  }
+  nodeOptions(type: string, field: string, config: Record<string, unknown>) {
+    return this.call<{ options: HostOption[]; error?: string }>("POST", "/node-options", { type, field, config });
   }
   graphs() {
     return this.call<{ graphs: GraphSummary[] }>("GET", "/graphs");

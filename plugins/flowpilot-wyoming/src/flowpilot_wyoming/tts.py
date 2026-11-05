@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import Mapping
 from typing import Any, ClassVar, Literal
 
 from wyoming.audio import AudioChunk as WyAudioChunk
@@ -19,8 +20,10 @@ from wyoming.tts import (
 )
 
 from flowpilot_sdk import (
+    NODE_OPTIONS_KEY,
     OPTIONS_KEY,
     AudioFormat,
+    ConfigOption,
     InputStream,
     NodeContext,
     NodeSpec,
@@ -36,6 +39,7 @@ from .common import (
     WyomingError,
     connect,
     describe,
+    describe_config,
     raise_on_error,
 )
 
@@ -76,11 +80,13 @@ class WyomingTts:
                     OPTIONS_KEY: "wyoming.tts",
                 },
                 "voice": {
+                    NODE_OPTIONS_KEY: True,
                     "title": "Voice",
                     "description": "Voice name; the service's default when not set.",
                     "type": "string",
                 },
                 "speaker": {
+                    NODE_OPTIONS_KEY: True,
                     "title": "Speaker",
                     "description": "Speaker of a voice with several speakers.",
                     "type": "string",
@@ -119,6 +125,23 @@ class WyomingTts:
         self._mode: Literal["auto", "on", "off"] = "auto"
         self._connect_timeout_s = DEFAULT_CONNECT_TIMEOUT_S
         self.service_streams: bool = False
+
+    @classmethod
+    async def config_options(cls, field: str, config: Mapping[str, Any]) -> list[ConfigOption]:
+        """Voices and their speakers the service in ``uri`` offers (for the editor)."""
+        info = await describe_config(config)
+        if info is None:
+            return []
+        voices = [v for p in info.tts if p.installed for v in p.voices if v.installed]
+        if field == "voice":
+            return [
+                ConfigOption(v.name, v.description or v.name, ", ".join(v.languages[:4]))
+                for v in voices
+            ]
+        if field == "speaker":
+            chosen = [v for v in voices if v.name == config.get("voice")]
+            return [ConfigOption(s.name) for v in chosen for s in v.speakers or []]
+        return []
 
     async def start(self, ctx: NodeContext) -> None:
         cfg = ctx.config

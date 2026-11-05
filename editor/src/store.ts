@@ -8,6 +8,7 @@ import {
   type Catalog,
   type GraphDoc,
   type GraphSummary,
+  type HostOption,
   type HostOptions,
   type Issue,
   type NodeInfo,
@@ -100,7 +101,21 @@ export const nodeWarnings = computed(() => {
   return map;
 });
 
+// Choices nodes list for their own settings (a Wyoming service's models), keyed by request.
+const nodeOptionsCache = new Map<string, Promise<{ options: HostOption[]; error?: string }>>();
+
+export function nodeOptions(type: string, field: string, config: Record<string, unknown>) {
+  const key = JSON.stringify([type, field, config]);
+  let request = nodeOptionsCache.get(key);
+  if (!request) {
+    request = api.value!.nodeOptions(type, field, config).catch((err: Error) => ({ options: [], error: err.message }));
+    nodeOptionsCache.set(key, request);
+  }
+  return request;
+}
+
 export async function refreshOptions(refresh = true) {
+  if (refresh) nodeOptionsCache.clear();
   try {
     hostOptions.value = await api.value!.options(refresh);
   } catch {

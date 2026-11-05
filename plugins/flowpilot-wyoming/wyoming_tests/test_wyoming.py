@@ -10,6 +10,7 @@ from flowpilot_core.conformance import InputFeed, assert_conforms, check_node, r
 from flowpilot_core.runtime import RuntimeNodeContext
 from flowpilot_sdk import AudioChunk, AudioFormat, Node, TextDelta
 from flowpilot_wyoming import WyomingStt, WyomingTts, split_sentences
+from flowpilot_wyoming.common import WyomingError
 
 from .fake_servers import Record, asr, serve, tts
 
@@ -186,3 +187,30 @@ async def test_tts_conforms(streaming: bool) -> None:
     async with serve(tts(Record(), streaming=streaming)) as uri:
         report = await check_node(WyomingTts, config={"uri": uri}, sample={"text": deltas()})
     assert_conforms(report)
+
+
+async def test_stt_lists_models_and_languages_for_the_editor() -> None:
+    async with serve(asr(Record())) as uri:
+        models = await WyomingStt.config_options("model", {"uri": uri})
+        assert [(o.id, o.name) for o in models] == [("m", "m"), ("large", "Large model")]
+        assert models[1].description == "fake-asr · 3"
+        langs = await WyomingStt.config_options("language", {"uri": uri})
+        assert [o.id for o in langs] == ["en", "ru"]  # every installed model
+        langs = await WyomingStt.config_options("language", {"uri": uri, "model": "m"})
+        assert [o.id for o in langs] == ["en"]  # only the chosen model's
+    with pytest.raises(WyomingError, match="does not answer"):
+        await WyomingStt.config_options("model", {"uri": "tcp://127.0.0.1:9"})
+    assert await WyomingStt.config_options("model", {"uri": "not a uri"}) == []
+    assert await WyomingStt.config_options("model", {}) == []
+
+
+async def test_tts_lists_voices_and_speakers_for_the_editor() -> None:
+    async with serve(tts(Record())) as uri:
+        voices = await WyomingTts.config_options("voice", {"uri": uri})
+        assert [(o.id, o.name, o.description) for o in voices] == [
+            ("v", "v", "en"),
+            ("anna", "Anna", "ru"),
+        ]
+        speakers = await WyomingTts.config_options("speaker", {"uri": uri, "voice": "anna"})
+        assert [o.id for o in speakers] == ["calm", "lively"]
+        assert await WyomingTts.config_options("speaker", {"uri": uri}) == []

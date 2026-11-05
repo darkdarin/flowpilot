@@ -5,6 +5,8 @@ All routes need ``Authorization: Bearer <token>``.
 - ``GET  /api/editor/catalog``                node types (ports, config schemas) and payload types
 - ``GET  /api/editor/options``                what connected hosts offer for marked settings
                                               (``?refresh=1`` skips the short cache)
+- ``POST /api/editor/node-options``           ``{type, field, config}``: choices a node lists itself
+                                              for a setting (``NODE_OPTIONS_KEY``)
 - ``GET  /api/editor/graphs``                 graphs with deploy/draft state
 - ``POST /api/editor/graphs``                 ``{id, name}``: create a draft for a new graph
 - ``GET  /api/editor/graphs/{id}``            deployed graph, draft and the draft's issues
@@ -18,6 +20,8 @@ Issues block a deploy; ``warnings`` (references to entities the host does not li
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
@@ -34,6 +38,9 @@ if TYPE_CHECKING:
 
 
 PREFIX = "/api/editor"
+NODE_OPTIONS_TIMEOUT_S = 8.0
+
+_LOGGER = logging.getLogger(__name__)
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
@@ -86,6 +93,27 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
     async def options(request: web.Request) -> web.Response:
         max_age = 0.0 if request.query.get("refresh") else OPTIONS_CACHE_S
         return web.json_response(await server.host_options(max_age_s=max_age))
+
+    async def node_options(request: web.Request) -> web.Response:
+        body = await request.json()
+        node_cls = manager.registry.get(str(body.get("type")))
+        provider = getattr(node_cls, "config_options", None)
+        config = body.get("config") if isinstance(body.get("config"), dict) else {}
+        if provider is None:
+            return web.json_response({"options": []})
+        try:
+            async with asyncio.timeout(NODE_OPTIONS_TIMEOUT_S):
+                options = await provider(str(body.get("field")), config)
+        except Exception as err:  # noqa: BLE001 - a plugin's lookup must not break the editor
+            _LOGGER.warning("%s could not list %s: %s", body.get("type"), body.get("field"), err)
+            return web.json_response({"options": [], "error": str(err) or type(err).__name__})
+        return web.json_response(
+            {
+                "options": [
+                    {"id": o.id, "name": o.name, "description": o.description} for o in options
+                ]
+            }
+        )
 
     async def list_graphs(request: web.Request) -> web.Response:
         st = store()
@@ -171,6 +199,7 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
     routes = [
         ("GET", f"{PREFIX}/catalog", catalog),
         ("GET", f"{PREFIX}/options", options),
+        ("POST", f"{PREFIX}/node-options", node_options),
         ("GET", f"{PREFIX}/graphs", list_graphs),
         ("POST", f"{PREFIX}/graphs", create_graph),
         ("GET", f"{PREFIX}/graphs/{{graph_id}}", get_graph),

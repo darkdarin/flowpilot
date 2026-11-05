@@ -3,7 +3,16 @@
 from .context import DeviceInfo, SessionInfo, SessionState, SourceInfo, TurnContext
 from .host import HostAudio, HostError, HostUnavailable
 from .ids import new_ulid
-from .node import OPTIONS_KEY, Node, NodeContext, NodeSpec, PortSpec, TurnSession
+from .node import (
+    NODE_OPTIONS_KEY,
+    OPTIONS_KEY,
+    ConfigOption,
+    Node,
+    NodeContext,
+    NodeSpec,
+    PortSpec,
+    TurnSession,
+)
 from .payloads import (
     IDENTITY_PROVIDER_GRANT,
     Assurance,
@@ -33,6 +42,8 @@ from .types import (
 __version__ = "0.1.1"
 
 __all__ = [
+    "ConfigOption",
+    "NODE_OPTIONS_KEY",
     "FieldText",
     "NodeText",
     "node_translations",
