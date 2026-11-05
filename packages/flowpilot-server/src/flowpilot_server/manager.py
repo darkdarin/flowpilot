@@ -30,6 +30,8 @@ from flowpilot_core.runtime import Deployment, TraceSink
 from flowpilot_sdk import registered_types
 from flowpilot_sdk.types import PRIVILEGED_TYPES
 
+from .migrations import migrate_graph
+
 _LOGGER = logging.getLogger(__name__)
 
 GRAPH_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -64,7 +66,7 @@ class GraphStore:
 
     def load(self, graph_id: str, *, draft: bool = False) -> Any | None:
         path = self._path(graph_id, draft=draft)
-        return json.loads(path.read_text()) if path.exists() else None
+        return migrate_graph(json.loads(path.read_text())) if path.exists() else None
 
     def save(self, graph_id: str, data: Any, *, draft: bool = False) -> None:
         path = self._path(graph_id, draft=draft)

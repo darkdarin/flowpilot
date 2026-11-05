@@ -1,4 +1,4 @@
-"""The Show text debug tap, through a real runtime: it reports texts only in live debug."""
+"""The Debug probe's text inputs, through a real runtime: it reports texts only in live debug."""
 
 from __future__ import annotations
 
@@ -13,13 +13,13 @@ from aiohttp.test_utils import TestServer
 from flowpilot_core import NodeRegistry
 from flowpilot_core.builtin import register_builtin
 from flowpilot_sdk import Node
+from flowpilot_server.answer import FixedAnswer
 from flowpilot_server.devnodes import DEV_NODES
-from flowpilot_server.fixed_text import FixedText
 from flowpilot_server.manager import GraphManager, GraphStore
 from flowpilot_server.nodes import ClientSink, ClientSource
+from flowpilot_server.probe import MAX_CHARS, DebugProbe
 from flowpilot_server.protocol import TURN_PATH
 from flowpilot_server.server import FlowPilotServer
-from flowpilot_server.text_tap import MAX_CHARS, TextTap
 
 TOKEN = "tap-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -31,15 +31,15 @@ def graph(text: str) -> dict[str, Any]:
         "id": "main",
         "nodes": [
             {"id": "in", "type": "client.source"},
-            {"id": "say", "type": "debug.text", "config": {"text": text, "mode": "words"}},
-            {"id": "tap", "type": "debug.text_tap"},
+            {"id": "say", "type": "debug.answer", "config": {"text": text, "mode": "words"}},
+            {"id": "tap", "type": "debug.probe"},
             {"id": "out", "type": "client.sink"},
         ],
         "edges": [
             {"from": "say.response", "to": "out.response"},
             {"from": "say.delta", "to": "out.delta"},
             {"from": "say.delta", "to": "tap.delta"},
-            {"from": "say.utterance", "to": "tap.utterance"},
+            {"from": "in.utterance", "to": "tap.utterance"},
             {"from": "say.response", "to": "tap.response"},
         ],
     }
@@ -47,7 +47,7 @@ def graph(text: str) -> dict[str, Any]:
 
 async def runtime(tmp_path: Path, data: dict[str, Any]) -> AsyncIterator[tuple[Any, Any]]:
     registry = register_builtin(NodeRegistry())
-    classes: list[type[Node]] = [ClientSource, ClientSink, FixedText, TextTap, *DEV_NODES]
+    classes: list[type[Node]] = [ClientSource, ClientSink, FixedAnswer, DebugProbe, *DEV_NODES]
     for cls in classes:
         registry.register(cls)
     store = GraphStore(tmp_path)
@@ -86,7 +86,7 @@ async def test_shows_texts_in_live_debug(tmp_path: Path) -> None:
         result, texts = await tapped(session, url, debug=True)
         assert result["status"] == "ok" and result["nodes"]["tap"] == "ok"
         assert texts["delta"]["text"] == "one two three" and texts["delta"]["items"] == 3
-        assert texts["utterance"]["text"] == "one two three"
+        assert texts["utterance"]["text"] == "x"  # what the client typed
         assert texts["response"]["text"] == "one two three"
 
 

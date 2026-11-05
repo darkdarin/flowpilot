@@ -16,11 +16,12 @@ from yarl import URL
 from flowpilot_core import NodeRegistry
 from flowpilot_core.builtin import register_builtin
 from flowpilot_sdk import Node
+from flowpilot_server.answer import FixedAnswer
 from flowpilot_server.devnodes import DEV_NODES
 from flowpilot_server.manager import GraphManager, GraphStore
 from flowpilot_server.nodes import ClientSink, ClientSource
+from flowpilot_server.probe import DebugProbe, recordings_dir
 from flowpilot_server.protocol import TURN_PATH
-from flowpilot_server.recording import RecordAudio, recordings_dir
 from flowpilot_server.server import FlowPilotServer
 
 TOKEN = "rec-token"
@@ -35,9 +36,9 @@ def graph(**record: Any) -> dict[str, Any]:
         "nodes": [
             {"id": "in", "type": "client.source"},
             {"id": "stt", "type": "dev.fixed_stt", "config": {"text": "hello"}},
-            {"id": "agent", "type": "dev.echo_agent"},
+            {"id": "agent", "type": "debug.answer", "config": {"text": "echo: {text}"}},
             {"id": "out", "type": "client.sink"},
-            {"id": "rec", "type": "debug.record", "config": record},
+            {"id": "rec", "type": "debug.probe", "config": record},
         ],
         "edges": [
             {"from": "in.audio", "to": "stt.audio"},
@@ -63,7 +64,7 @@ async def runtime(
     tmp_path: Path, *, watch: bool = True, **record: Any
 ) -> AsyncIterator[tuple[Any, Any, Path]]:
     registry = register_builtin(NodeRegistry())
-    classes: list[type[Node]] = [ClientSource, ClientSink, RecordAudio, *DEV_NODES]
+    classes: list[type[Node]] = [ClientSource, ClientSink, DebugProbe, FixedAnswer, *DEV_NODES]
     for cls in classes:
         registry.register(cls)
     store = GraphStore(tmp_path / "graphs")

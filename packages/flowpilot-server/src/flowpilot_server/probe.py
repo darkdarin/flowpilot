@@ -1,13 +1,18 @@
-"""Debug recordings: a node that saves the audio on a wire, and the files it keeps.
+"""The Debug probe: shows what reaches it on the node in live debug, and keeps its recordings.
 
-A debug tap: it records only while someone watches the graph in live debug.
+A debug tap: it runs only while someone watches the graph in live debug, so the household's words
+and voices reach the trace and the disk only when you look.
 
-``debug.record`` is wired to any audio output next to the regular consumer (an output feeds several
-inputs), so recording never holds a turn up: the audio is read as it comes and written to disk in a
-thread when the stream ends. One WAV per turn and node, in the runtime's data under
-``nodes/debug.record/``, named ``<UTC time>.<graph>.<node>.<turn>.wav``; the oldest are deleted
-beyond the node's ``keep``. Recordings stay on this machine: traces carry only the file name, the
-editor plays them through its authenticated API, and the app keeps them out of backups.
+Its inputs are wired next to the regular consumers of outputs (an output feeds several inputs), and
+it reads each connected one as the data comes, so it never holds a turn up:
+
+- ``audio`` is saved as one WAV per turn and node, written in a thread when the stream ends, in the
+  runtime's data under ``nodes/debug.probe/``, named ``<UTC time>.<graph>.<node>.<turn>.wav``; the
+  oldest are deleted beyond the node's ``keep``. Recordings stay on this machine: traces carry only
+  the file name, the editor plays them through its authenticated API, and the app keeps them out of
+  backups. Reported as ``record.saved``.
+- text inputs are reported as ``tap.text`` (port, text, items; partial transcripts are counted) and
+  kept only in the live debug history.
 """
 
 from __future__ import annotations
@@ -30,7 +35,8 @@ from flowpilot_sdk import (
     node_translations,
 )
 
-TYPE = "debug.record"
+TYPE = "debug.probe"
+MAX_CHARS = 2000
 FILE_RE = re.compile(
     r"^(?P<time>\d{8}T\d{6}Z)\.(?P<graph>[a-z0-9][a-z0-9_-]*)\.(?P<node>[a-z0-9][a-z0-9_]*)"
     r"\.(?P<turn>[A-Za-z0-9]+)\.wav$"
@@ -41,21 +47,40 @@ def recordings_dir(data_dir: Path) -> Path:
     return data_dir / "nodes" / TYPE
 
 
-class RecordAudio:
+def _cut(text: str) -> str:
+    return text if len(text) <= MAX_CHARS else text[: MAX_CHARS - 1] + "…"
+
+
+class DebugProbe:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type=TYPE,
         translations=node_translations(__package__, TYPE),
         version="1.0.0",
-        title="Record audio",
+        title="Debug probe",
         category="debug",
         debug_tap=True,
         inputs={
             "audio": PortSpec(
                 "audio.pcm/1",
-                description=(
-                    "Audio to save: connect it to any audio output next to the regular consumer."
-                ),
-            )
+                required=False,
+                description="Audio, saved to play back: one recording per turn.",
+            ),
+            "transcript": PortSpec(
+                "text.transcript/1",
+                required=False,
+                description="Recognized speech: the final text and how many partial ones came.",
+            ),
+            "utterance": PortSpec(
+                "text.utterance/1", kind="value", required=False, description="An utterance."
+            ),
+            "delta": PortSpec(
+                "text.delta/1",
+                required=False,
+                description="A text stream, joined into one text, with the number of pieces.",
+            ),
+            "response": PortSpec(
+                "agent.response/1", kind="value", required=False, description="An agent's answer."
+            ),
         },
         config_schema={
             "type": "object",
@@ -79,9 +104,9 @@ class RecordAudio:
         },
         turn_timeout_s=660.0,
         description=(
-            "For debugging: saves the audio of each turn to a WAV file on the runtime, to play "
-            "back in live debug. Works only while live debug is on; recordings stay on this "
-            "machine."
+            "For debugging: connect it next to any output to see what went through, right on the "
+            "node for the selected turn in live debug: audio to play back, text to read. Works "
+            "only while live debug is on; recordings stay on this machine."
         ),
     )
 
@@ -106,6 +131,43 @@ class RecordAudio:
         return None
 
     async def run_turn(self, turn: TurnSession) -> None:
+        await asyncio.gather(
+            *(
+                self._record(turn) if name == "audio" else self._show(turn, name)
+                for name in self.spec.inputs
+                if turn.input(name).connected
+            )
+        )
+
+    async def _show(self, turn: TurnSession, name: str) -> None:
+        stream = turn.input(name)
+        if await stream.header() is None:
+            return
+        attrs: dict[str, Any] = {"port": name}
+        try:
+            if self.spec.inputs[name].kind == "value":
+                value = await stream.value()
+                if value is None:
+                    return
+                attrs |= {"text": _cut(value.text), "items": 1}
+            elif name == "transcript":
+                final, last, partials, items = "", "", 0, 0
+                async for item in stream:
+                    items += 1
+                    last = item.text
+                    if item.final:
+                        final = item.text
+                    else:
+                        partials += 1
+                attrs |= {"text": _cut(final or last), "items": items, "partials": partials}
+            else:
+                pieces = [item.text async for item in stream]
+                attrs |= {"text": _cut("".join(pieces)), "items": len(pieces)}
+        except StreamError as err:
+            attrs |= {"error": err.reason}
+        turn.trace("tap.text", **attrs)
+
+    async def _record(self, turn: TurnSession) -> None:
         audio = turn.input("audio")
         header = await audio.header()
         if header is None:

@@ -9,9 +9,6 @@ import {
   edges,
   hostOptions,
   idleTaps,
-  live,
-  startTurn,
-  turnStarting,
   nodeIssues,
   nodeWarnings,
   specs,
@@ -96,16 +93,6 @@ const summary = computed(() => {
           !
         </span>
         <span v-if="idle" class="badge hint" :title="t('node.tapIdle')" :aria-label="t('node.tapIdle')">?</span>
-        <button
-          v-if="data.type === 'debug.text'"
-          class="play nodrag"
-          :disabled="!live || turnStarting"
-          :title="live ? t('node.play') : t('node.notLive')"
-          :aria-label="t('node.play')"
-          @click.stop="startTurn(null, id)"
-        >
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7.5-4.5z" /></svg>
-        </button>
         <span v-if="run" class="badge run" :title="run.error ?? ''">
           <template v-if="run.status === 'running'">{{ t("status.running") }}</template>
           <template v-else>{{ (run.durationMs ?? 0) < 10 ? (run.durationMs ?? 0).toFixed(1) : Math.round(run.durationMs ?? 0) }} ms</template>
@@ -374,36 +361,6 @@ header::before {
   background: var(--line);
   color: var(--muted);
   cursor: help;
-}
-
-header .play {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--cat) 25%, transparent);
-  color: var(--text);
-  cursor: pointer;
-}
-
-header .play:not(:disabled):hover {
-  background: var(--cat);
-  color: var(--primary-text);
-}
-
-header .play:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-header .play svg {
-  width: 11px;
-  height: 11px;
-  fill: currentColor;
 }
 
 .tap {

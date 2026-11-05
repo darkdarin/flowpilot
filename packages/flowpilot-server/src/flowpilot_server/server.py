@@ -45,7 +45,6 @@ from .nodes import ClientInput, ClientSink, ClientSource
 from .protocol import (
     MAX_STREAM_ID,
     PROTOCOL_VERSION,
-    TRIGGER_KEY,
     TURN_PATH,
     WS_PATH,
     ProtocolError,
@@ -309,8 +308,7 @@ class FlowPilotServer:
         """One turn over plain HTTP: JSON text or a WAV body in, transcript and response out.
 
         JSON without ``text`` starts a turn with no input: only nodes that speak by themselves (a
-        Fixed text node) do anything. ``?trigger=<node>`` names the node whose Play button in the
-        editor started the turn."""
+        Fixed answer node) do anything."""
         if not self.authorized(request, bearer_token(request)):
             return web.json_response({"error": "invalid token"}, status=401)
         graph_id = request.query.get("graph") or self.default_graph
@@ -318,7 +316,6 @@ class FlowPilotServer:
             return web.json_response({"error": f"unknown graph {graph_id!r}"}, status=404)
         language = request.query.get("language")
         conversation_id = request.query.get("conversation_id")
-        external = {TRIGGER_KEY: trigger} if (trigger := request.query.get("trigger")) else {}
         inp = ClientInput()
         if request.content_type == "application/json":
             body = await request.json()
@@ -346,8 +343,7 @@ class FlowPilotServer:
             adapter_id="http",
             source={"kind": "http"},
             language=language,
-            external=external
-            | ({"http.conversation_id": conversation_id} if conversation_id else {}),
+            external={"http.conversation_id": conversation_id} if conversation_id else {},
         )
         outlet = _Collector()
         with self.manager.turn(graph_id) as deployment:

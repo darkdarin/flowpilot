@@ -420,10 +420,10 @@ export function renameNode(oldId: string, newId: string): boolean {
 // --- live debug --------------------------------------------------------------------------------
 
 /**
- * Start a turn of the deployed graph from the editor (the Client input node, a Fixed text node's
- * Play button) and watch it in live debug, which this turns on first so debug taps see the turn.
+ * Start a turn of the deployed graph from the editor (the Client input node) and watch it in live
+ * debug, which this turns on first so debug taps see the turn.
  */
-export async function startTurn(input: { text: string } | Blob | null, trigger?: string) {
+export async function startTurn(input: { text: string } | Blob | null) {
   const id = graphId.value;
   if (!id || turnStarting.value) return;
   turnStarting.value = true;
@@ -434,7 +434,7 @@ export async function startTurn(input: { text: string } | Blob | null, trigger?:
     }
     await trace?.debugApplied();
     debug.selectedTurn = null; // follow the new turn
-    await api.value!.turn(id, input, trigger);
+    await api.value!.turn(id, input);
   } catch (err) {
     flash((err as Error).message, "error");
   } finally {

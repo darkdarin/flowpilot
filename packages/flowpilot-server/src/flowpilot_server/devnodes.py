@@ -9,8 +9,6 @@ from flowpilot_sdk import (
     NodeContext,
     NodeSpec,
     PortSpec,
-    Response,
-    TextDelta,
     Transcript,
     TurnSession,
     Utterance,
@@ -91,64 +89,4 @@ class FixedStt:
         return None
 
 
-class EchoAgent:
-    """Answers with the utterance, prefixed; streams it word by word like an LLM."""
-
-    spec: ClassVar[NodeSpec] = NodeSpec(
-        type="dev.echo_agent",
-        translations=node_translations(__package__, "dev.echo_agent"),
-        version="1.0.0",
-        title="Echo agent (dev)",
-        category="agent",
-        inputs={
-            "utterance": PortSpec("text.utterance/1", kind="value", description="What to repeat."),
-            "principal": PortSpec(
-                "identity.principal/1", kind="value", required=False, description="Ignored."
-            ),
-        },
-        outputs={
-            "delta": PortSpec("text.delta/1", description="The answer, word by word."),
-            "speech_delta": PortSpec(
-                "text.delta/1", description="Left empty; connect delta to text-to-speech."
-            ),
-            "response": PortSpec(
-                "agent.response/1", kind="value", description="The complete answer."
-            ),
-        },
-        config_schema={
-            "type": "object",
-            "properties": {
-                "prefix": {
-                    "title": "Prefix",
-                    "description": 'Text before the repeated utterance; "echo: " when not set.',
-                    "type": "string",
-                }
-            },
-        },
-        turn_timeout_s=10.0,
-        description=(
-            "For testing without Home Assistant: answers with the utterance it got, word by word."
-        ),
-    )
-
-    def __init__(self) -> None:
-        self._prefix = "echo: "
-
-    async def start(self, ctx: NodeContext) -> None:
-        self._prefix = str(ctx.config.get("prefix", "echo: "))
-
-    async def run_turn(self, turn: TurnSession) -> None:
-        utterance = await turn.input("utterance").value()
-        if utterance is None:
-            return
-        text = f"{self._prefix}{utterance.text}"
-        for i, word in enumerate(text.split(" ")):
-            await turn.output("delta").send(TextDelta(word if i == 0 else f" {word}"))
-        await turn.output("delta").end()
-        await turn.output("response").send(Response(text=text, language=utterance.language))
-
-    async def stop(self) -> None:
-        return None
-
-
-DEV_NODES: list[type[Node]] = [FixedStt, EchoAgent]
+DEV_NODES: list[type[Node]] = [FixedStt]

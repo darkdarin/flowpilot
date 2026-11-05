@@ -200,10 +200,10 @@ export class Api {
   }
   /**
    * Start a turn of the deployed graph, as a client would: text, a WAV recording, or nothing (only
-   * nodes that speak by themselves act). ``trigger`` names the node whose Play button started it.
+   * nodes that speak by themselves act).
    */
-  async turn(graph: string, input: { text: string } | Blob | null, trigger?: string): Promise<{ status: string }> {
-    const query = new URLSearchParams({ graph, ...(trigger ? { trigger } : {}) });
+  async turn(graph: string, input: { text: string } | Blob | null): Promise<{ status: string }> {
+    const query = new URLSearchParams({ graph });
     const resp = await fetch(`${ROOT}/api/turn?${query}`, {
       method: "POST",
       headers: {

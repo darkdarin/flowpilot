@@ -52,9 +52,6 @@ import struct
 PROTOCOL_VERSION = 1
 WS_PATH = "/api/ws"
 TURN_PATH = "/api/turn"
-# ``TurnContext.external`` key of a turn started from a node in the editor (its Play button): the id
-# of that node. A debugging aid, set by ``POST /api/turn?trigger=<node>``.
-TRIGGER_KEY = "debug.trigger"
 
 _STREAM_ID = struct.Struct(">I")
 MAX_STREAM_ID = 2**32 - 1

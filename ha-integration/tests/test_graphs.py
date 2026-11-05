@@ -16,6 +16,7 @@ from flowpilot_core import GrantPolicy, NodeRegistry, parse_graph, validate_grap
 from flowpilot_core.builtin import register_builtin
 from flowpilot_core.runtime import Deployment
 from flowpilot_sdk import Node
+from flowpilot_server.answer import FixedAnswer
 from flowpilot_server.devnodes import DEV_NODES
 from flowpilot_server.nodes import ClientSink, ClientSource
 from flowpilot_server.server import FlowPilotServer
@@ -30,14 +31,14 @@ pytestmark = [
 
 
 def echo(graph_id: str, name: str, prefix: str) -> dict[str, Any]:
-    data = graph({"type": "dev.echo_agent", "config": {"prefix": prefix}})
+    data = graph({"type": "debug.answer", "config": {"text": f"{prefix}{{text}}"}})
     return {**data, "id": graph_id, "name": name}
 
 
 @pytest.fixture
 async def two_graphs() -> AsyncIterator[Runtime]:
     registry = register_builtin(NodeRegistry())
-    classes: list[type[Node]] = [ClientSource, ClientSink, *DEV_NODES]
+    classes: list[type[Node]] = [ClientSource, ClientSink, FixedAnswer, *DEV_NODES]
     for cls in classes:
         registry.register(cls)
     deployments = {}

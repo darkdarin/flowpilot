@@ -19,6 +19,7 @@ from flowpilot_core import GrantPolicy, NodeRegistry, parse_graph, validate_grap
 from flowpilot_core.builtin import register_builtin
 from flowpilot_core.runtime import Deployment, ListTraceSink
 from flowpilot_sdk import Node
+from flowpilot_server.answer import FixedAnswer
 from flowpilot_server.devnodes import DEV_NODES
 from flowpilot_server.nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
 from flowpilot_server.server import FlowPilotServer
@@ -62,7 +63,11 @@ SPEECH_GRAPH: dict[str, Any] = {
         {"id": "in", "type": "client.source"},
         {"id": "stt", "type": "ha.stt", "config": {"entity_id": "stt.fake"}},
         {"id": "utt", "type": "text.first"},
-        {"id": "agent", "type": "dev.echo_agent"},
+        {
+            "id": "agent",
+            "type": "debug.answer",
+            "config": {"text": "echo: {text}", "mode": "words"},
+        },
         {"id": "tts", "type": "ha.tts", "config": {"engine": "tts.fake"}},
         {"id": "out", "type": "client.sink"},
     ],
@@ -79,7 +84,7 @@ SPEECH_GRAPH: dict[str, Any] = {
     ],
 }
 
-ECHO_AGENT = {"type": "dev.echo_agent"}
+ECHO_AGENT = {"type": "debug.answer", "config": {"text": "echo: {text}", "mode": "words"}}
 HA_AGENT = {"type": "ha.conversation", "config": {"agent_id": "conversation.home_assistant"}}
 
 
@@ -102,7 +107,7 @@ async def _runtime(
 ) -> AsyncIterator[Runtime]:
     registry = register_builtin(NodeRegistry())
     classes: list[type[Node]] = [
-        ClientSource, ClientSink, HaConversation, HaStt, HaTts, *DEV_NODES
+        ClientSource, ClientSink, HaConversation, HaStt, HaTts, FixedAnswer, *DEV_NODES
     ]  # fmt: skip
     for cls in classes:
         registry.register(cls)

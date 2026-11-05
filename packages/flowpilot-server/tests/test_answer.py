@@ -1,4 +1,4 @@
-"""The Fixed text debugging node, through a real runtime: at once, word by word, after an input."""
+"""The Fixed answer debugging node, through a real runtime: at once, word by word, in reply."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from aiohttp.test_utils import TestServer
 from flowpilot_core import NodeRegistry
 from flowpilot_core.builtin import register_builtin
 from flowpilot_sdk import Node
+from flowpilot_server.answer import FixedAnswer
 from flowpilot_server.devnodes import DEV_NODES
-from flowpilot_server.fixed_text import FixedText
 from flowpilot_server.manager import GraphManager, GraphStore
 from flowpilot_server.nodes import ClientSink, ClientSource
 from flowpilot_server.protocol import TURN_PATH
@@ -35,11 +35,11 @@ def graph(after: bool = False, **config: Any) -> dict[str, Any]:
     if after:  # stand in for an agent: answer after the speech-to-text result
         edges += [
             {"from": "in.audio", "to": "stt.audio"},
-            {"from": "stt.utterance", "to": "say.after"},
+            {"from": "stt.utterance", "to": "say.utterance"},
         ]
     nodes = [
         {"id": "in", "type": "client.source"},
-        {"id": "say", "type": "debug.text", "config": config},
+        {"id": "say", "type": "debug.answer", "config": config},
         {"id": "out", "type": "client.sink"},
     ]
     if after:
@@ -49,7 +49,7 @@ def graph(after: bool = False, **config: Any) -> dict[str, Any]:
 
 async def runtime(tmp_path: Path, data: dict[str, Any]) -> AsyncIterator[tuple[Any, Any]]:
     registry = register_builtin(NodeRegistry())
-    classes: list[type[Node]] = [ClientSource, ClientSink, FixedText, *DEV_NODES]
+    classes: list[type[Node]] = [ClientSource, ClientSink, FixedAnswer, *DEV_NODES]
     for cls in classes:
         registry.register(cls)
     store = GraphStore(tmp_path)
@@ -124,22 +124,22 @@ async def test_after_answers_a_voice_turn(tmp_path: Path) -> None:
         assert result["status"] == "ok" and result["response"]["text"] == "answer"
 
 
-async def test_play_starts_an_empty_turn(tmp_path: Path) -> None:
-    async for session, url in runtime(tmp_path, graph(text="hello", when="play")):
-        # a real turn: the node waits for its Play button and stays silent
-        result, deltas = await text_turn(session, url)
-        assert result["response"] is None and deltas == 0
-        # the Play button: a turn with no input, started by this node
-        resp = await session.post(url(f"{TURN_PATH}?trigger=say"), json={}, headers=AUTH)
+async def test_repeats_the_utterance(tmp_path: Path) -> None:
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(bytes(6400))
+    async for session, url in runtime(tmp_path, graph(after=True, text="you said: {text}")):
+        resp = await session.post(
+            url(TURN_PATH), data=out.getvalue(), headers={**AUTH, "Content-Type": "audio/wav"}
+        )
+        assert (await resp.json())["response"]["text"] == "you said: hi"
+
+
+async def test_answers_a_turn_with_no_input(tmp_path: Path) -> None:
+    async for session, url in runtime(tmp_path, graph(text="hello")):
+        resp = await session.post(url(TURN_PATH), json={}, headers=AUTH)
         result = await resp.json()
         assert result["status"] == "ok" and result["response"]["text"] == "hello"
-        # another node's Play button does not count
-        resp = await session.post(url(f"{TURN_PATH}?trigger=other"), json={}, headers=AUTH)
-        assert (await resp.json())["response"] is None
-
-
-async def test_play_does_not_wait_for_after(tmp_path: Path) -> None:
-    async for session, url in runtime(tmp_path, graph(after=True, text="answer")):
-        resp = await session.post(url(f"{TURN_PATH}?trigger=say"), json={}, headers=AUTH)
-        result = await resp.json()
-        assert result["status"] == "ok" and result["response"]["text"] == "answer"

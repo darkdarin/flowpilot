@@ -36,7 +36,7 @@ from flowpilot_core import GraphError
 
 from .auth import bearer_token
 from .manager import GRAPH_ID_RE, DeployError, GraphManager, GraphStore, issue_dicts
-from .recording import list_recordings, recording_path, recordings_dir
+from .probe import list_recordings, recording_path, recordings_dir
 from .references import OPTIONS_CACHE_S
 
 if TYPE_CHECKING:

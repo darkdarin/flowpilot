@@ -39,13 +39,12 @@ from flowpilot_core.builtin import register_builtin
 from flowpilot_sdk import Node
 
 from . import datadir, supervisor
+from .answer import FixedAnswer
 from .devnodes import DEV_NODES
-from .fixed_text import FixedText
 from .manager import GraphManager, GraphStore
 from .nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
-from .recording import RecordAudio
+from .probe import DebugProbe
 from .server import FlowPilotServer
-from .text_tap import TextTap
 
 _LOGGER = logging.getLogger("flowpilot_server")
 
@@ -60,9 +59,8 @@ def build_registry(*, dev: bool = False) -> NodeRegistry:
         HaConversation,
         HaStt,
         HaTts,
-        RecordAudio,
-        FixedText,
-        TextTap,
+        DebugProbe,
+        FixedAnswer,
     ]
     if dev:
         classes += DEV_NODES

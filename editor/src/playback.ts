@@ -1,4 +1,4 @@
-// Recordings of debug.record nodes: played, downloaded and deleted through the authenticated API
+// Recordings of Debug probe nodes: played, downloaded and deleted through the authenticated API
 // (an <audio> element cannot send the Authorization header). One recording plays at a time, whether
 // started from the debug drawer or from the node itself.
 
