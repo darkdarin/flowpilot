@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.2
+
+- Each deployed graph gets its own FlowPilot speech-to-text and agent entities, so every Assist
+  assistant can run its own graph; the plain FlowPilot entities follow the main graph, which you
+  star in the editor.
+- Debugging nodes: Record audio (one WAV per turn on any audio wire, played back in live debug,
+  kept out of backups) and Fixed text (sends a set text at once or word by word).
+- Settings that name a Wyoming service, an entity, a model, a language, a voice or a speaker are
+  picked from lists, with your own value one click away; nodes show names instead of raw values.
+- Ctrl+S / Cmd+S deploys; two-finger scroll pans the canvas; "Refresh list" shows its progress.
+
 ## 0.1.1
 
 - Adding the integration by hand on Home Assistant OS finds the FlowPilot app by itself instead of
