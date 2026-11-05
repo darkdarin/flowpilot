@@ -33,8 +33,12 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.3
       - name: Install ffmpeg (checked when the tts component sets up)
-        timeout-minutes: 5  # the apt mirror has hung for a quarter of an hour before
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        timeout-minutes: 8
+        # the runner's apt mirror sometimes stalls: drop stalled connections and retry them
+        run: |
+          APT="-o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::Retries=5"
+          sudo apt-get $APT update
+          sudo apt-get $APT install -y --no-install-recommends ffmpeg
       - name: Install dependencies
         run: uv sync --locked
       - name: Type check against Home Assistant
