@@ -61,7 +61,7 @@ watch(selectedId, async (id) => {
   if (node) addSelectedNodes([node]);
 });
 
-const booting = ref(Boolean(token.value));
+const booting = ref(true);
 const theme = ref(document.documentElement.dataset.theme ?? "dark");
 const creating = ref(false);
 const newId = ref("");
@@ -69,14 +69,16 @@ const newName = ref("");
 const newError = ref("");
 
 onMounted(async () => {
-  if (token.value) {
+  // The saved token first; then no token at all, which works when Home Assistant has signed the
+  // user in already (the editor opened from the sidebar through Ingress).
+  for (const candidate of token.value ? [token.value, ""] : [""]) {
     try {
-      await connect(token.value);
+      if (await connect(candidate)) break;
     } catch {
       /* fall back to the login form */
     }
-    booting.value = false;
   }
+  booting.value = false;
 });
 
 // fit once per opened graph, after Vue Flow has measured the nodes

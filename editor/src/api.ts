@@ -128,6 +128,12 @@ export interface TraceMsg {
   attrs: Record<string, string | number | boolean | null>;
 }
 
+/**
+ * Where the runtime is mounted: "" normally, "/api/hassio_ingress/<token>" when Home Assistant
+ * serves the editor through Ingress. The editor itself always lives under "<root>/editor/".
+ */
+export const ROOT = location.pathname.replace(/\/editor(\/.*)?$/, "");
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -142,10 +148,10 @@ export class Api {
   constructor(public token: string) {}
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const resp = await fetch(`/api/editor${path}`, {
+    const resp = await fetch(`${ROOT}/api/editor${path}`, {
       method,
       headers: {
-        Authorization: `Bearer ${this.token}`,
+        ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
         ...(body === undefined ? {} : { "Content-Type": "application/json" }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -206,7 +212,7 @@ export class TraceSocket {
 
   private open() {
     const scheme = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${scheme}://${location.host}/api/editor/ws`);
+    const ws = new WebSocket(`${scheme}://${location.host}${ROOT}/api/editor/ws`);
     this.ws = ws;
     ws.onopen = () => ws.send(JSON.stringify({ type: "hello", token: this.token }));
     ws.onmessage = (e) => {

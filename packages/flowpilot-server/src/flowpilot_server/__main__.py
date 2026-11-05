@@ -9,11 +9,15 @@ Configuration (JSON)::
       "graphs_dir": "graphs",              # <id>.json deployed, <id>.draft.json drafts
       "default_graph": "main",
       "secrets_file": "secrets.json",      # optional {name: value}
-      "grants": {"identity.resolve": ["identity.provider"]}
+      "grants": {"identity.resolve": ["identity.provider"]},
+      "ingress": {"port": 8099, "trusted_peers": ["172.30.32.2"]}   # optional, see auth.py
     }
 
-Relative paths are resolved against the config file's directory. Node plugins are discovered from
-the ``flowpilot.nodes`` entry point group: each entry point is a callable returning node classes.
+Relative paths are resolved against the config file's directory. ``--data DIR`` instead of a
+config path creates a self-contained data directory on first start (see ``datadir.py``).
+
+Node plugins are discovered from the ``flowpilot.nodes`` entry point group: each entry point is a
+callable returning node classes.
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ from flowpilot_core import GrantPolicy, NodeRegistry
 from flowpilot_core.builtin import register_builtin
 from flowpilot_sdk import Node
 
+from . import datadir, supervisor
 from .devnodes import DEV_NODES
 from .manager import GraphManager, GraphStore
 from .nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
@@ -62,7 +67,7 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text())
 
 
-async def serve(config_path: Path, *, dev: bool = False) -> None:
+async def serve(config_path: Path, *, dev: bool = False, announce: bool = False) -> None:
     base = config_path.parent
     config = _read_json(config_path)
     token = config.get("token") or (base / config["token_file"]).read_text().strip()
@@ -77,34 +82,48 @@ async def serve(config_path: Path, *, dev: bool = False) -> None:
     server = FlowPilotServer(
         token=token, default_graph=config.get("default_graph", "main"), manager=manager
     )
+    host, port = config.get("host", "0.0.0.0"), int(config.get("port", 8765))
+    runners: list[web.AppRunner] = []
     try:
         await manager.load_all()
-        runner = web.AppRunner(server.app())
-        await runner.setup()
-        site = web.TCPSite(runner, config.get("host", "0.0.0.0"), int(config.get("port", 8765)))
-        await site.start()
-        _LOGGER.info("listening on %s:%s", config.get("host", "0.0.0.0"), config.get("port", 8765))
+        runners.append(web.AppRunner(server.app()))
+        await runners[-1].setup()
+        await web.TCPSite(runners[-1], host, port).start()
+        _LOGGER.info("listening on %s:%s", host, port)
+        if ingress := config.get("ingress"):
+            peers = [str(p) for p in ingress.get("trusted_peers") or []]
+            runners.append(web.AppRunner(server.app(trusted_peers=peers)))
+            await runners[-1].setup()
+            await web.TCPSite(runners[-1], host, int(ingress["port"])).start()
+            _LOGGER.info("Ingress on %s:%s, trusted peers %s", host, ingress["port"], peers)
+        if announce:
+            await supervisor.announce(port, token)
 
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, stop.set)
         await stop.wait()
-        await runner.cleanup()
     finally:
+        for runner in runners:
+            await runner.cleanup()
         await manager.stop()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="flowpilot-server")
-    parser.add_argument("config", type=Path, help="path to the server config JSON")
+    where = parser.add_mutually_exclusive_group(required=True)
+    where.add_argument("config", type=Path, nargs="?", help="path to the server config JSON")
+    where.add_argument("--data", type=Path, help="data directory, created on first start")
     parser.add_argument("--dev", action="store_true", help="enable development-only nodes")
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
-    logging.basicConfig(
-        level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
-    asyncio.run(serve(args.config, dev=args.dev))
+    options = datadir.addon_options(args.data) if args.data else {}
+    level = str(options.get("log_level") or args.log_level).upper()
+    logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    config = datadir.init_data_dir(args.data) if args.data else args.config
+    dev = args.dev or bool(options.get("dev_nodes"))
+    asyncio.run(serve(config, dev=dev, announce=bool(args.data) and datadir.in_addon()))
 
 
 if __name__ == "__main__":

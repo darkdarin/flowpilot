@@ -127,7 +127,7 @@ async def editor_socket(request: web.Request, server: FlowPilotServer) -> web.We
                 continue
             kind = data.get("type")
             if kind == "hello":
-                authed = server.check_token(data.get("token"))
+                authed = server.authorized(request, data.get("token"))
                 if not authed:
                     await ws.send_json(
                         {"type": "error", "code": "auth", "message": "invalid token"}

@@ -11,7 +11,7 @@ import json
 import logging
 import time
 import wave
-from collections.abc import AsyncIterable, AsyncIterator, Mapping
+from collections.abc import AsyncIterable, AsyncIterator, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib import resources
@@ -38,6 +38,7 @@ from flowpilot_sdk import (
 )
 
 from . import __version__
+from .auth import TRUSTED_PEERS, bearer_token, ingress_prefix, is_trusted
 from .editor_api import add_editor_routes
 from .manager import GraphManager
 from .nodes import ClientInput, ClientSink, ClientSource
@@ -235,8 +236,11 @@ class FlowPilotServer:
     def deployments(self) -> Mapping[str, Deployment]:
         return self.manager.deployments
 
-    def app(self) -> web.Application:
+    def app(self, *, trusted_peers: Iterable[str] = ()) -> web.Application:
+        """The HTTP app. Requests from ``trusted_peers`` need no token: that is the Home Assistant
+        Supervisor on the add-on's Ingress port, which has authenticated the user already."""
         app = web.Application(client_max_size=MAX_HTTP_AUDIO_BYTES)
+        app[TRUSTED_PEERS] = frozenset(trusted_peers)
         app.router.add_get(WS_PATH, self._handle_ws)
         app.router.add_post(TURN_PATH, self._handle_http_turn)
         app.router.add_get("/", self._handle_static)
@@ -252,7 +256,7 @@ class FlowPilotServer:
         return await editor_socket(request, self)
 
     async def _handle_editor_root(self, request: web.Request) -> web.Response:
-        raise web.HTTPFound("/editor/")
+        raise web.HTTPFound(f"{ingress_prefix(request)}/editor/")
 
     async def _handle_editor_file(self, request: web.Request) -> web.StreamResponse:
         """The built graph editor (``npm run build`` in ``editor/``); SPA fallback to index."""
@@ -263,7 +267,11 @@ class FlowPilotServer:
         return web.FileResponse(target, headers={"Cache-Control": cache})
 
     async def _handle_static(self, request: web.Request) -> web.Response:
-        """Development client page: microphone and text input against the protocol."""
+        """Development client page: microphone and text input against the protocol.
+
+        Opened from the Home Assistant sidebar (Ingress), the root goes to the editor instead."""
+        if request.path == "/" and (prefix := ingress_prefix(request)):
+            raise web.HTTPFound(f"{prefix}/editor/")
         name = "app.js" if request.path == "/app.js" else "index.html"
         content_type = "text/javascript" if name == "app.js" else "text/html"
         body = resources.files("flowpilot_server").joinpath("static", name).read_text()
@@ -271,8 +279,7 @@ class FlowPilotServer:
 
     async def _handle_http_turn(self, request: web.Request) -> web.Response:
         """One turn over plain HTTP: JSON text or a WAV body in, transcript and response out."""
-        auth = request.headers.get("Authorization", "")
-        if not self.check_token(auth.removeprefix("Bearer ").strip()):
+        if not self.authorized(request, bearer_token(request)):
             return web.json_response({"error": "invalid token"}, status=401)
         graph_id = request.query.get("graph") or self.default_graph
         if graph_id not in self.deployments:
@@ -350,7 +357,7 @@ class FlowPilotServer:
         ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
         self._sockets.add(ws)
-        conn = Connection(self, ws)
+        conn = Connection(self, ws, trusted=is_trusted(request))
         try:
             await conn.run()
         finally:
@@ -398,6 +405,9 @@ class FlowPilotServer:
 
     def check_token(self, token: Any) -> bool:
         return isinstance(token, str) and hmac.compare_digest(token, self._token)
+
+    def authorized(self, request: web.Request, token: Any) -> bool:
+        return is_trusted(request) or self.check_token(token)
 
 
 def _read_wav(data: bytes) -> tuple[AudioFormat, bytes]:
@@ -544,9 +554,12 @@ class _HostAudio:
 class Connection:
     """One client connection; also the ``HostCaller`` for the turns it starts."""
 
-    def __init__(self, server: FlowPilotServer, ws: web.WebSocketResponse) -> None:
+    def __init__(
+        self, server: FlowPilotServer, ws: web.WebSocketResponse, *, trusted: bool = False
+    ) -> None:
         self.server = server
         self.ws = ws
+        self._trusted = trusted
         self.client: dict[str, Any] = {}
         self.host_ops: frozenset[str] = frozenset()
         self._send_lock = asyncio.Lock()
@@ -720,7 +733,7 @@ class Connection:
     async def _on_hello(self, msg: dict[str, Any]) -> None:
         if msg.get("protocol") != PROTOCOL_VERSION:
             raise ProtocolError("auth", f"unsupported protocol {msg.get('protocol')!r}")
-        if not self.server.check_token(msg.get("token")):
+        if not (self._trusted or self.server.check_token(msg.get("token"))):
             raise ProtocolError("auth", "invalid token")
         self._authed = True
         self.client = dict(msg.get("client") or {})

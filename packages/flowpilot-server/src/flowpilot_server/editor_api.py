@@ -25,6 +25,7 @@ from aiohttp import web
 
 from flowpilot_core import GraphError
 
+from .auth import bearer_token
 from .manager import GRAPH_ID_RE, DeployError, GraphManager, GraphStore, issue_dicts
 from .references import OPTIONS_CACHE_S
 
@@ -62,8 +63,7 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
 
     def authed(handler: Handler) -> Handler:
         async def wrapped(request: web.Request) -> web.StreamResponse:
-            auth = request.headers.get("Authorization", "")
-            if not server.check_token(auth.removeprefix("Bearer ").strip()):
+            if not server.authorized(request, bearer_token(request)):
                 return _error(401, "invalid token")
             return await handler(request)
 

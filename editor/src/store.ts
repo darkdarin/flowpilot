@@ -224,7 +224,7 @@ export async function connect(value: string): Promise<boolean> {
     throw err;
   }
   token.value = value;
-  localStorage.setItem("flowpilot.token", value);
+  if (value) localStorage.setItem("flowpilot.token", value);
   api.value = client;
   trace?.close();
   trace = new TraceSocket(value, onTrace, (c) => (debug.connected = c));
