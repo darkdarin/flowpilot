@@ -35,13 +35,14 @@ flowpilot-sdk = { path = "../packages/flowpilot-sdk", editable = true }
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = [".", ".."]  # ".." holds custom_components/
 
 [tool.mypy]
 python_version = "3.14"
 strict = true
 follow_imports = "silent"
-files = ["custom_components/flowpilot", "tests"]
+files = ["../custom_components/flowpilot", "tests"]
+mypy_path = ".."
 
 [[tool.mypy.overrides]]
 module = ["pytest_homeassistant_custom_component.*"]

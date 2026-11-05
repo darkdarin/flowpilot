@@ -86,3 +86,16 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.3
       - name: Assemble the local add-on folder
         run: uv run --no-project python -I scripts/build_addon.py
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: integration

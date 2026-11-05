@@ -1,10 +1,12 @@
 # Home Assistant add-on: the FlowPilot runtime with its graph editor in the sidebar (Ingress).
-# The image is built from the repository's Dockerfile; see scripts/build_addon.py.
+# The image is the repository's Dockerfile, published to ghcr for each release (release.yml);
+# scripts/build_addon.py makes a local add-on that Home Assistant builds from source instead.
 name: FlowPilot
 version: "0.1.0"
 slug: flowpilot
 description: Visual orchestrator for voice and AI flows
 url: https://github.com/darkdarin/flowpilot
+image: ghcr.io/darkdarin/flowpilot
 arch:
   - aarch64
   - amd64

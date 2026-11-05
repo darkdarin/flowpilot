@@ -8,13 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import custom_components
 import pytest
 from aiohttp.test_utils import TestServer
 from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+import custom_components
 from flowpilot_core import GrantPolicy, NodeRegistry, parse_graph, validate_graph
 from flowpilot_core.builtin import register_builtin
 from flowpilot_core.runtime import Deployment, ListTraceSink
@@ -24,7 +24,7 @@ from flowpilot_server.nodes import ClientSink, ClientSource, HaConversation, HaS
 from flowpilot_server.server import FlowPilotServer
 
 # The test harness puts its own ``custom_components`` package first on sys.path; add ours to it.
-_OURS = str(Path(__file__).resolve().parent.parent / "custom_components")
+_OURS = str(Path(__file__).resolve().parents[2] / "custom_components")  # repository root
 if _OURS not in custom_components.__path__:
     custom_components.__path__.insert(0, _OURS)
 

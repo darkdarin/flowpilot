@@ -1,6 +1,9 @@
 # ha-integration
 
-Home Assistant companion integration `custom_components/flowpilot` (to be distributed via HACS).
+The integration itself lives in `custom_components/flowpilot/` at the repository root (the layout
+HACS and the Marketplace install from); this directory is its test environment.
+
+Home Assistant companion integration `custom_components/flowpilot` (installed via the Marketplace or HACS).
 
 It connects Home Assistant to a FlowPilot runtime (WebSocket, ADR-014) and provides, in Assist mode:
 

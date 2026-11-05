@@ -33,7 +33,9 @@ Page "06 · Prototype v0.1" describes a starter archive that is not in this repo
 | `packages/flowpilot-sdk/` | Plugin SDK: payload types, `Envelope`, stream and node interfaces |
 | `packages/flowpilot-core/` | Runtime: graph validation and execution |
 | `plugins/` | Node plugins |
-| `ha-integration/` | Home Assistant companion integration (Assist mode, ADR-011/012) |
+| `custom_components/flowpilot/` | Home Assistant companion integration (Assist mode, ADR-011/012); repo root for HACS/Marketplace |
+| `ha-integration/` | Test environment for the integration: own uv project pinned to one HA release |
+| `addon/` | Home Assistant app (add-on); image `ghcr.io/darkdarin/flowpilot` published by `release.yml` |
 | `editor/` | Visual graph editor (Vue 3 + Vue Flow) |
 
 ## Environment
@@ -55,12 +57,18 @@ Page "06 · Prototype v0.1" describes a starter archive that is not in this repo
 - Commits follow Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `ci:`); the git author is
   configured locally in this repository.
 - License: Apache-2.0 (ADR-010), no CLA.
+- Releases: bump the version everywhere (`addon/config.yaml`, `custom_components/flowpilot/manifest.json`,
+  every `pyproject.toml` and `__version__` under `packages/` and `plugins/`, then `uv lock` in the root
+  and in `ha-integration/`), add a `## <version>` section to `addon/CHANGELOG.md`, push the tag
+  `v<version>`. `release.yml` checks the versions, publishes `ghcr.io/darkdarin/flowpilot:<version>`
+  (amd64 + arm64) and creates the GitHub release; users get the app update and the integration
+  (Marketplace/HACS) from it. A release is public: do it when the owner asks.
 
 ## Rules
 
 - Record architecture decisions as ADRs in Notion (page 07), including trade-offs.
 - The core and the SDK never import Home Assistant code (ADR-008); everything HA-specific lives in
-  `ha-integration/` and adapters.
+  `custom_components/` and adapters.
 - Do not rely on private Home Assistant internals without a regression test; monkeypatching Assist is
   forbidden (ADR-011).
 - Do not mark an integration as done without a real end-to-end test.

@@ -28,6 +28,11 @@ def build(out: Path) -> Path:
     if target.exists():
         shutil.rmtree(target)
     shutil.copytree(ROOT / "addon", target)
+    config = target / "config.yaml"  # without "image:" the Supervisor builds the bundled Dockerfile
+    config.write_text("".join(
+        line for line in config.read_text().splitlines(keepends=True)
+        if not line.startswith("image:")
+    ))  # fmt: skip
     for name in SOURCES:
         src = ROOT / name
         if src.is_dir():
