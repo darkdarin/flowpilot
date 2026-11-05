@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.4
+
+- FlowPilot text-to-speech: pick `tts.flowpilot_<graph>` (or FlowPilot Text-to-speech for the
+  main graph) in an Assist assistant and the answer is spoken by the graph's own text-to-speech
+  nodes instead of a Home Assistant voice. Long answers stream; repeated answers come from Home
+  Assistant's cache until you deploy a changed graph.
+- A fallback voice in the FlowPilot integration options speaks what FlowPilot has no speech for:
+  answers of local intents, satellite announcements, `tts.speak`, graphs without text-to-speech.
+- Development nodes: the echo agent is gone (use Fixed answer with `{text}`); a beeping
+  text-to-speech for trying the speech path without a voice service.
+
 ## 0.1.3
 
 - Debug probe: one debugging node for audio and text. Put it next to any output and, in live
