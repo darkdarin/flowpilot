@@ -18,6 +18,19 @@ FlowPilot owns the whole turn and runs the graph itself. Audio reaches it in one
   entities that hand the audio to FlowPilot and return its result.
 - **Direct input (mode B).** A device sends audio straight to FlowPilot, bypassing Assist.
 
+## Run with Docker
+
+```sh
+docker build -t flowpilot .
+docker run -d --name flowpilot -p 8765:8765 -v flowpilot-data:/data flowpilot
+docker exec flowpilot cat /data/token     # access token for the editor and the HA integration
+```
+
+The first start creates `/data/config.json`, `/data/token` and a starter graph. The editor is at
+`http://<host>:8765/editor/`; add the FlowPilot integration in Home Assistant with the same URL and
+token. The image also runs as a Home Assistant add-on (`addon/`), where the editor opens from the
+sidebar and the integration finds the runtime by itself.
+
 ## Repository layout
 
 | Path | What |
