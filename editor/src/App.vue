@@ -2,7 +2,7 @@
 import { Background } from "@vue-flow/background";
 import { type Connection, VueFlow, useVueFlow } from "@vue-flow/core";
 import { MiniMap } from "@vue-flow/minimap";
-import { computed, markRaw, nextTick, onMounted, ref, watch } from "vue";
+import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import BrandMark from "./components/BrandMark.vue";
 import DebugPanel from "./components/DebugPanel.vue";
 import FpNode from "./components/FpNode.vue";
@@ -159,6 +159,25 @@ async function onDeploy() {
   else if (notice.value?.text === "invalid") flash(t("error.invalid"), "error");
 }
 
+// Ctrl+S / ⌘S deploys, like the Deploy button (the browser's "save page" is not useful here).
+const deployShortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘S" : "Ctrl+S";
+
+async function onKeydown(event: KeyboardEvent) {
+  if (event.key.toLowerCase() !== "s" || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+  if (!api.value) return;
+  event.preventDefault();
+  await nextTick(); // an edit typed just before the shortcut reaches the autosave watcher first
+  if (deploying.value) return;
+  // an edit made just now is still being saved: deploy() writes it first
+  if (!hasDraft.value && !saving.value) return flash(t("action.nothingToDeploy"));
+  if (issues.value.length > 0) return flash(t("error.invalid"), "error");
+  void onDeploy();
+}
+
+const keydown = (event: KeyboardEvent) => void onKeydown(event);
+onMounted(() => window.addEventListener("keydown", keydown));
+onBeforeUnmount(() => window.removeEventListener("keydown", keydown));
+
 async function onDiscard() {
   if (window.confirm(t("action.discardConfirm"))) await discardDraft();
 }
@@ -216,7 +235,13 @@ function legendTypes() {
       <div class="spacer" />
 
       <button v-if="hasDraft && live" class="btn ghost" @click="onDiscard">{{ t("action.discard") }}</button>
-      <button class="btn primary" :disabled="!hasDraft || deploying || issues.length > 0" @click="onDeploy">
+      <button
+        class="btn primary"
+        :disabled="!hasDraft || deploying || issues.length > 0"
+        :title="`${t('action.deploy')} (${deployShortcut})`"
+        :aria-keyshortcuts="deployShortcut === '⌘S' ? 'Meta+S' : 'Control+S'"
+        @click="onDeploy"
+      >
         {{ deploying ? t("action.deploying") : t("action.deploy") }}
       </button>
 
