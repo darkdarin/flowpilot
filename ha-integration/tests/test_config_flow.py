@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import urlparse
+from uuid import uuid4
 
 import pytest
+from aiohasupervisor.models import Discovery
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 from homeassistant.setup import async_setup_component
+
+from custom_components.flowpilot.config_flow import async_find_app
 
 from .conftest import TOKEN, Runtime
 
@@ -71,3 +76,58 @@ async def test_addon_discovery_with_a_wrong_token(
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "invalid_auth"}
+
+
+async def test_adding_by_hand_uses_the_announced_app(
+    hass: HomeAssistant, echo_runtime: Runtime
+) -> None:
+    """On Home Assistant OS "Add integration" must not ask for the address and token."""
+    url = urlparse(echo_runtime.url)
+    found = (
+        "988b5cb9_flowpilot",
+        {"host": url.hostname, "port": url.port, "token": TOKEN},
+        "FlowPilot",
+    )
+    with patch("custom_components.flowpilot.config_flow.async_find_app", return_value=found):
+        result = await hass.config_entries.flow.async_init(
+            "flowpilot", context={"source": config_entries.SOURCE_USER}
+        )
+    assert result["type"] is FlowResultType.FORM and result["step_id"] == "hassio_confirm"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {"url": echo_runtime.url, "token": TOKEN}
+    assert result["result"].unique_id == "hassio_988b5cb9_flowpilot"
+    await hass.async_block_till_done()
+
+
+async def test_adding_by_hand_without_the_app_asks_for_the_address(hass: HomeAssistant) -> None:
+    with patch("custom_components.flowpilot.config_flow.async_find_app", return_value=None):
+        result = await hass.config_entries.flow.async_init(
+            "flowpilot", context={"source": config_entries.SOURCE_USER}
+        )
+    assert result["type"] is FlowResultType.FORM and result["step_id"] == "user"
+
+
+async def test_find_app_reads_the_supervisor_announcement(hass: HomeAssistant) -> None:
+    assert await async_find_app(hass) is None  # not Home Assistant OS
+
+    other = Discovery(addon="core_mosquitto", service="mqtt", uuid=uuid4(), config={})
+    ours = Discovery(
+        addon="988b5cb9_flowpilot",
+        service="flowpilot",
+        uuid=uuid4(),
+        config={"host": "988b5cb9-flowpilot", "port": 8765, "token": "t"},
+    )
+    client = MagicMock()
+    client.discovery.list = AsyncMock(return_value=[other, ours])
+    with (
+        patch("custom_components.flowpilot.config_flow.is_hassio", return_value=True),
+        patch("homeassistant.components.hassio.get_supervisor_client", return_value=client),
+    ):
+        assert await async_find_app(hass) == (
+            "988b5cb9_flowpilot",
+            {"host": "988b5cb9-flowpilot", "port": 8765, "token": "t"},
+            "FlowPilot",
+        )
+        client.discovery.list = AsyncMock(return_value=[other])
+        assert await async_find_app(hass) is None

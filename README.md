@@ -75,7 +75,8 @@ The app is the FlowPilot runtime with the graph editor.
    **Integration**.
 2. Install **FlowPilot** and **restart Home Assistant**.
 3. **Settings → Devices & services** shows the discovered **FlowPilot** (the app announces itself).
-   Press **Add** and confirm: no address or token needed.
+   Press **Add** and confirm: no address or token needed. **Add integration → FlowPilot** finds the
+   app the same way.
 
 ### Step 3. Make an assistant use FlowPilot
 
@@ -126,8 +127,10 @@ machines; such clients need the access token from the runtime's `token` file.
 
 ## If something does not work
 
-- **FlowPilot is not discovered.** Restart the app: it announces itself to Home Assistant on every
-  start. The integration has to be installed (step 2) for the discovery to show.
+- **FlowPilot is not discovered, or the integration asks for an address and a token.** The app
+  announces itself on every start: its **Log** should have `announced to Home Assistant as …`.
+  Restart the app, then add the integration again. The address and token form is only for a runtime
+  outside Home Assistant OS (Docker).
 - **The satellite hears you but nothing happens.** Open **Live debug** in the editor and speak: a
   red node shows the step that failed and why. Assist's own debug view is in **Settings → Voice
   assistants → ⋮ → Debug**.
