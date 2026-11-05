@@ -9,6 +9,8 @@ All routes need ``Authorization: Bearer <token>``.
                                               for a setting (``NODE_OPTIONS_KEY``)
 - ``GET  /api/editor/recordings``             debug recordings (``?graph=``), newest first
 - ``GET  /api/editor/recordings/{file}``      one recording as audio/wav; ``DELETE`` removes it
+- ``PUT  /api/editor/default``                ``{graph}``: the graph turns go to when a client
+                                              names none (Assist); it must be deployed
 - ``GET  /api/editor/graphs``                 graphs with deploy/draft state
 - ``POST /api/editor/graphs``                 ``{id, name}``: create a draft for a new graph
 - ``GET  /api/editor/graphs/{id}``            deployed graph, draft and the draft's issues
@@ -141,6 +143,14 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
         await asyncio.to_thread(path.unlink, missing_ok=True)
         return web.json_response({"ok": True})
 
+    async def set_default(request: web.Request) -> web.Response:
+        graph_id = str((await request.json()).get("graph", ""))
+        try:
+            server.set_default_graph(graph_id)
+        except KeyError:
+            return _error(409, f"graph {graph_id!r} is not deployed")
+        return web.json_response({"default": graph_id})
+
     async def list_graphs(request: web.Request) -> web.Response:
         st = store()
         ids = sorted(set(st.ids()) | {p.name.removesuffix(".draft.json")
@@ -230,6 +240,7 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
         ("GET", f"{PREFIX}/recordings/{{file}}", get_recording),
         ("DELETE", f"{PREFIX}/recordings/{{file}}", delete_recording),
         ("GET", f"{PREFIX}/graphs", list_graphs),
+        ("PUT", f"{PREFIX}/default", set_default),
         ("POST", f"{PREFIX}/graphs", create_graph),
         ("GET", f"{PREFIX}/graphs/{{graph_id}}", get_graph),
         ("PUT", f"{PREFIX}/graphs/{{graph_id}}/draft", save_draft),

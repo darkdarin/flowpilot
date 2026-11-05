@@ -27,6 +27,7 @@ import {
   hasDraft,
   issues,
   live,
+  makeDefault,
   warnings,
   makeEdge,
   nodes,
@@ -178,6 +179,18 @@ const keydown = (event: KeyboardEvent) => void onKeydown(event);
 onMounted(() => window.addEventListener("keydown", keydown));
 onBeforeUnmount(() => window.removeEventListener("keydown", keydown));
 
+const isDefault = computed(() => graphs.value.some((g) => g.id === graphId.value && g.default));
+
+async function onMakeDefault() {
+  if (!graphId.value) return;
+  try {
+    await makeDefault(graphId.value);
+    flash(t("graph.defaultChanged"));
+  } catch (err) {
+    flash((err as Error).message, "error");
+  }
+}
+
 async function onDiscard() {
   if (window.confirm(t("action.discardConfirm"))) await discardDraft();
 }
@@ -221,10 +234,21 @@ function legendTypes() {
       <label class="graph-pick">
         <span class="sr">{{ t("graph.pick") }}</span>
         <select class="field" :value="graphId ?? ''" @change="onPickGraph">
-          <option v-for="g in graphs" :key="g.id" :value="g.id">{{ g.name }} ({{ g.id }})</option>
+          <option v-for="g in graphs" :key="g.id" :value="g.id">{{ g.default ? "★ " : "" }}{{ g.name }} ({{ g.id }})</option>
           <option value="__new">+ {{ t("graph.new") }}</option>
         </select>
       </label>
+      <button
+        class="btn icon ghost star"
+        :class="{ on: isDefault }"
+        :disabled="isDefault || !live"
+        :title="isDefault ? t('graph.isDefault') : live ? t('graph.makeDefault') : t('graph.deployFirst')"
+        :aria-label="isDefault ? t('graph.isDefault') : t('graph.makeDefault')"
+        :aria-pressed="isDefault"
+        @click="onMakeDefault"
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" /></svg>
+      </button>
 
       <span class="state" :class="{ draft: hasDraft, live: live && !hasDraft }">
         <i />{{ stateLabel }}
@@ -397,6 +421,22 @@ function legendTypes() {
   height: 1px;
   overflow: hidden;
   clip: rect(0 0 0 0);
+}
+
+.star svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+
+.star.on {
+  color: var(--warn);
+  opacity: 1;
+}
+
+.star.on svg {
+  fill: currentColor;
 }
 
 .state {

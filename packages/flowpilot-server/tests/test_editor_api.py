@@ -381,18 +381,27 @@ async def test_host_options_and_reference_warnings(env: Any) -> None:
         await asyncio.gather(task, return_exceptions=True)
 
 
-async def test_hosts_learn_references_on_hello_and_deploy(env: Any) -> None:
+async def test_hosts_learn_references_and_graphs(env: Any) -> None:
     session, url, manager = env
     ws, task, received = await host_client(session, url, [])
+
+    async def next_of(kind: str) -> dict[str, Any]:
+        while (msg := await asyncio.wait_for(received.get(), 5))["type"] != kind:
+            pass
+        return msg
+
     try:
-        first = await asyncio.wait_for(received.get(), 5)
-        assert first == {"type": "references", "graphs": {"main": []}}
+        assert await next_of("references") == {"type": "references", "graphs": {"main": []}}
+        assert await next_of("graphs") == {
+            "type": "graphs",
+            "graphs": [{"id": "main", "name": "Main"}],
+            "default": "main",
+        }
 
         with_agent = graph("v2")
         with_agent["nodes"][1]["config"]["agent"] = "conversation.kids"
         await manager.deploy_data("main", with_agent)
-        second = await asyncio.wait_for(received.get(), 5)
-        assert second["graphs"]["main"] == [
+        assert (await next_of("references"))["graphs"]["main"] == [
             {
                 "node": "agent",
                 "field": "agent",
@@ -400,6 +409,16 @@ async def test_hosts_learn_references_on_hello_and_deploy(env: Any) -> None:
                 "id": "conversation.kids",
             }
         ]
+        assert (await next_of("graphs"))["default"] == "main"
+
+        await manager.deploy_data("kids", graph("kid answer", graph_id="kids"))
+        assert [g["id"] for g in (await next_of("graphs"))["graphs"]] == ["kids", "main"]
+        resp = await session.put(url("/api/editor/default"), json={"graph": "kids"}, headers=AUTH)
+        assert resp.status == 200
+        assert (await next_of("graphs"))["default"] == "kids"
+        assert await ask(session, url) == "kid answer"  # turns without a graph go there now
+        resp = await session.put(url("/api/editor/default"), json={"graph": "nope"}, headers=AUTH)
+        assert resp.status == 409
     finally:
         await ws.close()
         await asyncio.gather(task, return_exceptions=True)

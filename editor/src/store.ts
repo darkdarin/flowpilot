@@ -255,6 +255,12 @@ export async function refreshGraphs() {
   graphs.value = (await api.value!.graphs()).graphs;
 }
 
+/** Turns that name no graph (all of Assist's through the default FlowPilot entities) go here. */
+export async function makeDefault(id: string) {
+  await api.value!.setDefault(id);
+  await refreshGraphs();
+}
+
 export async function openGraph(id: string) {
   await flushSave();
   const detail = await api.value!.graph(id);

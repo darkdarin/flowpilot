@@ -11,7 +11,7 @@ import json
 import logging
 import time
 import wave
-from collections.abc import AsyncIterable, AsyncIterator, Iterable, Mapping
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib import resources
@@ -148,6 +148,7 @@ class FlowPilotServer:
         token: str,
         default_graph: str,
         manager: GraphManager | None = None,
+        on_default_changed: Callable[[str], None] | None = None,
     ) -> None:
         self.manager = manager or GraphManager.adopt(deployments or {})
         self.manager.set_check(client_graph_issues)
@@ -157,6 +158,7 @@ class FlowPilotServer:
         if self.manager.store is None and default_graph not in self.manager.deployments:
             raise ValueError(f"default graph {default_graph!r} is not deployed")
         self.default_graph = default_graph
+        self._on_default_changed = on_default_changed
         self._token = token
         self.sessions = SessionIndex()
         self._sockets: set[web.WebSocketResponse] = set()
@@ -169,6 +171,31 @@ class FlowPilotServer:
     def _on_deployed(self, graph_id: str) -> None:
         self.trace_hub.announce(graph_id, "deployed")
         self._spawn(self.broadcast_references())
+        self._spawn(self.broadcast_graphs())
+
+    def set_default_graph(self, graph_id: str) -> None:
+        """The graph turns go to when a client names none (all of Assist's, by default)."""
+        if graph_id not in self.deployments:
+            raise KeyError(graph_id)
+        self.default_graph = graph_id
+        if self._on_default_changed is not None:
+            self._on_default_changed(graph_id)
+        self._spawn(self.broadcast_graphs())
+
+    def graphs_message(self) -> dict[str, Any]:
+        """Deployed graphs for hosts (Home Assistant makes an assistant choice per graph)."""
+        graphs = [
+            {"id": graph_id, "name": d.graph.graph.name or graph_id}
+            for graph_id, d in sorted(self.deployments.items())
+        ]
+        return {"type": "graphs", "graphs": graphs, "default": self.default_graph}
+
+    async def broadcast_graphs(self) -> None:
+        msg = self.graphs_message()
+        for conn in list(self.connections):
+            if conn.offers(HOST_OP_OPTIONS):
+                with contextlib.suppress(ConnectionError, HostUnavailable):
+                    await conn.send(msg)
 
     def _spawn(self, coro: Any) -> None:
         task = asyncio.get_running_loop().create_task(coro)
@@ -756,6 +783,7 @@ class Connection:
         self.server._options_cache = None
         if self.offers(HOST_OP_OPTIONS):
             await self.send({"type": "references", "graphs": self.server.deployed_references()})
+            await self.send(self.server.graphs_message())
 
     def _on_host_stream_start(self, msg: dict[str, Any]) -> None:
         """The client starts streaming the audio result of a host call."""

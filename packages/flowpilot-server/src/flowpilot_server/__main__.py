@@ -90,8 +90,20 @@ async def serve(config_path: Path, *, dev: bool = False, announce: bool = False)
         grants=grants,
         data_dir=base,
     )
+
+    def remember_default(graph_id: str) -> None:
+        """The editor chose another default graph: keep it in the config file."""
+        current = _read_json(config_path)
+        current["default_graph"] = graph_id
+        tmp = config_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(current, indent=2) + "\n")
+        tmp.replace(config_path)
+
     server = FlowPilotServer(
-        token=token, default_graph=config.get("default_graph", "main"), manager=manager
+        token=token,
+        default_graph=config.get("default_graph", "main"),
+        manager=manager,
+        on_default_changed=remember_default,
     )
     host, port = config.get("host", "0.0.0.0"), int(config.get("port", 8765))
     runners: list[web.AppRunner] = []

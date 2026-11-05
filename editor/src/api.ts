@@ -196,6 +196,9 @@ export class Api {
   deleteRecording(file: string) {
     return this.call<{ ok: boolean }>("DELETE", `/recordings/${encodeURIComponent(file)}`);
   }
+  setDefault(graph: string) {
+    return this.call<{ default: string }>("PUT", "/default", { graph });
+  }
   graphs() {
     return this.call<{ graphs: GraphSummary[] }>("GET", "/graphs");
   }
