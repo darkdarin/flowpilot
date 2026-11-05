@@ -25,6 +25,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   speech: "var(--cat-speech)",
   agent: "var(--cat-agent)",
   logic: "var(--cat-logic)",
+  debug: "var(--cat-debug)",
   identity: "var(--cat-identity)",
 };
 
@@ -32,4 +33,4 @@ export function categoryColor(category: string): string {
   return CATEGORY_COLORS[category] ?? "var(--cat-logic)";
 }
 
-export const CATEGORY_ORDER = ["input", "speech", "agent", "logic", "identity", "output"];
+export const CATEGORY_ORDER = ["input", "speech", "agent", "logic", "identity", "output", "debug"];

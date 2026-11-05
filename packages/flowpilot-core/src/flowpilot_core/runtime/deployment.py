@@ -9,6 +9,7 @@ from collections.abc import AsyncIterable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Protocol
 
 from flowpilot_sdk import (
@@ -67,8 +68,13 @@ class RuntimeNodeContext:
         config: Mapping[str, Any],
         secrets: Mapping[str, str],
         allowed: frozenset[str],
+        *,
+        graph_id: str = "",
+        data_dir: Path | None = None,
     ) -> None:
         self.node_id = node_id
+        self.graph_id = graph_id
+        self.data_dir = data_dir
         self.config = config
         self.logger = logging.getLogger(f"flowpilot.node.{node_id}")
         self._secrets = secrets
@@ -185,8 +191,11 @@ class Deployment:
         secrets: Mapping[str, str] | None = None,
         trace: TraceSink | None = None,
         sessions: MemorySessionStore | None = None,
+        data_dir: Path | None = None,
     ) -> None:
         self.graph = graph
+        # nodes get <data_dir>/nodes/<node type>/ for their files
+        self._data_dir = data_dir
         self._registry = registry
         self._secrets = secrets or {}
         self.trace: TraceSink = trace or NullTraceSink()
@@ -219,7 +228,12 @@ class Deployment:
                     raise LookupError(f"node type {decl.type!r} is not installed")
                 instance = node_cls()
                 ctx = RuntimeNodeContext(
-                    node_id, decl.config, self._secrets, self.graph.secret_refs[node_id]
+                    node_id,
+                    decl.config,
+                    self._secrets,
+                    self.graph.secret_refs[node_id],
+                    graph_id=self.graph.graph.id,
+                    data_dir=self._data_dir / "nodes" / decl.type if self._data_dir else None,
                 )
                 await instance.start(ctx)
                 self._instances[node_id] = instance

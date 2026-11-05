@@ -44,6 +44,7 @@ export interface TurnRun {
   nodes: Record<string, NodeRun>;
   ports: Record<string, PortRun>;
   hostCalls: { node: string; op: string; t: number }[];
+  recordings: { node: string; file: string; seconds: number }[];
 }
 
 const SAVE_DELAY_MS = 600;
@@ -404,7 +405,7 @@ function onTrace(msg: TraceMsg | { type: string; graph?: string }) {
   let turn = debug.turns.find((t) => t.id === ev.turn_id);
   if (!turn) {
     if (ev.event !== "turn.start") return; // backlog tail of a turn we never saw starting
-    turn = { id: ev.turn_id, status: "running", nodes: {}, ports: {}, hostCalls: [] };
+    turn = { id: ev.turn_id, status: "running", nodes: {}, ports: {}, hostCalls: [], recordings: [] };
     debug.turns.unshift(turn);
     debug.turns.splice(MAX_TURNS);
     turn = debug.turns[0];
@@ -442,6 +443,11 @@ function onTrace(msg: TraceMsg | { type: string; graph?: string }) {
     }
     case "host.call":
       turn.hostCalls.push({ node, op: String(ev.attrs.op), t: ev.t_ms });
+      break;
+    case "record.saved":
+      if (!turn.recordings.some((r) => r.file === ev.attrs.file)) {
+        turn.recordings.push({ node, file: String(ev.attrs.file), seconds: Number(ev.attrs.seconds) });
+      }
       break;
   }
 }

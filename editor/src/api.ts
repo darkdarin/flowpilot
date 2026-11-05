@@ -183,6 +183,17 @@ export class Api {
   nodeOptions(type: string, field: string, config: Record<string, unknown>) {
     return this.call<{ options: HostOption[]; error?: string }>("POST", "/node-options", { type, field, config });
   }
+  /** A recording as a Blob (an <audio> element cannot send the Authorization header). */
+  async recording(file: string): Promise<Blob> {
+    const resp = await fetch(`${ROOT}/api/editor/recordings/${encodeURIComponent(file)}`, {
+      headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+    });
+    if (!resp.ok) throw new ApiError(resp.status, resp.statusText);
+    return resp.blob();
+  }
+  deleteRecording(file: string) {
+    return this.call<{ ok: boolean }>("DELETE", `/recordings/${encodeURIComponent(file)}`);
+  }
   graphs() {
     return this.call<{ graphs: GraphSummary[] }>("GET", "/graphs");
   }
@@ -208,6 +219,8 @@ export class TraceSocket {
   private ws: WebSocket | null = null;
   private closed = false;
   private graph: string | null = null;
+  private ready = false; // hello.ok received on the current socket
+  private sent: string | null = null; // graph subscribed on the current socket
 
   constructor(
     private token: string,
@@ -225,11 +238,15 @@ export class TraceSocket {
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data as string);
       if (msg.type === "hello.ok") {
+        this.ready = true;
+        this.sent = null;
         this.onState(true);
         if (this.graph) this.subscribe(this.graph);
       } else this.onMessage(msg);
     };
     ws.onclose = () => {
+      this.ready = false;
+      this.sent = null;
       this.onState(false);
       if (!this.closed) setTimeout(() => this.open(), 2000);
     };
@@ -237,7 +254,10 @@ export class TraceSocket {
 
   subscribe(graph: string) {
     this.graph = graph;
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: "subscribe", graph }));
+    // Only after hello.ok, and once per graph: every subscribe makes the server resend its backlog.
+    if (!this.ready || this.sent === graph) return;
+    this.sent = graph;
+    this.ws?.send(JSON.stringify({ type: "subscribe", graph }));
   }
 
   close() {

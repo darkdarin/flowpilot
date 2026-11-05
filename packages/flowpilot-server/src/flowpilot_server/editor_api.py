@@ -7,6 +7,8 @@ All routes need ``Authorization: Bearer <token>``.
                                               (``?refresh=1`` skips the short cache)
 - ``POST /api/editor/node-options``           ``{type, field, config}``: choices a node lists itself
                                               for a setting (``NODE_OPTIONS_KEY``)
+- ``GET  /api/editor/recordings``             debug recordings (``?graph=``), newest first
+- ``GET  /api/editor/recordings/{file}``      one recording as audio/wav; ``DELETE`` removes it
 - ``GET  /api/editor/graphs``                 graphs with deploy/draft state
 - ``POST /api/editor/graphs``                 ``{id, name}``: create a draft for a new graph
 - ``GET  /api/editor/graphs/{id}``            deployed graph, draft and the draft's issues
@@ -23,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
@@ -31,6 +34,7 @@ from flowpilot_core import GraphError
 
 from .auth import bearer_token
 from .manager import GRAPH_ID_RE, DeployError, GraphManager, GraphStore, issue_dicts
+from .recording import list_recordings, recording_path, recordings_dir
 from .references import OPTIONS_CACHE_S
 
 if TYPE_CHECKING:
@@ -114,6 +118,28 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
                 ]
             }
         )
+
+    def recordings() -> Path:
+        if manager.data_dir is None:
+            raise web.HTTPNotImplemented(text="this runtime keeps no recordings")
+        return recordings_dir(manager.data_dir)
+
+    async def list_recordings_(request: web.Request) -> web.Response:
+        found = await asyncio.to_thread(list_recordings, recordings(), request.query.get("graph"))
+        return web.json_response({"recordings": [r.as_dict() for r in found]})
+
+    async def get_recording(request: web.Request) -> web.StreamResponse:
+        path = recording_path(recordings(), request.match_info["file"])
+        if path is None:
+            return _error(404, "no such recording")
+        return web.FileResponse(path, headers={"Content-Type": "audio/wav"})
+
+    async def delete_recording(request: web.Request) -> web.Response:
+        path = recording_path(recordings(), request.match_info["file"])
+        if path is None:
+            return _error(404, "no such recording")
+        await asyncio.to_thread(path.unlink, missing_ok=True)
+        return web.json_response({"ok": True})
 
     async def list_graphs(request: web.Request) -> web.Response:
         st = store()
@@ -200,6 +226,9 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
         ("GET", f"{PREFIX}/catalog", catalog),
         ("GET", f"{PREFIX}/options", options),
         ("POST", f"{PREFIX}/node-options", node_options),
+        ("GET", f"{PREFIX}/recordings", list_recordings_),
+        ("GET", f"{PREFIX}/recordings/{{file}}", get_recording),
+        ("DELETE", f"{PREFIX}/recordings/{{file}}", delete_recording),
         ("GET", f"{PREFIX}/graphs", list_graphs),
         ("POST", f"{PREFIX}/graphs", create_graph),
         ("GET", f"{PREFIX}/graphs/{{graph_id}}", get_graph),

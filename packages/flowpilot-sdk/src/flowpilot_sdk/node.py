@@ -7,6 +7,7 @@ import re
 from collections.abc import AsyncIterable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, ClassVar, Literal, Protocol
 
 from .context import SessionInfo, SessionState, TurnContext
@@ -20,7 +21,7 @@ NODE_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
 PORT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 SEMVER_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
-Category = Literal["input", "speech", "identity", "logic", "agent", "tool", "output"]
+Category = Literal["input", "speech", "identity", "logic", "agent", "tool", "output", "debug"]
 Isolation = Literal["in_process", "subprocess", "any"]
 
 
@@ -125,8 +126,12 @@ class NodeContext(Protocol):
     """What a node instance gets at start: its identity in the graph, config and secrets."""
 
     node_id: str
+    graph_id: str
     config: Mapping[str, Any]
     logger: logging.Logger
+    # A directory of this node type in the runtime's data, kept across turns and restarts (files a
+    # node keeps: recordings, enrolled voices). ``None`` when the runtime has no storage.
+    data_dir: Path | None
 
     def secret(self, name: str) -> str:
         """Value of a secret referenced in the node config; ``KeyError`` if not granted."""

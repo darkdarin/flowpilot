@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Live debug drawer: recent turns and a waterfall of node runs for the selected turn.
-import { computed } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import { t } from "../i18n";
-import { currentTurn, debug, nodes, selectedId, specs } from "../store";
+import { api, currentTurn, debug, flash, nodes, selectedId, specs } from "../store";
 import { categoryColor } from "../types";
 
 const rows = computed(() => {
@@ -31,6 +31,63 @@ function pct(ms: number) {
   return `${(ms / span.value) * 100}%`;
 }
 
+// Recordings of the selected turn (debug.record nodes): played through the authenticated API.
+const playing = ref<string | null>(null);
+let player: HTMLAudioElement | null = null;
+let playerUrl = "";
+
+function stopPlaying() {
+  player?.pause();
+  if (playerUrl) URL.revokeObjectURL(playerUrl);
+  player = null;
+  playerUrl = "";
+  playing.value = null;
+}
+
+async function blobOf(file: string): Promise<Blob | null> {
+  try {
+    return await api.value!.recording(file);
+  } catch {
+    flash(t("debug.recordingGone"), "error");
+    return null;
+  }
+}
+
+async function play(file: string) {
+  const wasPlaying = playing.value === file;
+  stopPlaying();
+  if (wasPlaying) return;
+  const blob = await blobOf(file);
+  if (!blob) return;
+  playerUrl = URL.createObjectURL(blob);
+  player = new Audio(playerUrl);
+  player.onended = stopPlaying;
+  playing.value = file;
+  await player.play();
+}
+
+async function download(file: string) {
+  const blob = await blobOf(file);
+  if (!blob) return;
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = file;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+async function remove(file: string) {
+  if (playing.value === file) stopPlaying();
+  try {
+    await api.value!.deleteRecording(file);
+  } catch {
+    /* already gone */
+  }
+  for (const turn of debug.turns) turn.recordings = turn.recordings.filter((r) => r.file !== file);
+}
+
+onBeforeUnmount(stopPlaying);
+
 function status(s: string) {
   const key = `status.${s}` as Parameters<typeof t>[0];
   return t(key);
@@ -58,6 +115,29 @@ function status(s: string) {
     </div>
 
     <div v-if="currentTurn" class="waterfall">
+      <div v-if="currentTurn.recordings.length" class="recordings">
+        <span class="label">{{ t("debug.recordings") }}</span>
+        <span v-for="rec in currentTurn.recordings" :key="rec.file" class="recording">
+          <button
+            class="play"
+            :class="{ on: playing === rec.file }"
+            :title="playing === rec.file ? t('debug.stopPlaying') : t('debug.play')"
+            :aria-label="playing === rec.file ? t('debug.stopPlaying') : t('debug.play')"
+            @click="play(rec.file)"
+          >
+            <svg v-if="playing === rec.file" viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1" /></svg>
+            <svg v-else viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7.5-4.5z" /></svg>
+          </button>
+          <code>{{ rec.node }}</code>
+          <span class="secs">{{ rec.seconds.toFixed(1) }} s</span>
+          <button class="icon" :title="t('debug.download')" :aria-label="t('debug.download')" @click="download(rec.file)">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10" /></svg>
+          </button>
+          <button class="icon" :title="t('debug.deleteRecording')" :aria-label="t('debug.deleteRecording')" @click="remove(rec.file)">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 4.5h9M6.5 4.5V3h3v1.5M5 4.5l.6 8.5h4.8l.6-8.5" /></svg>
+          </button>
+        </span>
+      </div>
       <div class="axis">
         <span>0</span>
         <span>{{ ms(span / 2) }}</span>
@@ -192,6 +272,80 @@ function status(s: string) {
 .waterfall {
   overflow-y: auto;
   padding: 8px 16px 12px;
+}
+
+.recordings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-bottom: 8px;
+}
+
+.recordings .label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.recording {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 2px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel-raised);
+}
+
+.recording button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.recording button:hover {
+  color: var(--text);
+  background: var(--line);
+}
+
+.recording .play {
+  background: color-mix(in srgb, var(--cat-debug) 22%, transparent);
+  color: var(--text);
+}
+
+.recording .play.on {
+  background: var(--cat-debug);
+  color: var(--primary-text);
+}
+
+.recording svg {
+  width: 13px;
+  height: 13px;
+}
+
+.recording .play svg {
+  fill: currentColor;
+}
+
+.recording .icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.recording .secs {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .axis {

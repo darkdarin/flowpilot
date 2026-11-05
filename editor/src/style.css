@@ -43,6 +43,7 @@
   --cat-agent: #9c7bf0;
   --cat-logic: #8a93a3;
   --cat-identity: #e0567c;
+  --cat-debug: #c9a227;
 }
 
 :root[data-theme="light"] {
@@ -80,6 +81,7 @@
   --cat-agent: #7552e0;
   --cat-logic: #7a8394;
   --cat-identity: #c93462;
+  --cat-debug: #9a7a12;
 }
 
 /* ---- base ----------------------------------------------------------------------------------- */

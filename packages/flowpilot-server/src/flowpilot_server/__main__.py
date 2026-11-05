@@ -42,6 +42,7 @@ from . import datadir, supervisor
 from .devnodes import DEV_NODES
 from .manager import GraphManager, GraphStore
 from .nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
+from .recording import RecordAudio
 from .server import FlowPilotServer
 
 _LOGGER = logging.getLogger("flowpilot_server")
@@ -51,7 +52,14 @@ ENTRY_POINT_GROUP = "flowpilot.nodes"
 
 def build_registry(*, dev: bool = False) -> NodeRegistry:
     registry = register_builtin(NodeRegistry())
-    classes: list[type[Node]] = [ClientSource, ClientSink, HaConversation, HaStt, HaTts]
+    classes: list[type[Node]] = [
+        ClientSource,
+        ClientSink,
+        HaConversation,
+        HaStt,
+        HaTts,
+        RecordAudio,
+    ]
     if dev:
         classes += DEV_NODES
     for ep in entry_points(group=ENTRY_POINT_GROUP):
@@ -78,6 +86,7 @@ async def serve(config_path: Path, *, dev: bool = False, announce: bool = False)
         store=GraphStore(base / config.get("graphs_dir", "graphs")),
         secrets=secrets,
         grants=grants,
+        data_dir=base,
     )
     server = FlowPilotServer(
         token=token, default_graph=config.get("default_graph", "main"), manager=manager

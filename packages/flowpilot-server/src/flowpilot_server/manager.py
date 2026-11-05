@@ -106,7 +106,9 @@ class GraphManager:
         grants: GrantPolicy | None = None,
         check: GraphCheck | None = None,
         trace_factory: TraceFactory | None = None,
+        data_dir: Path | None = None,
     ) -> None:
+        self.data_dir = data_dir  # nodes keep their files under <data_dir>/nodes/<type>/
         self.registry = registry
         self.store = store
         self._secrets = dict(secrets or {})
@@ -174,7 +176,9 @@ class GraphManager:
         if graph.graph.id != graph_id:
             raise GraphError([GraphIssue("id_mismatch", "$.id", f"graph id must be {graph_id!r}")])
         trace = self._trace_factory(graph_id) if self._trace_factory else None
-        deployment = Deployment(graph, self.registry, secrets=self._secrets, trace=trace)
+        deployment = Deployment(
+            graph, self.registry, secrets=self._secrets, trace=trace, data_dir=self.data_dir
+        )
         try:
             await deployment.start()
         except Exception as err:  # noqa: BLE001 - any start failure keeps the old deployment
