@@ -54,7 +54,7 @@ target-version = "py314"
 select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "BLE"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["flowpilot_sdk", "flowpilot_core", "flowpilot_server", "flowpilot_wyoming", "flowpilot_vad"]
+known-first-party = ["flowpilot_sdk", "flowpilot_core", "flowpilot_server", "flowpilot_wyoming", "flowpilot_vad", "custom_components"]
 
 [tool.mypy]
 python_version = "3.14"

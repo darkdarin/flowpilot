@@ -9,10 +9,6 @@ from unittest.mock import patch
 
 import aiohttp
 import pytest
-from custom_components.flowpilot.client import HostRequest
-from custom_components.flowpilot.conversation import spoken_error
-from custom_components.flowpilot.host import build_host_ops
-from custom_components.flowpilot.references import ISSUE_PREFIX, ReferenceMonitor
 from homeassistant.components import stt, tts
 from homeassistant.components.conversation import async_converse
 from homeassistant.core import Context, HomeAssistant
@@ -20,6 +16,11 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
+
+from custom_components.flowpilot.client import HostRequest
+from custom_components.flowpilot.conversation import spoken_error
+from custom_components.flowpilot.host import build_host_ops
+from custom_components.flowpilot.references import ISSUE_PREFIX, ReferenceMonitor
 
 from .conftest import TOKEN, Runtime, _runtime, setup_flowpilot
 

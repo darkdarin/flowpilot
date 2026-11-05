@@ -8,13 +8,14 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from custom_components.flowpilot.client import HostRequest
-from custom_components.flowpilot.host import build_host_ops
-from custom_components.flowpilot.wav import WavError, open_wav
 from homeassistant.components import stt, tts
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.flowpilot.client import HostRequest
+from custom_components.flowpilot.host import build_host_ops
+from custom_components.flowpilot.wav import WavError, open_wav
 
 
 def make_wav(pcm: bytes, *, rate: int = 22050, bits: int = 16, streaming: bool = False,
