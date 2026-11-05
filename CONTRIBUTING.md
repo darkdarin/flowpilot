@@ -43,6 +43,12 @@ uv run pytest
 
   The kit checks the config schema, start/stop, absent and failed inputs, the sample run,
   cancellation and leaked tasks (see the module docstring for the list of checks).
+- Nodes describe themselves for the editor: `NodeSpec.description`, `PortSpec.description` for
+  every port, and `title` + `description` for every config schema property, all in English
+  (conformance warning `W2` lists what is missing). Other languages go to
+  `<package>/translations/<language>.json` (format in `flowpilot_sdk/text.py`) and are loaded with
+  `translations=node_translations(__package__, "my.node")`; bundled nodes ship Russian, and
+  `packages/flowpilot-server/tests/test_texts.py` keeps them complete.
 - A setting that names something a host provides (a Home Assistant entity, a Wyoming service) is
   marked in the config schema, e.g. `{"type": "string", OPTIONS_KEY: "ha.stt"}` with
   `from flowpilot_sdk import OPTIONS_KEY`. The editor then offers the host's list for it, and Home

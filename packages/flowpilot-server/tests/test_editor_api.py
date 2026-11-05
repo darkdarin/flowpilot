@@ -154,6 +154,7 @@ async def test_catalog_describes_nodes_and_types(env: Any) -> None:
             "kind": "value",
             "required": True,
             "delivery": "lossless",
+            "description": "",
         }
     ]
     assert reply["config_schema"]["required"] == ["text"]

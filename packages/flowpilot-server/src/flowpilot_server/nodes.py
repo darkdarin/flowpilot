@@ -21,6 +21,7 @@ from flowpilot_sdk import (
     Transcript,
     TurnSession,
     Utterance,
+    node_translations,
 )
 from flowpilot_sdk.helpers import SpeechWriter, split_sentences
 
@@ -69,13 +70,24 @@ class ClientSource(_Lifecycle):
 
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="client.source",
+        translations=node_translations(__package__, "client.source"),
         version="1.0.0",
         title="Client input",
         category="input",
         outputs={
-            "audio": PortSpec(AUDIO),
-            "utterance": PortSpec(UTTERANCE, kind="value"),
+            "audio": PortSpec(
+                AUDIO, description="Speech from the client as it is recorded; absent in text turns."
+            ),
+            "utterance": PortSpec(
+                UTTERANCE,
+                kind="value",
+                description="Typed text of a text turn; absent in voice turns.",
+            ),
         },
+        description=(
+            "Where a turn starts: speech from a satellite, browser or app, or typed text. In each "
+            "turn only one of the outputs carries data."
+        ),
     )
 
     def __init__(self) -> None:
@@ -101,15 +113,34 @@ class ClientSink(_Lifecycle):
 
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="client.sink",
+        translations=node_translations(__package__, "client.sink"),
         version="1.0.0",
         title="Client output",
         category="output",
         inputs={
-            "transcript": PortSpec("text.transcript/1", required=False),
-            "delta": PortSpec("text.delta/1", required=False),
-            "response": PortSpec("agent.response/1", kind="value"),
-            "speech": PortSpec(AUDIO, required=False),
+            "transcript": PortSpec(
+                "text.transcript/1",
+                required=False,
+                description="Recognized speech, partial and final, shown while the user speaks.",
+            ),
+            "delta": PortSpec(
+                "text.delta/1", required=False, description="Answer text as it is generated."
+            ),
+            "response": PortSpec(
+                "agent.response/1",
+                kind="value",
+                description="The complete answer; a turn is not finished without it.",
+            ),
+            "speech": PortSpec(
+                AUDIO,
+                required=False,
+                description=(
+                    "Synthesized speech to play back; without it the client speaks the answer "
+                    "itself (for example with Home Assistant TTS)."
+                ),
+            ),
         },
+        description="Where a turn ends: what the client shows and plays back.",
     )
 
     def __init__(self) -> None:
@@ -167,27 +198,64 @@ class HaConversation(_Lifecycle):
 
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="ha.conversation",
+        translations=node_translations(__package__, "ha.conversation"),
         version="1.0.0",
         title="Home Assistant conversation agent",
         category="agent",
         inputs={
-            "utterance": PortSpec(UTTERANCE, kind="value"),
-            "principal": PortSpec("identity.principal/1", kind="value", required=False),
+            "utterance": PortSpec(
+                UTTERANCE, kind="value", description="What the user said or typed."
+            ),
+            "principal": PortSpec(
+                "identity.principal/1",
+                kind="value",
+                required=False,
+                description=(
+                    "Who is speaking, from an identity node; passed to the agent when known."
+                ),
+            ),
         },
         outputs={
-            "delta": PortSpec("text.delta/1"),
-            "speech_delta": PortSpec("text.delta/1"),
-            "response": PortSpec("agent.response/1", kind="value"),
+            "delta": PortSpec(
+                "text.delta/1",
+                description="Answer text; Home Assistant agents answer in one piece.",
+            ),
+            "speech_delta": PortSpec(
+                "text.delta/1",
+                description=(
+                    "Answer text for speech synthesis when it differs from the shown text; this "
+                    "agent leaves it empty, so connect delta to text-to-speech."
+                ),
+            ),
+            "response": PortSpec(
+                "agent.response/1",
+                kind="value",
+                description=(
+                    "The complete answer, and whether the agent expects the user to continue."
+                ),
+            ),
         },
         config_schema={
             "type": "object",
             "properties": {
-                "agent_id": {"type": "string", "minLength": 1, OPTIONS_KEY: "ha.conversation"}
+                "agent_id": {
+                    "title": "Agent",
+                    "description": (
+                        "Conversation agent entity; Home Assistant's own agent when not set."
+                    ),
+                    "type": "string",
+                    "minLength": 1,
+                    OPTIONS_KEY: "ha.conversation",
+                }
             },
             "additionalProperties": False,
         },
         host_ops=frozenset({HA_CONVERSATION_OP}),
         turn_timeout_s=20.0,
+        description=(
+            "Hands the utterance to a conversation agent in Home Assistant (Assist, an LLM "
+            "integration and so on) and returns its answer. Needs a connected Home Assistant."
+        ),
     )
 
     def __init__(self) -> None:
@@ -238,25 +306,45 @@ class HaStt(_Lifecycle):
 
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="ha.stt",
+        translations=node_translations(__package__, "ha.stt"),
         version="1.0.0",
         title="Home Assistant speech-to-text",
         category="speech",
-        inputs={"audio": PortSpec(AUDIO)},
+        inputs={"audio": PortSpec(AUDIO, description="Speech to recognize.")},
         outputs={
-            "transcript": PortSpec("text.transcript/1"),
-            "utterance": PortSpec(UTTERANCE, kind="value"),
+            "transcript": PortSpec("text.transcript/1", description="Recognized text, final only."),
+            "utterance": PortSpec(
+                UTTERANCE, kind="value", description="Recognized text as an utterance for an agent."
+            ),
         },
         config_schema={
             "type": "object",
             "properties": {
-                "entity_id": {"type": "string", "pattern": "^stt\\.", OPTIONS_KEY: "ha.stt"},
-                "language": {"type": "string"},
+                "entity_id": {
+                    "title": "Speech-to-text entity",
+                    "description": "The stt.* entity that recognizes the speech.",
+                    "type": "string",
+                    "pattern": "^stt\\.",
+                    OPTIONS_KEY: "ha.stt",
+                },
+                "language": {
+                    "title": "Language",
+                    "description": (
+                        "Recognition language, for example ru; the turn's language when not set."
+                    ),
+                    "type": "string",
+                },
             },
             "required": ["entity_id"],
             "additionalProperties": False,
         },
         host_ops=frozenset({HA_STT_OP}),
         turn_timeout_s=60.0,
+        description=(
+            "Recognizes speech with any speech-to-text entity in Home Assistant. Those entities "
+            "answer after the audio ends, so put a voice command segmenter in front unless the "
+            "source ends the audio itself."
+        ),
     )
 
     def __init__(self) -> None:
@@ -295,24 +383,55 @@ class HaTts(_Lifecycle):
 
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="ha.tts",
+        translations=node_translations(__package__, "ha.tts"),
         version="1.0.0",
         title="Home Assistant text-to-speech",
         category="speech",
-        inputs={"text": PortSpec("text.delta/1")},
-        outputs={"speech": PortSpec(AUDIO)},
+        inputs={
+            "text": PortSpec(
+                "text.delta/1",
+                description=(
+                    "Text to speak, as it arrives; each finished sentence is spoken right away."
+                ),
+            )
+        },
+        outputs={"speech": PortSpec(AUDIO, description="Synthesized speech.")},
         config_schema={
             "type": "object",
             "properties": {
-                "engine": {"type": "string", "pattern": "^tts\\.", OPTIONS_KEY: "ha.tts"},
-                "language": {"type": "string"},
-                "voice": {"type": "string"},
-                "sample_rate": {"type": "integer", "minimum": 8000},
+                "engine": {
+                    "title": "Text-to-speech entity",
+                    "description": "The tts.* entity that speaks.",
+                    "type": "string",
+                    "pattern": "^tts\\.",
+                    OPTIONS_KEY: "ha.tts",
+                },
+                "language": {
+                    "title": "Language",
+                    "description": "Language of the voice; the turn's language when not set.",
+                    "type": "string",
+                },
+                "voice": {
+                    "title": "Voice",
+                    "description": "Voice as the entity names it; its default when not set.",
+                    "type": "string",
+                },
+                "sample_rate": {
+                    "title": "Sample rate, Hz",
+                    "description": "Sample rate requested from the entity; 16000 when not set.",
+                    "type": "integer",
+                    "minimum": 8000,
+                },
             },
             "required": ["engine"],
             "additionalProperties": False,
         },
         host_ops=frozenset({HA_TTS_OP}),
         turn_timeout_s=60.0,
+        description=(
+            "Speaks text with any text-to-speech entity in Home Assistant, sentence by sentence, "
+            "and streams the audio back into the graph."
+        ),
     )
 
     def __init__(self) -> None:

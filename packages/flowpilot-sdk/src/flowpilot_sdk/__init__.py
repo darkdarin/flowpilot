@@ -20,6 +20,7 @@ from .payloads import (
     Word,
 )
 from .streams import Envelope, InputStream, OutputStream, StreamError, StreamHeader
+from .text import FieldText, NodeText, node_translations
 from .types import (
     PRIVILEGED_TYPES,
     payload_class,
@@ -32,6 +33,9 @@ from .types import (
 __version__ = "0.0.1"
 
 __all__ = [
+    "FieldText",
+    "NodeText",
+    "node_translations",
     "IDENTITY_PROVIDER_GRANT",
     "OPTIONS_KEY",
     "PRIVILEGED_TYPES",

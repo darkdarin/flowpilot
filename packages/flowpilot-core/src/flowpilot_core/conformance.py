@@ -14,6 +14,8 @@ Checks (codes are stable):
 - ``C6`` cancellation: stops within the grace period and does not swallow ``CancelledError``
 - ``C7`` no tasks started by the node are left running after ``run_turn``
 - ``W1`` (warning) speech/identity/agent/tool nodes should declare ``turn_timeout_s``
+- ``W2`` (warning) the node, its ports and settings should describe themselves (English
+  ``description``; the editor shows it, translations fall back to it)
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ from jsonschema.exceptions import SchemaError
 from flowpilot_sdk import (
     Envelope,
     Node,
+    NodeSpec,
     Principal,
     SessionInfo,
     SourceInfo,
@@ -252,6 +255,20 @@ async def run_node_once(
     return NodeRun(captured, error, duration, leaked, trace)
 
 
+def missing_descriptions(spec: NodeSpec) -> list[str]:
+    """What has no English description: ``node``, ``input x``, ``output y``, ``setting z``."""
+    missing = [] if spec.description else ["node"]
+    missing += [f"input {name}" for name, port in spec.inputs.items() if not port.description]
+    missing += [f"output {name}" for name, port in spec.outputs.items() if not port.description]
+    props = spec.config_schema.get("properties") or {}
+    missing += [
+        f"setting {name}"
+        for name, prop in props.items()
+        if not (isinstance(prop, Mapping) and prop.get("description"))
+    ]
+    return missing
+
+
 async def check_node(
     node_cls: type[Node],
     *,
@@ -285,6 +302,9 @@ async def check_node(
 
     if spec.category in TIMEOUT_EXPECTED and spec.turn_timeout_s is None:
         warning("W1", f"{spec.category} node declares no turn_timeout_s")
+
+    if missing := missing_descriptions(spec):
+        warning("W2", f"no description for {', '.join(missing)}")
 
     refs: set[str] = set()
     collect_secret_refs(config, refs)

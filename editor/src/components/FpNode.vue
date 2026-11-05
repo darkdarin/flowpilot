@@ -3,6 +3,7 @@ import { Handle, Position, type NodeProps } from "@vue-flow/core";
 import { computed } from "vue";
 import { t } from "../i18n";
 import { currentTurn, debug, edges, nodeIssues, nodeWarnings, specs, type FpNodeData } from "../store";
+import { nodeDescription, nodeTitle, portDescription } from "../texts";
 import { categoryColor, typeColor, typeShort } from "../types";
 
 const props = defineProps<NodeProps<FpNodeData>>();
@@ -20,6 +21,11 @@ const connected = computed(() => {
   }
   return set;
 });
+
+function portTip(side: "inputs" | "outputs", name: string, type: string, kind: string): string {
+  const desc = portDescription(spec.value, side, name);
+  return desc ? `${desc}\n${type} · ${kind}` : `${type} · ${kind}`;
+}
 
 function portRun(port: string) {
   return debug.enabled ? currentTurn.value?.ports[`${props.id}.${port}`] : undefined;
@@ -40,7 +46,7 @@ const summary = computed(() => {
   >
     <header>
       <div class="title">
-        <span class="name">{{ spec?.title ?? data.type }}</span>
+        <span class="name" :title="nodeDescription(spec)">{{ nodeTitle(spec, data.type) }}</span>
         <span v-if="problems.length" class="badge problem" :title="problems.map((p) => p.message).join('\n')">
           {{ problems.length }}
         </span>
@@ -66,9 +72,9 @@ const summary = computed(() => {
             type="target"
             :position="Position.Left"
             :class="[p.kind, { connected: connected.has(`in:${p.name}`) }]"
-            :title="`${p.type} · ${p.kind}`"
+            :title="portTip('inputs', p.name, p.type, p.kind)"
           />
-          <span class="label" :class="{ optional: !p.required }">{{ p.name }}</span>
+          <span class="label" :class="{ optional: !p.required }" :title="portTip('inputs', p.name, p.type, p.kind)">{{ p.name }}</span>
           <span class="type">{{ typeShort(p.type) }}</span>
         </div>
       </div>
@@ -78,13 +84,13 @@ const summary = computed(() => {
             {{ portRun(p.name)!.state === "absent" ? "–" : portRun(p.name)!.items }}
           </span>
           <span class="type">{{ typeShort(p.type) }}</span>
-          <span class="label">{{ p.name }}</span>
+          <span class="label" :title="portTip('outputs', p.name, p.type, p.kind)">{{ p.name }}</span>
           <Handle
             :id="p.name"
             type="source"
             :position="Position.Right"
             :class="[p.kind, { connected: connected.has(`out:${p.name}`) }]"
-            :title="`${p.type} · ${p.kind}`"
+            :title="portTip('outputs', p.name, p.type, p.kind)"
           />
         </div>
       </div>

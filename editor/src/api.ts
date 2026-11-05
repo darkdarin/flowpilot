@@ -6,6 +6,16 @@ export interface PortInfo {
   kind: "stream" | "value";
   required: boolean;
   delivery: "lossless" | "latest";
+  description: string;
+}
+
+/** Texts of a node in one language; every key is optional and falls back to English. */
+export interface NodeTexts {
+  title?: string;
+  description?: string;
+  inputs?: Record<string, string>;
+  outputs?: Record<string, string>;
+  config?: Record<string, { title?: string; description?: string }>;
 }
 
 export interface NodeInfo {
@@ -20,6 +30,7 @@ export interface NodeInfo {
   host_ops: string[];
   grants: string[];
   turn_timeout_s: number;
+  translations: Record<string, NodeTexts>;
 }
 
 export interface Catalog {

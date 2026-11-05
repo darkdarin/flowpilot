@@ -6,7 +6,14 @@ import type { JsonSchema } from "../api";
 import { t } from "../i18n";
 import { hostOptions, refreshOptions } from "../store";
 
-const props = defineProps<{ name: string; schema: JsonSchema; required: boolean; modelValue: unknown }>();
+const props = defineProps<{
+  name: string;
+  schema: JsonSchema;
+  required: boolean;
+  modelValue: unknown;
+  label?: string; // localized title; the property name is shown next to it
+  description?: string; // localized description
+}>();
 const emit = defineEmits<{ "update:modelValue": [value: unknown] }>();
 
 const kind = computed(() => {
@@ -82,7 +89,6 @@ function setJson(text: string) {
 const hint = computed(() => {
   const s = props.schema;
   const parts: string[] = [];
-  if (s.description) parts.push(s.description);
   if (s.pattern) parts.push(s.pattern);
   if (s.minimum !== undefined) parts.push(`≥ ${s.minimum}`);
   if (s.exclusiveMinimum !== undefined) parts.push(`> ${s.exclusiveMinimum}`);
@@ -94,9 +100,11 @@ const hint = computed(() => {
 <template>
   <div class="schema-field">
     <label :for="inputId">
-      <code>{{ name }}</code>
+      <span class="title">{{ label || name }}</span>
       <span v-if="required" class="req" :title="t('inspector.required')">*</span>
+      <code v-if="label" class="key">{{ name }}</code>
     </label>
+    <p v-if="description" class="desc">{{ description }}</p>
 
     <select v-if="kind === 'enum'" :id="inputId" class="field" :value="stringValue" @change="setString(($event.target as HTMLSelectElement).value)">
       <option value="">{{ schema.default !== undefined ? String(schema.default) : t("form.unset") }}</option>
@@ -187,9 +195,21 @@ label {
   align-items: baseline;
 }
 
-label code {
+label .title {
+  font-weight: 500;
+}
+
+label .key {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.desc {
+  margin: -2px 0 2px;
+  color: var(--muted);
   font-size: 12px;
-  color: var(--text);
+  line-height: 1.4;
 }
 
 .req {

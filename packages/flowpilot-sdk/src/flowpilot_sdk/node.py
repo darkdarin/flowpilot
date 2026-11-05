@@ -13,6 +13,7 @@ from .context import SessionInfo, SessionState, TurnContext
 from .host import HostAudio
 from .payloads import AudioFormat
 from .streams import InputStream, OutputStream
+from .text import LANGUAGE_RE, NodeText
 from .types import PRIVILEGED_TYPES, validate_type_id
 
 NODE_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
@@ -32,6 +33,7 @@ class PortSpec:
     required: bool = True
     delivery: Literal["lossless", "latest"] = "lossless"
     buffer: int = 32
+    description: str = ""  # English; translations in NodeSpec.translations
 
     def __post_init__(self) -> None:
         validate_type_id(self.type)
@@ -63,6 +65,8 @@ class NodeSpec:
     turn_timeout_s: float | None = None
     host_ops: frozenset[str] = frozenset()  # host operations the node may call (ADR-014)
     description: str = ""
+    # Texts in other languages (see flowpilot_sdk.text); English is title/description above.
+    translations: Mapping[str, NodeText] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for op in self.host_ops:
@@ -84,6 +88,17 @@ class NodeSpec:
                 )
         if self.turn_timeout_s is not None and self.turn_timeout_s <= 0:
             raise ValueError("turn_timeout_s must be positive")
+        settings = set(self.config_schema.get("properties") or {})
+        for language, text in self.translations.items():
+            if not LANGUAGE_RE.match(language):
+                raise ValueError(f"{self.type}: invalid language code {language!r}")
+            where = f"{self.type} ({language})"
+            if unknown := set(text.inputs) - set(self.inputs):
+                raise ValueError(f"{where}: translations for unknown inputs {sorted(unknown)}")
+            if unknown := set(text.outputs) - set(self.outputs):
+                raise ValueError(f"{where}: translations for unknown outputs {sorted(unknown)}")
+            if unknown := set(text.config) - settings:
+                raise ValueError(f"{where}: translations for unknown settings {sorted(unknown)}")
 
 
 class NodeContext(Protocol):

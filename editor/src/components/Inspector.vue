@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { t } from "../i18n";
 import { issues, nodeIssues, nodeWarnings, removeNode, renameNode, selectedId, selectedNode, specs } from "../store";
 import { categoryColor, typeColor } from "../types";
+import { fieldDescription, fieldTitle, nodeDescription, nodeTitle, portDescription } from "../texts";
 import SchemaField from "./SchemaField.vue";
 
 const spec = computed(() => (selectedNode.value ? specs.value.get(selectedNode.value.data!.type) : undefined));
@@ -42,9 +43,9 @@ function setConfig(key: string, value: unknown) {
   <aside class="inspector">
     <template v-if="selectedNode">
       <header :style="{ '--cat': categoryColor(spec?.category ?? 'logic') }">
-        <h2>{{ spec?.title ?? selectedNode.data!.type }}</h2>
+        <h2>{{ nodeTitle(spec, selectedNode.data!.type) }}</h2>
         <code>{{ selectedNode.data!.type }}<template v-if="spec">&ensp;v{{ spec.version }}</template></code>
-        <p v-if="spec?.description">{{ spec.description }}</p>
+        <p v-if="nodeDescription(spec)">{{ nodeDescription(spec) }}</p>
         <p v-if="!spec" class="bad">{{ t("inspector.unknownType") }}</p>
       </header>
 
@@ -71,6 +72,8 @@ function setConfig(key: string, value: unknown) {
           :name="key"
           :schema="schema"
           :required="required.has(key)"
+          :label="fieldTitle(spec, key)"
+          :description="fieldDescription(spec, key)"
           :model-value="selectedNode.data!.config[key]"
           @update:model-value="setConfig(key, $event)"
         />
@@ -82,10 +85,13 @@ function setConfig(key: string, value: unknown) {
           <template v-for="side in (['inputs', 'outputs'] as const)" :key="side">
             <h4 v-if="spec[side].length">{{ t(side === "inputs" ? "inspector.inputs" : "inspector.outputs") }}</h4>
             <div v-for="p in spec[side]" :key="side + p.name" class="port" :style="{ '--pin': typeColor(p.type) }">
-              <i :class="p.kind" />
-              <span class="pname">{{ p.name }}</span>
-              <code>{{ p.type }}</code>
-              <span v-if="side === 'inputs' && !p.required" class="muted opt">{{ t("inspector.optional") }}</span>
+              <div class="phead">
+                <i :class="p.kind" />
+                <span class="pname">{{ p.name }}</span>
+                <code>{{ p.type }}</code>
+                <span v-if="side === 'inputs' && !p.required" class="muted opt">{{ t("inspector.optional") }}</span>
+              </div>
+              <p v-if="portDescription(spec, side, p.name)" class="pdesc">{{ portDescription(spec, side, p.name) }}</p>
             </div>
           </template>
         </div>
@@ -204,7 +210,7 @@ section > h3 {
 .ports {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 10px;
   font-size: 12px;
 }
 
@@ -215,14 +221,20 @@ section > h3 {
   color: var(--faint);
 }
 
-.port {
+.phead {
   display: flex;
   align-items: center;
   gap: 7px;
   min-width: 0;
 }
 
-.port i {
+.pdesc {
+  margin: 2px 0 0 15px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.phead i {
   flex: none;
   width: 8px;
   height: 8px;
@@ -230,7 +242,7 @@ section > h3 {
   background: var(--pin);
 }
 
-.port i.value {
+.phead i.value {
   border-radius: 1px;
   transform: rotate(45deg);
   width: 7px;
@@ -241,7 +253,7 @@ section > h3 {
   font-weight: 500;
 }
 
-.port code {
+.phead code {
   color: var(--pin);
   overflow: hidden;
   text-overflow: ellipsis;

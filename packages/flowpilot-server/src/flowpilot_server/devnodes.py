@@ -14,6 +14,7 @@ from flowpilot_sdk import (
     Transcript,
     TurnSession,
     Utterance,
+    node_translations,
 )
 
 
@@ -22,23 +23,46 @@ class FixedStt:
 
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="dev.fixed_stt",
+        translations=node_translations(__package__, "dev.fixed_stt"),
         version="1.0.0",
         title="Fixed phrase STT (dev)",
         category="speech",
-        inputs={"audio": PortSpec("audio.pcm/1")},
+        inputs={"audio": PortSpec("audio.pcm/1", description="Audio; read and ignored.")},
         outputs={
-            "transcript": PortSpec("text.transcript/1"),
-            "utterance": PortSpec("text.utterance/1", kind="value"),
+            "transcript": PortSpec(
+                "text.transcript/1", description="The configured phrase as the final text."
+            ),
+            "utterance": PortSpec(
+                "text.utterance/1",
+                kind="value",
+                description="The configured phrase as an utterance.",
+            ),
         },
         config_schema={
             "type": "object",
             "properties": {
-                "text": {"type": "string"},
-                "max_chunks": {"type": "integer", "minimum": 1},
+                "text": {
+                    "title": "Phrase",
+                    "description": "What the node recognizes.",
+                    "type": "string",
+                },
+                "max_chunks": {
+                    "title": "Stop after chunks",
+                    "description": (
+                        "End the audio after this many chunks, as if speech ended; read to the "
+                        "end when not set."
+                    ),
+                    "type": "integer",
+                    "minimum": 1,
+                },
             },
             "required": ["text"],
         },
         turn_timeout_s=30.0,
+        description=(
+            "For testing without a speech service: reads the audio and always recognizes the "
+            "configured phrase."
+        ),
     )
 
     def __init__(self) -> None:
@@ -72,20 +96,39 @@ class EchoAgent:
 
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="dev.echo_agent",
+        translations=node_translations(__package__, "dev.echo_agent"),
         version="1.0.0",
         title="Echo agent (dev)",
         category="agent",
         inputs={
-            "utterance": PortSpec("text.utterance/1", kind="value"),
-            "principal": PortSpec("identity.principal/1", kind="value", required=False),
+            "utterance": PortSpec("text.utterance/1", kind="value", description="What to repeat."),
+            "principal": PortSpec(
+                "identity.principal/1", kind="value", required=False, description="Ignored."
+            ),
         },
         outputs={
-            "delta": PortSpec("text.delta/1"),
-            "speech_delta": PortSpec("text.delta/1"),
-            "response": PortSpec("agent.response/1", kind="value"),
+            "delta": PortSpec("text.delta/1", description="The answer, word by word."),
+            "speech_delta": PortSpec(
+                "text.delta/1", description="Left empty; connect delta to text-to-speech."
+            ),
+            "response": PortSpec(
+                "agent.response/1", kind="value", description="The complete answer."
+            ),
         },
-        config_schema={"type": "object", "properties": {"prefix": {"type": "string"}}},
+        config_schema={
+            "type": "object",
+            "properties": {
+                "prefix": {
+                    "title": "Prefix",
+                    "description": 'Text before the repeated utterance; "echo: " when not set.',
+                    "type": "string",
+                }
+            },
+        },
         turn_timeout_s=10.0,
+        description=(
+            "For testing without Home Assistant: answers with the utterance it got, word by word."
+        ),
     )
 
     def __init__(self) -> None:

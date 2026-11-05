@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from flowpilot_sdk import NodeContext, NodeSpec, PortSpec, TurnSession
+from flowpilot_sdk import NodeContext, NodeSpec, PortSpec, TurnSession, node_translations
 
 from .registry import NodeRegistry
 
@@ -16,15 +16,32 @@ class TextFirst:
 
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="text.first",
+        translations=node_translations(__package__, "text.first"),
         version="1.0.0",
         title="First utterance",
         category="logic",
         inputs={
-            "primary": PortSpec(UTTERANCE, kind="value", required=False),
-            "fallback": PortSpec(UTTERANCE, kind="value", required=False),
+            "primary": PortSpec(
+                UTTERANCE,
+                kind="value",
+                required=False,
+                description="Preferred source, usually the speech-to-text result.",
+            ),
+            "fallback": PortSpec(
+                UTTERANCE,
+                kind="value",
+                required=False,
+                description="Used when the primary input is absent, usually the typed text.",
+            ),
         },
-        outputs={"value": PortSpec(UTTERANCE, kind="value")},
-        description="Joins voice and text turns: one edge per input, the first present value wins.",
+        outputs={
+            "value": PortSpec(
+                UTTERANCE, kind="value", description="The utterance that was present."
+            )
+        },
+        description=(
+            "Joins voice and text turns: one wire per input, the first value that is present wins."
+        ),
     )
 
     async def start(self, ctx: NodeContext) -> None:

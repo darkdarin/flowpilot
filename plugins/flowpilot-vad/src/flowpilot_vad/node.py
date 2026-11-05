@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from flowpilot_sdk import AudioFormat, InputStream, NodeContext, NodeSpec, PortSpec, TurnSession
+from flowpilot_sdk import (
+    AudioFormat,
+    InputStream,
+    NodeContext,
+    NodeSpec,
+    PortSpec,
+    TurnSession,
+    node_translations,
+)
 
 from .segmenter import (
     FRAME_S,
@@ -20,25 +28,72 @@ from .segmenter import (
 class VadSegmenter:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="vad.segmenter",
+        translations=node_translations(__package__, "vad.segmenter"),
         version="1.0.0",
         title="Voice command segmenter",
         category="speech",
-        inputs={"audio": PortSpec("audio.pcm/1")},
-        outputs={"audio": PortSpec("audio.pcm/1")},
+        inputs={"audio": PortSpec("audio.pcm/1", description="Speech from the microphone.")},
+        outputs={
+            "audio": PortSpec(
+                "audio.pcm/1", description="The same audio, ending when the command ends."
+            )
+        },
         config_schema={
             "type": "object",
             "properties": {
-                "engine": {"enum": ["micro", "energy"]},
-                "speech_s": {"type": "number", "exclusiveMinimum": 0},
-                "command_s": {"type": "number", "exclusiveMinimum": 0},
-                "silence_s": {"type": "number", "exclusiveMinimum": 0},
-                "timeout_s": {"type": "number", "exclusiveMinimum": 0},
-                "speech_dbfs": {"type": "number", "maximum": 0},
+                "engine": {
+                    "title": "Detector",
+                    "description": (
+                        "micro: the speech detector Assist uses (pymicro-vad); energy: a loudness "
+                        "threshold."
+                    ),
+                    "enum": ["micro", "energy"],
+                },
+                "speech_s": {
+                    "title": "Speech to start, s",
+                    "description": (
+                        "Speech needed before a command counts as started; 0.3 when not set."
+                    ),
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                },
+                "command_s": {
+                    "title": "Shortest command, s",
+                    "description": "A command is never shorter than this; 1.0 when not set.",
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                },
+                "silence_s": {
+                    "title": "Silence to end, s",
+                    "description": "Silence that ends a started command; 0.7 when not set.",
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                },
+                "timeout_s": {
+                    "title": "Longest command, s",
+                    "description": (
+                        "The audio ends after this even if the user keeps talking; 15 when not set."
+                    ),
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                },
+                "speech_dbfs": {
+                    "title": "Speech level, dBFS",
+                    "description": (
+                        "For the energy detector: loudness that counts as speech; -35 when not set."
+                    ),
+                    "type": "number",
+                    "maximum": 0,
+                },
             },
             "additionalProperties": False,
         },
         turn_timeout_s=60.0,
-        description="End-of-command detection for speech-to-text services without their own.",
+        description=(
+            "Passes the audio through without delay and ends it when the voice command is over, "
+            "the way Assist does. Put it in front of speech-to-text that does not detect the end "
+            "of speech itself (Whisper, most Home Assistant STT entities)."
+        ),
     )
 
     def __init__(self) -> None:

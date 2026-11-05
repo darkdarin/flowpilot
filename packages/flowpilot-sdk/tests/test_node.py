@@ -255,3 +255,35 @@ async def test_example_node_text_only_turn() -> None:
     turn = FakeTurn({"audio": FakeInput(None, [])})
     await WindowSpeakerId().run_turn(turn)
     assert turn.outputs["speaker"].items[0].reason == "no_audio"
+
+
+def test_translations_must_match_ports_and_settings() -> None:
+    from flowpilot_sdk import FieldText, NodeText
+
+    base: dict[str, Any] = {
+        "type": "test.texts",
+        "version": "1.0.0",
+        "title": "Texts",
+        "category": "logic",
+        "inputs": {"text": PortSpec("text.delta/1", description="Text in.")},
+        "config_schema": {"type": "object", "properties": {"mode": {"type": "string"}}},
+    }
+    ok = NodeText(title="Тексты", inputs={"text": "Текст."}, config={"mode": FieldText("Режим")})
+    assert NodeSpec(**base, translations={"ru": ok}).translations["ru"].title == "Тексты"
+    with pytest.raises(ValueError, match="unknown inputs"):
+        NodeSpec(**base, translations={"ru": NodeText(inputs={"audio": "Звук."})})
+    with pytest.raises(ValueError, match="unknown outputs"):
+        NodeSpec(**base, translations={"ru": NodeText(outputs={"text": "Текст."})})
+    with pytest.raises(ValueError, match="unknown settings"):
+        NodeSpec(**base, translations={"ru": NodeText(config={"speed": FieldText("Скорость")})})
+    with pytest.raises(ValueError, match="language code"):
+        NodeSpec(**base, translations={"Russian": ok})
+
+
+def test_node_texts_round_trip_and_reject_unknown_keys() -> None:
+    from flowpilot_sdk import NodeText
+
+    data = {"title": "T", "inputs": {"a": "A"}, "config": {"x": {"description": "X"}}}
+    assert NodeText.from_dict(data).as_dict() == data
+    with pytest.raises(ValueError, match="unknown keys"):
+        NodeText.from_dict({"titel": "typo"})

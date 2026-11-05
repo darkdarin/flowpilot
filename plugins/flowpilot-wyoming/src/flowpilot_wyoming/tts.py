@@ -26,6 +26,7 @@ from flowpilot_sdk import (
     NodeSpec,
     PortSpec,
     TurnSession,
+    node_translations,
 )
 from flowpilot_sdk.helpers import SpeechWriter, split_sentences
 
@@ -50,27 +51,65 @@ class WyomingTts:
 
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="wyoming.tts",
+        translations=node_translations(__package__, "wyoming.tts"),
         version="1.0.0",
         title="Wyoming text-to-speech",
         category="speech",
-        inputs={"text": PortSpec("text.delta/1")},
-        outputs={"speech": PortSpec("audio.pcm/1")},
+        inputs={
+            "text": PortSpec(
+                "text.delta/1", description="Text to speak, as it arrives from an agent."
+            )
+        },
+        outputs={
+            "speech": PortSpec("audio.pcm/1", description="Synthesized speech, as it is produced.")
+        },
         config_schema={
             "type": "object",
             "properties": {
-                "uri": {"type": "string", "pattern": "^tcp://", OPTIONS_KEY: "wyoming.tts"},
-                "voice": {"type": "string"},
-                "speaker": {"type": "string"},
-                "streaming": {"enum": ["auto", "on", "off"]},
-                "connect_timeout_s": {"type": "number", "exclusiveMinimum": 0},
+                "uri": {
+                    "title": "Service",
+                    "description": (
+                        "Address of the Wyoming text-to-speech service, tcp://host:port."
+                    ),
+                    "type": "string",
+                    "pattern": "^tcp://",
+                    OPTIONS_KEY: "wyoming.tts",
+                },
+                "voice": {
+                    "title": "Voice",
+                    "description": "Voice name; the service's default when not set.",
+                    "type": "string",
+                },
+                "speaker": {
+                    "title": "Speaker",
+                    "description": "Speaker of a voice with several speakers.",
+                    "type": "string",
+                },
+                "streaming": {
+                    "title": "Streaming",
+                    "description": (
+                        "auto: stream when the service supports it; on: always stream; off: "
+                        "sentence by sentence."
+                    ),
+                    "enum": ["auto", "on", "off"],
+                },
+                "connect_timeout_s": {
+                    "title": "Connect timeout, s",
+                    "description": (
+                        "How long to wait for the service to accept the connection; 5 when not set."
+                    ),
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                },
             },
             "required": ["uri"],
             "additionalProperties": False,
         },
         turn_timeout_s=60.0,
         description=(
-            "Any Wyoming TTS service; synthesize streaming when supported, "
-            "otherwise sentence by sentence."
+            "Speaks text with any Wyoming text-to-speech service: streaming when the service "
+            "supports it, otherwise sentence by sentence. Connects to the service directly; Home "
+            "Assistant is not needed."
         ),
     )
 

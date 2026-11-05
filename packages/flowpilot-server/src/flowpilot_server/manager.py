@@ -253,6 +253,7 @@ class GraphManager:
                         "kind": port.kind,
                         "required": port.required,
                         "delivery": port.delivery,
+                        "description": port.description,
                     }
                     for name, port in p.items()
                 ]
@@ -270,6 +271,9 @@ class GraphManager:
                     "host_ops": sorted(spec.host_ops),
                     "grants": sorted(spec.grants),
                     "turn_timeout_s": spec.turn_timeout_s,
+                    "translations": {
+                        language: text.as_dict() for language, text in spec.translations.items()
+                    },
                 }
             )
         types = [

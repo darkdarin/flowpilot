@@ -24,6 +24,7 @@ from flowpilot_sdk import (
     Transcript,
     TurnSession,
     Utterance,
+    node_translations,
 )
 
 from .common import (
@@ -42,28 +43,77 @@ class WyomingStt:
 
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="wyoming.stt",
+        translations=node_translations(__package__, "wyoming.stt"),
         version="1.0.0",
         title="Wyoming speech-to-text",
         category="speech",
-        inputs={"audio": PortSpec("audio.pcm/1")},
+        inputs={"audio": PortSpec("audio.pcm/1", description="Speech to recognize.")},
         outputs={
-            "transcript": PortSpec("text.transcript/1"),
-            "utterance": PortSpec("text.utterance/1", kind="value"),
+            "transcript": PortSpec(
+                "text.transcript/1",
+                description=(
+                    "Recognized text: partial results while the user speaks, if the service "
+                    "streams them, then the final one."
+                ),
+            ),
+            "utterance": PortSpec(
+                "text.utterance/1",
+                kind="value",
+                description="The final text as an utterance for an agent.",
+            ),
         },
         config_schema={
             "type": "object",
             "properties": {
-                "uri": {"type": "string", "pattern": "^tcp://", OPTIONS_KEY: "wyoming.asr"},
-                "language": {"type": "string"},
-                "model": {"type": "string"},
-                "connect_timeout_s": {"type": "number", "exclusiveMinimum": 0},
-                "final_timeout_s": {"type": "number", "exclusiveMinimum": 0},
+                "uri": {
+                    "title": "Service",
+                    "description": (
+                        "Address of the Wyoming speech-to-text service, tcp://host:port."
+                    ),
+                    "type": "string",
+                    "pattern": "^tcp://",
+                    OPTIONS_KEY: "wyoming.asr",
+                },
+                "language": {
+                    "title": "Language",
+                    "description": (
+                        "Recognition language, for example ru; the turn's language when not set."
+                    ),
+                    "type": "string",
+                },
+                "model": {
+                    "title": "Model",
+                    "description": (
+                        "Model name when the service offers several; its default when not set."
+                    ),
+                    "type": "string",
+                },
+                "connect_timeout_s": {
+                    "title": "Connect timeout, s",
+                    "description": (
+                        "How long to wait for the service to accept the connection; 5 when not set."
+                    ),
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                },
+                "final_timeout_s": {
+                    "title": "Final result timeout, s",
+                    "description": (
+                        "How long to wait for the final text after the audio ends; 15 when not set."
+                    ),
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                },
             },
             "required": ["uri"],
             "additionalProperties": False,
         },
         turn_timeout_s=60.0,
-        description="Any Wyoming ASR service; partial transcripts when the service streams them.",
+        description=(
+            "Recognizes speech with any Wyoming speech-to-text service, with partial results when "
+            "the service streams them. Connects to the service directly; Home Assistant is not "
+            "needed."
+        ),
     )
 
     def __init__(self) -> None:
