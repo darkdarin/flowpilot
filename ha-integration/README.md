@@ -9,11 +9,17 @@ It connects Home Assistant to a FlowPilot runtime (WebSocket, ADR-014) and provi
 - a **conversation** entity that returns the answer of the same turn, streaming it into the chat
   log so Home Assistant can start TTS early; called directly (chat, `conversation.process`) it
   starts a text turn;
-- the **host operation** `ha.conversation.process`, which runs a real Home Assistant agent for the
-  graph's `ha.conversation` node.
+- **host operations** the runtime calls: `ha.conversation.process` (a real Home Assistant agent for
+  the graph's `ha.conversation` node), `ha.stt.process` and `ha.tts.synthesize` (any STT/TTS entity,
+  audio streamed both ways) and `ha.entities.list` (what the editor offers in its pickers);
+- **repair issues** for deployed graphs that refer to entities or agents that are gone.
 
 The STT and conversation stages of one pipeline run are linked with a context variable (ADR-012);
 this relies on Home Assistant internals and is verified per release with `scripts/e2e_ha.py`
-(2026.10.4 and 2026.11.0b4 so far).
+(2026.10.4, 2026.11.0b4 and 2026.11.0 so far).
+
+Supported Home Assistant versions: the current and the previous release (now 2026.11 and 2026.10).
+CI runs the tests against the release pinned in `pyproject.toml`; the other one is checked with the
+e2e script until the test harness for it is published.
 
 No external requirements; the protocol client is in `client.py`.
