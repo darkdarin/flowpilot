@@ -11,9 +11,7 @@ arch:
 homeassistant: "2026.10.0"
 init: false
 startup: services
-boot: auto
 ingress: true
-ingress_port: 8099
 panel_icon: mdi:graph-outline
 panel_title: FlowPilot
 discovery:
