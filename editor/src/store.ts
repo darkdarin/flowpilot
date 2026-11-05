@@ -76,6 +76,7 @@ export const live = ref(false);
 export const saving = ref(false);
 export const deploying = ref(false);
 export const selectedId = ref<string | null>(null);
+export const turnStarting = ref(false);
 export const notice = ref<{ text: string; kind: "info" | "error" } | null>(null);
 
 export const debug = reactive({
@@ -417,6 +418,29 @@ export function renameNode(oldId: string, newId: string): boolean {
 }
 
 // --- live debug --------------------------------------------------------------------------------
+
+/**
+ * Start a turn of the deployed graph from the editor (the Client input node, a Fixed text node's
+ * Play button) and watch it in live debug, which this turns on first so debug taps see the turn.
+ */
+export async function startTurn(input: { text: string } | Blob | null, trigger?: string) {
+  const id = graphId.value;
+  if (!id || turnStarting.value) return;
+  turnStarting.value = true;
+  try {
+    if (!debug.enabled) {
+      debug.enabled = true;
+      trace?.setDebug(true);
+    }
+    await trace?.debugApplied();
+    debug.selectedTurn = null; // follow the new turn
+    await api.value!.turn(id, input, trigger);
+  } catch (err) {
+    flash((err as Error).message, "error");
+  } finally {
+    turnStarting.value = false;
+  }
+}
 
 // The runtime runs the graph's debug taps only while someone has live debug on.
 watch(

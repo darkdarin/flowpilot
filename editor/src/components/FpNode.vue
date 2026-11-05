@@ -9,6 +9,9 @@ import {
   edges,
   hostOptions,
   idleTaps,
+  live,
+  startTurn,
+  turnStarting,
   nodeIssues,
   nodeWarnings,
   specs,
@@ -16,6 +19,7 @@ import {
 } from "../store";
 import { fieldOptionTitles, fieldTitle, nodeDescription, nodeTitle, portDescription } from "../texts";
 import { categoryColor, typeColor, typeShort } from "../types";
+import ClientInput from "./ClientInput.vue";
 
 const props = defineProps<NodeProps<FpNodeData>>();
 
@@ -91,6 +95,17 @@ const summary = computed(() => {
         <span v-if="cautions.length" class="badge caution" :title="cautions.map((p) => p.message).join('\n')">
           !
         </span>
+        <span v-if="idle" class="badge hint" :title="t('node.tapIdle')" :aria-label="t('node.tapIdle')">?</span>
+        <button
+          v-if="data.type === 'debug.text'"
+          class="play nodrag"
+          :disabled="!live || turnStarting"
+          :title="live ? t('node.play') : t('node.notLive')"
+          :aria-label="t('node.play')"
+          @click.stop="startTurn(null, id)"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7.5-4.5z" /></svg>
+        </button>
         <span v-if="run" class="badge run" :title="run.error ?? ''">
           <template v-if="run.status === 'running'">{{ t("status.running") }}</template>
           <template v-else>{{ (run.durationMs ?? 0) < 10 ? (run.durationMs ?? 0).toFixed(1) : Math.round(run.durationMs ?? 0) }} ms</template>
@@ -134,7 +149,7 @@ const summary = computed(() => {
       </div>
     </div>
     <p v-else class="missing">{{ t("inspector.unknownType") }}</p>
-    <p v-if="idle" class="tap-note">{{ t("node.tapIdle") }}</p>
+    <ClientInput v-if="debug.enabled && data.type === 'client.source'" />
     <div v-if="tapView" class="tap nodrag nowheel">
       <div v-for="rec in tapView.recordings" :key="rec.file" class="tap-rec">
         <button
@@ -247,26 +262,16 @@ header::before {
   font-variant-numeric: tabular-nums;
 }
 
-.run-running .badge.caution {
-  background: color-mix(in srgb, var(--warn) 20%, transparent);
-  color: var(--warn);
-}
-
-.badge.run {
-  color: var(--warn);
+.run-running .badge.run {
   background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
 }
 
 .run-error .badge.run,
 .run-timeout .badge.run,
-.run-cancelled .badge.caution {
-  background: color-mix(in srgb, var(--warn) 20%, transparent);
-  color: var(--warn);
-}
-
-.badge.run {
-  color: var(--danger);
+.run-cancelled .badge.run {
   background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
 }
 
 .run-running {
@@ -365,12 +370,40 @@ header::before {
   opacity: 0.55;
 }
 
-.tap-note {
-  margin: 0;
-  padding: 0 12px 10px;
-  font-size: 11.5px;
+.badge.hint {
+  background: var(--line);
   color: var(--muted);
-  max-width: 300px;
+  cursor: help;
+}
+
+header .play {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--cat) 25%, transparent);
+  color: var(--text);
+  cursor: pointer;
+}
+
+header .play:not(:disabled):hover {
+  background: var(--cat);
+  color: var(--primary-text);
+}
+
+header .play:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+header .play svg {
+  width: 11px;
+  height: 11px;
+  fill: currentColor;
 }
 
 .tap {

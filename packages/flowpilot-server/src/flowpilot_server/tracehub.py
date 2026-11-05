@@ -8,8 +8,9 @@ Editor socket (``GET /api/editor/ws``), JSON text frames:
 
 - client → ``{"type": "hello", "token": "..."}`` then ``{"type": "subscribe", "graph": "main",
   "debug": true}`` (one graph at a time; subscribing again switches); ``{"type": "debug", "on":
-  bool}`` turns live debug on or off for the subscribed graph. While any socket has live debug on
-  for a graph, its debug taps run (``NodeSpec.debug_tap``).
+  bool}`` turns live debug on or off for the subscribed graph (answered with the same message once
+  in effect). While any socket has live debug on for a graph, its debug taps run
+  (``NodeSpec.debug_tap``).
 - server → ``{"type": "hello.ok"}``, ``{"type": "subscribed", "graph": ..}``, then trace events
   ``{"type": "trace", "graph", "turn_id", "event", "node", "t_ms", "attrs"}`` where ``t_ms`` is
   milliseconds since the turn started; ``{"type": "deployed", "graph"}`` after a redeploy.
@@ -160,7 +161,10 @@ async def editor_socket(request: web.Request, server: FlowPilotServer) -> web.We
                 hub.subscribe(graph, queue)
                 hub.set_debug(graph, queue, on=bool(data.get("debug")))
             elif kind == "debug" and graph is not None:
-                hub.set_debug(graph, queue, on=bool(data.get("on")))
+                on = bool(data.get("on"))
+                hub.set_debug(graph, queue, on=on)
+                # the editor waits for this before starting a turn that its debug taps should see
+                await ws.send_json({"type": "debug", "graph": graph, "on": on})
     finally:
         if graph is not None:
             hub.unsubscribe(graph, queue)

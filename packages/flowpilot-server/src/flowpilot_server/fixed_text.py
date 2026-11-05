@@ -4,6 +4,9 @@ Without its ``after`` input it speaks at the start of every turn (to try text-to
 client with a known text); with ``after`` connected (say, to the speech-to-text utterance) it waits
 for that value and stands in for an agent with a fixed answer. Word by word it streams like an
 agent that is still typing, with a pause between words.
+
+The Play button on the node in the editor starts a turn of its own (``TRIGGER_KEY``); set ``when``
+to ``play`` and the node speaks only then, staying silent in the household's real turns.
 """
 
 from __future__ import annotations
@@ -22,6 +25,8 @@ from flowpilot_sdk import (
     Utterance,
     node_translations,
 )
+
+from .protocol import TRIGGER_KEY
 
 TYPE = "debug.text"
 
@@ -77,6 +82,16 @@ class FixedText:
                     ENUM_TITLES_KEY: {"whole": "At once", "words": "Word by word"},
                     "default": "whole",
                 },
+                "when": {
+                    "title": "When to send",
+                    "description": (
+                        "In every turn, or only in turns started by the Play button on this node "
+                        "in the editor."
+                    ),
+                    "enum": ["turn", "play"],
+                    ENUM_TITLES_KEY: {"turn": "Every turn", "play": "Only by Play"},
+                    "default": "turn",
+                },
                 "word_delay_ms": {
                     "title": "Pause between words, ms",
                     "description": "Word by word only; 150 when not set.",
@@ -99,11 +114,15 @@ class FixedText:
         self._text = ""
         self._words = False
         self._delay_s = 0.15
+        self._node_id = ""
+        self._only_play = False
 
     async def start(self, ctx: NodeContext) -> None:
         self._text = str(ctx.config["text"])
         self._words = ctx.config.get("mode", "whole") == "words"
         self._delay_s = int(ctx.config.get("word_delay_ms", 150)) / 1000
+        self._node_id = ctx.node_id
+        self._only_play = ctx.config.get("when", "turn") == "play"
 
     async def stop(self) -> None:
         return None
@@ -111,12 +130,16 @@ class FixedText:
     async def run_turn(self, turn: TurnSession) -> None:
         after = turn.input("after")
         language = turn.context.language
-        if await after.header() is not None:  # connected and present: wait for it
+        played = turn.context.external.get(TRIGGER_KEY) == self._node_id
+        if self._only_play and not played:
+            return
+        # the Play button speaks at once; otherwise wait for `after` when it is connected
+        if not played and await after.header() is not None:  # connected and present
             utterance: Utterance | None = await after.value()
             if utterance is None:
                 return
             language = utterance.language or language
-        elif after.connected:
+        elif after.connected and not played:
             return  # connected but absent in this turn: nothing to answer
         delta = turn.output("delta")
         if self._words:

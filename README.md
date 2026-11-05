@@ -39,7 +39,9 @@ join branches, and watch every turn flow through the graph live.
   a turn failed. Put a **Record audio** node on any audio wire to hear what each step got, or a
   **Show text** node on text wires to read what went through; pick a turn and the result shows
   right on the node. These debug nodes run only while live debug is on (greyed out otherwise), and
-  recordings stay on your machine and out of Home Assistant backups.
+  recordings stay on your machine and out of Home Assistant backups. No satellite needed to try a graph:
+  in live debug the **Client input** node takes typed text, a microphone recording or an audio file,
+  and a **Fixed text** node's ▶ button starts a turn in which it speaks.
 - **Works with any satellite.** ESPHome and Voice PE, Wyoming satellites, VoIP and third-party
   ones (such as [Yandex Quasar](https://github.com/darkdarin/yandex-quasar)): FlowPilot plugs into
   Assist as its speech-to-text engine and conversation agent.

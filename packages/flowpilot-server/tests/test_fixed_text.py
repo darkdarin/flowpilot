@@ -122,3 +122,24 @@ async def test_after_answers_a_voice_turn(tmp_path: Path) -> None:
         )
         result = await resp.json()
         assert result["status"] == "ok" and result["response"]["text"] == "answer"
+
+
+async def test_play_starts_an_empty_turn(tmp_path: Path) -> None:
+    async for session, url in runtime(tmp_path, graph(text="hello", when="play")):
+        # a real turn: the node waits for its Play button and stays silent
+        result, deltas = await text_turn(session, url)
+        assert result["response"] is None and deltas == 0
+        # the Play button: a turn with no input, started by this node
+        resp = await session.post(url(f"{TURN_PATH}?trigger=say"), json={}, headers=AUTH)
+        result = await resp.json()
+        assert result["status"] == "ok" and result["response"]["text"] == "hello"
+        # another node's Play button does not count
+        resp = await session.post(url(f"{TURN_PATH}?trigger=other"), json={}, headers=AUTH)
+        assert (await resp.json())["response"] is None
+
+
+async def test_play_does_not_wait_for_after(tmp_path: Path) -> None:
+    async for session, url in runtime(tmp_path, graph(after=True, text="answer")):
+        resp = await session.post(url(f"{TURN_PATH}?trigger=say"), json={}, headers=AUTH)
+        result = await resp.json()
+        assert result["status"] == "ok" and result["response"]["text"] == "answer"

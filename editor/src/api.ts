@@ -198,6 +198,24 @@ export class Api {
   deleteRecording(file: string) {
     return this.call<{ ok: boolean }>("DELETE", `/recordings/${encodeURIComponent(file)}`);
   }
+  /**
+   * Start a turn of the deployed graph, as a client would: text, a WAV recording, or nothing (only
+   * nodes that speak by themselves act). ``trigger`` names the node whose Play button started it.
+   */
+  async turn(graph: string, input: { text: string } | Blob | null, trigger?: string): Promise<{ status: string }> {
+    const query = new URLSearchParams({ graph, ...(trigger ? { trigger } : {}) });
+    const resp = await fetch(`${ROOT}/api/turn?${query}`, {
+      method: "POST",
+      headers: {
+        ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+        "Content-Type": input instanceof Blob ? "audio/wav" : "application/json",
+      },
+      body: input instanceof Blob ? input : JSON.stringify(input ?? {}),
+    });
+    const data = await resp.json().catch(() => ({ error: resp.statusText }));
+    if (!resp.ok) throw new ApiError(resp.status, data.error ?? resp.statusText);
+    return data;
+  }
   setDefault(graph: string) {
     return this.call<{ default: string }>("PUT", "/default", { graph });
   }
@@ -229,6 +247,8 @@ export class TraceSocket {
   private ready = false; // hello.ok received on the current socket
   private sent: string | null = null; // graph subscribed on the current socket
   private debug = false; // live debug is on: the graph's debug taps run while it is
+  private applied: Promise<void> = Promise.resolve(); // the runtime confirmed the last debug switch
+  private confirm: (() => void) | null = null;
 
   constructor(
     private token: string,
@@ -245,7 +265,9 @@ export class TraceSocket {
     ws.onopen = () => ws.send(JSON.stringify({ type: "hello", token: this.token }));
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data as string);
-      if (msg.type === "hello.ok") {
+      if (msg.type === "debug") {
+        this.confirmed();
+      } else if (msg.type === "hello.ok") {
         this.ready = true;
         this.sent = null;
         this.onState(true);
@@ -253,6 +275,7 @@ export class TraceSocket {
       } else this.onMessage(msg);
     };
     ws.onclose = () => {
+      this.confirmed();
       this.ready = false;
       this.sent = null;
       this.onState(false);
@@ -272,7 +295,20 @@ export class TraceSocket {
   setDebug(on: boolean) {
     if (this.debug === on) return;
     this.debug = on;
-    if (this.ready && this.sent) this.ws?.send(JSON.stringify({ type: "debug", on }));
+    if (!this.ready || !this.sent) return; // the next subscribe carries it
+    this.confirmed();
+    this.applied = new Promise((resolve) => (this.confirm = resolve));
+    this.ws?.send(JSON.stringify({ type: "debug", on }));
+  }
+
+  /** Resolves once the runtime has applied the last live debug switch (its debug taps run). */
+  debugApplied(): Promise<void> {
+    return this.applied;
+  }
+
+  private confirmed() {
+    this.confirm?.();
+    this.confirm = null;
   }
 
   close() {

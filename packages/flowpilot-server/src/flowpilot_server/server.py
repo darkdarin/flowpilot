@@ -45,6 +45,7 @@ from .nodes import ClientInput, ClientSink, ClientSource
 from .protocol import (
     MAX_STREAM_ID,
     PROTOCOL_VERSION,
+    TRIGGER_KEY,
     TURN_PATH,
     WS_PATH,
     ProtocolError,
@@ -305,7 +306,11 @@ class FlowPilotServer:
         return web.Response(text=body, content_type=content_type)
 
     async def _handle_http_turn(self, request: web.Request) -> web.Response:
-        """One turn over plain HTTP: JSON text or a WAV body in, transcript and response out."""
+        """One turn over plain HTTP: JSON text or a WAV body in, transcript and response out.
+
+        JSON without ``text`` starts a turn with no input: only nodes that speak by themselves (a
+        Fixed text node) do anything. ``?trigger=<node>`` names the node whose Play button in the
+        editor started the turn."""
         if not self.authorized(request, bearer_token(request)):
             return web.json_response({"error": "invalid token"}, status=401)
         graph_id = request.query.get("graph") or self.default_graph
@@ -313,10 +318,12 @@ class FlowPilotServer:
             return web.json_response({"error": f"unknown graph {graph_id!r}"}, status=404)
         language = request.query.get("language")
         conversation_id = request.query.get("conversation_id")
+        external = {TRIGGER_KEY: trigger} if (trigger := request.query.get("trigger")) else {}
         inp = ClientInput()
         if request.content_type == "application/json":
             body = await request.json()
-            inp.text = str(body["text"])
+            if body.get("text") is not None:
+                inp.text = str(body["text"])
             language = body.get("language", language)
             conversation_id = body.get("conversation_id", conversation_id)
         elif request.content_type in ("audio/wav", "audio/x-wav", "audio/wave"):
@@ -339,7 +346,8 @@ class FlowPilotServer:
             adapter_id="http",
             source={"kind": "http"},
             language=language,
-            external={"http.conversation_id": conversation_id} if conversation_id else {},
+            external=external
+            | ({"http.conversation_id": conversation_id} if conversation_id else {}),
         )
         outlet = _Collector()
         with self.manager.turn(graph_id) as deployment:

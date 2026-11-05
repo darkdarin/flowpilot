@@ -355,10 +355,12 @@ function status(s: string) {
   background: repeating-linear-gradient(45deg, var(--cat) 0 6px, transparent 6px 10px);
 }
 
+/* hatched, so a failed run stands apart from the red of debug nodes */
 .bar.s-error,
 .bar.s-timeout,
 .bar.s-cancelled {
-  background: var(--danger);
+  opacity: 1;
+  background: repeating-linear-gradient(-45deg, var(--danger) 0 4px, color-mix(in srgb, var(--danger) 45%, transparent) 4px 8px);
 }
 
 .host {
