@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.3
+
+- Debug probe: one debugging node for audio and text. Put it next to any output and, in live
+  debug, the selected turn's recording plays and its text shows right on the node. Debug probes
+  run only while live debug is on (greyed out otherwise), so nothing is recorded unless you look.
+- Fixed answer stands in for an agent: it answers with a set text, at once or word by word, and
+  `{text}` repeats what was said.
+- Try a graph without a satellite: in live debug the Client input node starts a turn with typed
+  text, a microphone recording or an audio file.
+- Graphs with the Record audio or Fixed text nodes of 0.1.2 are updated to the new nodes when
+  loaded. Earlier recordings are no longer listed in the editor.
+- Debug nodes are red; a node's run time is green unless it failed.
+
 ## 0.1.2
 
 - Each deployed graph gets its own FlowPilot speech-to-text and agent entities, so every Assist
