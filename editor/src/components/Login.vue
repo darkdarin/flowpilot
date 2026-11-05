@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { t } from "../i18n";
+import BrandMark from "./BrandMark.vue";
 import { connect } from "../store";
 
 const value = ref("");
@@ -24,13 +25,7 @@ async function submit() {
 <template>
   <div class="login">
     <form @submit.prevent="submit">
-      <svg viewBox="0 0 120 40" class="mark" aria-hidden="true">
-        <path d="M18 20 C 50 20, 60 8, 100 8" stroke="var(--type-audio)" />
-        <path d="M18 20 C 50 20, 60 32, 100 32" stroke="var(--type-response)" />
-        <circle cx="16" cy="20" r="6" fill="var(--type-audio)" />
-        <rect x="96" y="4" width="8" height="8" rx="1.5" transform="rotate(45 100 8)" fill="var(--type-transcript)" />
-        <circle cx="102" cy="32" r="6" fill="var(--type-response)" />
-      </svg>
+      <BrandMark class="mark" />
       <h1>{{ t("login.title") }}</h1>
       <p>{{ t("login.hint") }}</p>
       <label for="token">{{ t("login.token") }}</label>
@@ -63,14 +58,8 @@ form {
 }
 
 .mark {
-  width: 96px;
-  fill: none;
-}
-
-.mark path {
-  stroke-width: 3;
-  fill: none;
-  stroke-linecap: round;
+  width: 56px;
+  height: auto;
 }
 
 h1 {

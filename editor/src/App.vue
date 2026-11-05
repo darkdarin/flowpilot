@@ -3,6 +3,7 @@ import { Background } from "@vue-flow/background";
 import { type Connection, VueFlow, useVueFlow } from "@vue-flow/core";
 import { MiniMap } from "@vue-flow/minimap";
 import { computed, markRaw, nextTick, onMounted, ref, watch } from "vue";
+import BrandMark from "./components/BrandMark.vue";
 import DebugPanel from "./components/DebugPanel.vue";
 import FpNode from "./components/FpNode.vue";
 import Inspector from "./components/Inspector.vue";
@@ -194,11 +195,7 @@ function legendTypes() {
   <div v-else class="shell" :class="{ debugging: debug.enabled }">
     <header class="bar">
       <div class="brand" aria-label="FlowPilot">
-        <svg viewBox="0 0 28 16" aria-hidden="true">
-          <path d="M5 8 C 12 8, 14 3, 23 3" />
-          <path d="M5 8 C 12 8, 14 13, 23 13" />
-          <circle cx="4" cy="8" r="3" />
-        </svg>
+        <BrandMark />
         <span>FlowPilot</span>
       </div>
 
@@ -358,27 +355,9 @@ function legendTypes() {
   margin-right: 6px;
 }
 
-.brand svg {
-  width: 28px;
-  height: 16px;
-}
-
-.brand path {
-  fill: none;
-  stroke-width: 2;
-  stroke-linecap: round;
-}
-
-.brand path:first-of-type {
-  stroke: var(--type-audio);
-}
-
-.brand path:last-of-type {
-  stroke: var(--type-response);
-}
-
-.brand circle {
-  fill: var(--type-audio);
+.brand .brand-mark {
+  width: 22px;
+  height: 18px;
 }
 
 .graph-pick select {
