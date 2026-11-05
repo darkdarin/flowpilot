@@ -8,6 +8,10 @@
           "url": "URL рантайма",
           "token": "Токен"
         }
+      },
+      "hassio_confirm": {
+        "title": "Найден add-on FlowPilot",
+        "description": "Подключить Home Assistant к рантайму FlowPilot из add-on {addon}?"
       }
     },
     "error": {
@@ -16,7 +20,8 @@
     },
     "abort": {
       "already_configured": "Этот рантайм FlowPilot уже настроен."
-    }
+    },
+    "flow_title": "{addon}"
   },
   "issues": {
     "missing_references": {

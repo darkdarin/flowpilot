@@ -23,7 +23,7 @@ RUN apt-get update \
 COPY --from=ghcr.io/astral-sh/uv:0.13.7 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_PROJECT_ENVIRONMENT=/app/.venv
 WORKDIR /src
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock ./
 COPY packages packages
 COPY plugins plugins
 COPY --from=editor /src/packages/flowpilot-server/src/flowpilot_server/editor \

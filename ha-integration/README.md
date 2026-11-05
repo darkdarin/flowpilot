@@ -22,4 +22,7 @@ Supported Home Assistant versions: the current and the previous release (now 202
 CI runs the tests against the release pinned in `pyproject.toml`; the other one is checked with the
 e2e script until the test harness for it is published.
 
+Set up: with the FlowPilot add-on, Home Assistant discovers the runtime (Supervisor discovery) and
+only asks to confirm; otherwise add the integration with the runtime's URL and token.
+
 No external requirements; the protocol client is in `client.py`.

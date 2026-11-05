@@ -8,6 +8,10 @@
           "url": "Runtime URL",
           "token": "Token"
         }
+      },
+      "hassio_confirm": {
+        "title": "FlowPilot add-on found",
+        "description": "Connect Home Assistant to the FlowPilot runtime of the {addon} add-on?"
       }
     },
     "error": {
@@ -16,7 +20,8 @@
     },
     "abort": {
       "already_configured": "This FlowPilot runtime is already configured."
-    }
+    },
+    "flow_title": "{addon}"
   },
   "issues": {
     "missing_references": {

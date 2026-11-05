@@ -1,0 +1,4 @@
+# Home Assistant add-on repository: add this repository's URL in Settings → Add-ons → Add-on Store.
+name: FlowPilot
+url: https://github.com/darkdarin/flowpilot
+maintainer: Pavel Babushkin <idarksoft@gmail.com>

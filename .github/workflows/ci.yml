@@ -74,3 +74,15 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  addon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint the add-on configuration
+        uses: frenck/action-addon-linter@v2
+        with:
+          path: ./addon
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Assemble the local add-on folder
+        run: uv run --no-project python -I scripts/build_addon.py

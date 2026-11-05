@@ -28,8 +28,21 @@ docker exec flowpilot cat /data/token     # access token for the editor and the 
 
 The first start creates `/data/config.json`, `/data/token` and a starter graph. The editor is at
 `http://<host>:8765/editor/`; add the FlowPilot integration in Home Assistant with the same URL and
-token. The image also runs as a Home Assistant add-on (`addon/`), where the editor opens from the
-sidebar and the integration finds the runtime by itself.
+token.
+
+## Home Assistant add-on
+
+The same image runs as an add-on (`addon/`): the editor opens from the Home Assistant sidebar
+(Ingress, no token) and the integration finds the runtime through Supervisor discovery. Until the
+add-on is published, install it as a local add-on:
+
+```sh
+python scripts/build_addon.py     # -> dist/addon/flowpilot/
+```
+
+Copy `dist/addon/flowpilot` to `/addons/flowpilot` on the Home Assistant machine (Samba or SSH
+add-on), then Settings → Add-ons → Add-on Store → ⋮ → Check for updates; it appears under Local
+add-ons and Home Assistant builds it there. Requires Home Assistant 2026.10 or newer.
 
 ## Repository layout
 
