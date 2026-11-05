@@ -2,11 +2,13 @@
 import { Handle, Position, type NodeProps } from "@vue-flow/core";
 import { computed } from "vue";
 import { languageName, t } from "../i18n";
+import { play, playing } from "../playback";
 import {
   currentTurn,
   debug,
   edges,
   hostOptions,
+  idleTaps,
   nodeIssues,
   nodeWarnings,
   specs,
@@ -21,6 +23,19 @@ const spec = computed(() => specs.value.get(props.data.type));
 const problems = computed(() => nodeIssues.value.get(props.id) ?? []);
 const cautions = computed(() => nodeWarnings.value.get(props.id) ?? []);
 const run = computed(() => (debug.enabled ? currentTurn.value?.nodes[props.id] : undefined));
+
+// A debug tap idles (greyed out, nothing reaches it) until live debug is on; then it shows what it
+// recorded or saw in the selected turn.
+const idle = computed(() => idleTaps.value.has(props.id));
+const tapView = computed(() => {
+  const turn = currentTurn.value;
+  if (!debug.enabled || !spec.value?.debug_tap || !turn) return null;
+  const texts = turn.texts[props.id] ?? {};
+  return {
+    recordings: turn.recordings.filter((r) => r.node === props.id),
+    texts: spec.value.inputs.filter((p) => texts[p.name]).map((p) => ({ port: p.name, ...texts[p.name] })),
+  };
+});
 
 const connected = computed(() => {
   const set = new Set<string>();
@@ -64,7 +79,7 @@ const summary = computed(() => {
 <template>
   <div
     class="fp-node"
-    :class="{ unknown: !spec, problem: problems.length, [`run-${run?.status}`]: run }"
+    :class="{ unknown: !spec, problem: problems.length, idle, [`run-${run?.status}`]: run }"
     :style="{ '--cat': categoryColor(spec?.category ?? 'logic') }"
   >
     <header>
@@ -119,6 +134,32 @@ const summary = computed(() => {
       </div>
     </div>
     <p v-else class="missing">{{ t("inspector.unknownType") }}</p>
+    <p v-if="idle" class="tap-note">{{ t("node.tapIdle") }}</p>
+    <div v-if="tapView" class="tap nodrag nowheel">
+      <div v-for="rec in tapView.recordings" :key="rec.file" class="tap-rec">
+        <button
+          class="play"
+          :class="{ on: playing === rec.file }"
+          :title="playing === rec.file ? t('debug.stopPlaying') : t('debug.play')"
+          :aria-label="playing === rec.file ? t('debug.stopPlaying') : t('debug.play')"
+          @click.stop="play(rec.file)"
+        >
+          <svg v-if="playing === rec.file" viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1" /></svg>
+          <svg v-else viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7.5-4.5z" /></svg>
+        </button>
+        <span class="secs">{{ rec.seconds.toFixed(1) }} s</span>
+      </div>
+      <div v-for="item in tapView.texts" :key="item.port" class="tap-text">
+        <div class="tap-head">
+          <code>{{ item.port }}</code>
+          <span v-if="item.items > 1">{{ t("node.tapPieces", { n: item.items }) }}</span>
+          <span v-if="item.partials">{{ t("node.tapPartials", { n: item.partials }) }}</span>
+        </div>
+        <p v-if="item.error" class="tap-error">{{ item.error }}</p>
+        <p class="tap-body">{{ item.text || "—" }}</p>
+      </div>
+      <p v-if="!tapView.recordings.length && !tapView.texts.length" class="tap-empty">{{ t("node.tapEmpty") }}</p>
+    </div>
     <p v-if="run?.error" class="error">{{ run.error }}</p>
   </div>
 </template>
@@ -315,5 +356,97 @@ header::before {
 
 .unknown {
   border-style: dashed;
+}
+
+.idle {
+  border-style: dashed;
+  box-shadow: none;
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+
+.tap-note {
+  margin: 0;
+  padding: 0 12px 10px;
+  font-size: 11.5px;
+  color: var(--muted);
+  max-width: 300px;
+}
+
+.tap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--line);
+  max-width: 300px;
+  cursor: auto;
+}
+
+.tap-rec {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tap-rec .play {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--cat-debug) 22%, transparent);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.tap-rec .play.on {
+  background: var(--cat-debug);
+  color: var(--primary-text);
+}
+
+.tap-rec svg {
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+}
+
+.secs,
+.tap-head,
+.tap-empty {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tap-head {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.tap-body {
+  margin: 0;
+  max-height: 140px;
+  overflow-y: auto;
+  padding: 5px 7px;
+  border-radius: 5px;
+  background: var(--panel-raised);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.tap-error {
+  margin: 0 0 3px;
+  font-size: 11.5px;
+  color: var(--danger);
+}
+
+.tap-empty {
+  margin: 0;
 }
 </style>

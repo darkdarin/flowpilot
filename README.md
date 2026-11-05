@@ -36,7 +36,9 @@ join branches, and watch every turn flow through the graph live.
 - **Safe changes.** Every edit is saved as a draft and checked; **Deploy** switches the running
   graph without a restart, and a turn in progress finishes on the old version.
 - **Live debug.** See each node's status and timing, how much data went over every wire and where
-  a turn failed. Put a **Record audio** node on any audio wire to hear what each step got; the
+  a turn failed. Put a **Record audio** node on any audio wire to hear what each step got, or a
+  **Show text** node on text wires to read what went through; pick a turn and the result shows
+  right on the node. These debug nodes run only while live debug is on (greyed out otherwise), and
   recordings stay on your machine and out of Home Assistant backups.
 - **Works with any satellite.** ESPHome and Voice PE, Wyoming satellites, VoIP and third-party
   ones (such as [Yandex Quasar](https://github.com/darkdarin/yandex-quasar)): FlowPilot plugs into

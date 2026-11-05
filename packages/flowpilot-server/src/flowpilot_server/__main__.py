@@ -45,6 +45,7 @@ from .manager import GraphManager, GraphStore
 from .nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
 from .recording import RecordAudio
 from .server import FlowPilotServer
+from .text_tap import TextTap
 
 _LOGGER = logging.getLogger("flowpilot_server")
 
@@ -61,6 +62,7 @@ def build_registry(*, dev: bool = False) -> NodeRegistry:
         HaTts,
         RecordAudio,
         FixedText,
+        TextTap,
     ]
     if dev:
         classes += DEV_NODES

@@ -163,7 +163,7 @@ class FlowPilotServer:
         self.sessions = SessionIndex()
         self._sockets: set[web.WebSocketResponse] = set()
         self.trace_hub = TraceHub()
-        self.manager.set_trace(self.trace_hub.sink, self._on_deployed)
+        self.manager.set_trace(self.trace_hub.sink, self._on_deployed, self.trace_hub.watching)
         self.connections: set[Connection] = set()
         self._options_cache: tuple[float, dict[str, Any]] | None = None
         self._background: set[asyncio.Task[None]] = set()

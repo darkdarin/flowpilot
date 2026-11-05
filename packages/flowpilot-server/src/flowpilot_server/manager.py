@@ -116,6 +116,7 @@ class GraphManager:
         self._check = check
         self._trace_factory = trace_factory
         self._on_deployed: Callable[[str], None] | None = None
+        self._watching: Callable[[str], bool] | None = None
         self.deployments: dict[str, Deployment] = {}
         self._active: dict[Deployment, int] = {}
         self._idle = asyncio.Condition()
@@ -133,10 +134,17 @@ class GraphManager:
     def set_check(self, check: GraphCheck) -> None:
         self._check = check
 
-    def set_trace(self, factory: TraceFactory, on_deployed: Callable[[str], None]) -> None:
-        """Trace sink for deployments started from now on, and a hook called after each deploy."""
+    def set_trace(
+        self,
+        factory: TraceFactory,
+        on_deployed: Callable[[str], None],
+        watching: Callable[[str], bool] | None = None,
+    ) -> None:
+        """Trace sink for deployments started from now on, a hook called after each deploy, and
+        whether someone watches a graph in live debug (its debug taps run only then)."""
         self._trace_factory = factory
         self._on_deployed = on_deployed
+        self._watching = watching
 
     # --- validation -----------------------------------------------------------------------------
 
@@ -176,8 +184,14 @@ class GraphManager:
         if graph.graph.id != graph_id:
             raise GraphError([GraphIssue("id_mismatch", "$.id", f"graph id must be {graph_id!r}")])
         trace = self._trace_factory(graph_id) if self._trace_factory else None
+        watching = self._watching
         deployment = Deployment(
-            graph, self.registry, secrets=self._secrets, trace=trace, data_dir=self.data_dir
+            graph,
+            self.registry,
+            secrets=self._secrets,
+            trace=trace,
+            data_dir=self.data_dir,
+            taps_active=(lambda: watching(graph_id)) if watching else None,
         )
         try:
             await deployment.start()
@@ -275,6 +289,7 @@ class GraphManager:
                     "host_ops": sorted(spec.host_ops),
                     "grants": sorted(spec.grants),
                     "turn_timeout_s": spec.turn_timeout_s,
+                    "debug_tap": spec.debug_tap,
                     "translations": {
                         language: text.as_dict() for language, text in spec.translations.items()
                     },

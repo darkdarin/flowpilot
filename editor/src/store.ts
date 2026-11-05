@@ -45,6 +45,15 @@ export interface TurnRun {
   ports: Record<string, PortRun>;
   hostCalls: { node: string; op: string; t: number }[];
   recordings: { node: string; file: string; seconds: number }[];
+  /** what Show text taps saw, by node and input port */
+  texts: Record<string, Record<string, TapText>>;
+}
+
+export interface TapText {
+  text: string;
+  items: number;
+  partials?: number;
+  error?: string;
 }
 
 const SAVE_DELAY_MS = 600;
@@ -130,6 +139,14 @@ export const brokenEdges = computed(() => {
     const edge = i.edge === undefined ? undefined : edges.value[i.edge];
     if (edge) set.add(edge.id);
   }
+  return set;
+});
+
+/** Debug taps (they record or show what reaches them) idle while live debug is off. */
+export const idleTaps = computed(() => {
+  const set = new Set<string>();
+  if (debug.enabled) return set;
+  for (const n of nodes.value) if (specs.value.get(n.data?.type ?? "")?.debug_tap) set.add(n.id);
   return set;
 });
 
@@ -244,6 +261,7 @@ export async function connect(value: string): Promise<boolean> {
   api.value = client;
   trace?.close();
   trace = new TraceSocket(value, onTrace, (c) => (debug.connected = c));
+  trace.setDebug(debug.enabled);
   await refreshGraphs();
   const wanted = localStorage.getItem("flowpilot.graph");
   const pick = graphs.value.find((g) => g.id === wanted) ?? graphs.value.find((g) => g.default) ?? graphs.value[0];
@@ -400,6 +418,12 @@ export function renameNode(oldId: string, newId: string): boolean {
 
 // --- live debug --------------------------------------------------------------------------------
 
+// The runtime runs the graph's debug taps only while someone has live debug on.
+watch(
+  () => debug.enabled,
+  (on) => trace?.setDebug(on),
+);
+
 function onTrace(msg: TraceMsg | { type: string; graph?: string }) {
   if (msg.graph !== graphId.value) return;
   if (msg.type === "deployed") {
@@ -411,7 +435,7 @@ function onTrace(msg: TraceMsg | { type: string; graph?: string }) {
   let turn = debug.turns.find((t) => t.id === ev.turn_id);
   if (!turn) {
     if (ev.event !== "turn.start") return; // backlog tail of a turn we never saw starting
-    turn = { id: ev.turn_id, status: "running", nodes: {}, ports: {}, hostCalls: [], recordings: [] };
+    turn = { id: ev.turn_id, status: "running", nodes: {}, ports: {}, hostCalls: [], recordings: [], texts: {} };
     debug.turns.unshift(turn);
     debug.turns.splice(MAX_TURNS);
     turn = debug.turns[0];
@@ -454,6 +478,14 @@ function onTrace(msg: TraceMsg | { type: string; graph?: string }) {
       if (!turn.recordings.some((r) => r.file === ev.attrs.file)) {
         turn.recordings.push({ node, file: String(ev.attrs.file), seconds: Number(ev.attrs.seconds) });
       }
+      break;
+    case "tap.text":
+      (turn.texts[node] ??= {})[String(ev.attrs.port)] = {
+        text: String(ev.attrs.text ?? ""),
+        items: Number(ev.attrs.items ?? 0),
+        ...(ev.attrs.partials != null ? { partials: Number(ev.attrs.partials) } : {}),
+        ...(ev.attrs.error ? { error: String(ev.attrs.error) } : {}),
+      };
       break;
   }
 }

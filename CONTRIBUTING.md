@@ -58,6 +58,9 @@ uv run pytest
   `async def config_options(cls, field, config) -> list[ConfigOption]` (a classmethod; return `[]`
   when it cannot tell yet, raise to explain why the list is empty). Language settings add
   `"format": "language"` so the editor shows language names.
+- A node that only looks at what reaches it for debugging (it records or shows data) sets
+  `debug_tap=True` (category `debug`, no outputs): it runs only while someone watches the graph in
+  live debug; otherwise nothing is sent to it and the turn does not wait for it.
 - Do not commit secrets, API keys or voice recordings.
 
 ## License of contributions

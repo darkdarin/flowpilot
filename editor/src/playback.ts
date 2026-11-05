@@ -1,0 +1,61 @@
+// Recordings of debug.record nodes: played, downloaded and deleted through the authenticated API
+// (an <audio> element cannot send the Authorization header). One recording plays at a time, whether
+// started from the debug drawer or from the node itself.
+
+import { ref } from "vue";
+import { t } from "./i18n";
+import { api, debug, flash } from "./store";
+
+export const playing = ref<string | null>(null);
+let player: HTMLAudioElement | null = null;
+let playerUrl = "";
+
+export function stopPlaying() {
+  player?.pause();
+  if (playerUrl) URL.revokeObjectURL(playerUrl);
+  player = null;
+  playerUrl = "";
+  playing.value = null;
+}
+
+async function blobOf(file: string): Promise<Blob | null> {
+  try {
+    return await api.value!.recording(file);
+  } catch {
+    flash(t("debug.recordingGone"), "error");
+    return null;
+  }
+}
+
+export async function play(file: string) {
+  const wasPlaying = playing.value === file;
+  stopPlaying();
+  if (wasPlaying) return;
+  const blob = await blobOf(file);
+  if (!blob) return;
+  playerUrl = URL.createObjectURL(blob);
+  player = new Audio(playerUrl);
+  player.onended = stopPlaying;
+  playing.value = file;
+  await player.play();
+}
+
+export async function download(file: string) {
+  const blob = await blobOf(file);
+  if (!blob) return;
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = file;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+export async function removeRecording(file: string) {
+  if (playing.value === file) stopPlaying();
+  try {
+    await api.value!.deleteRecording(file);
+  } catch {
+    /* already gone */
+  }
+  for (const turn of debug.turns) turn.recordings = turn.recordings.filter((r) => r.file !== file);
+}

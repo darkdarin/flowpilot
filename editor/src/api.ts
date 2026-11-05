@@ -31,6 +31,8 @@ export interface NodeInfo {
   grants: string[];
   turn_timeout_s: number;
   translations: Record<string, NodeTexts>;
+  /** a debugging tap: runs only while someone watches the graph in live debug */
+  debug_tap?: boolean;
 }
 
 export interface Catalog {
@@ -226,6 +228,7 @@ export class TraceSocket {
   private graph: string | null = null;
   private ready = false; // hello.ok received on the current socket
   private sent: string | null = null; // graph subscribed on the current socket
+  private debug = false; // live debug is on: the graph's debug taps run while it is
 
   constructor(
     private token: string,
@@ -262,7 +265,14 @@ export class TraceSocket {
     // Only after hello.ok, and once per graph: every subscribe makes the server resend its backlog.
     if (!this.ready || this.sent === graph) return;
     this.sent = graph;
-    this.ws?.send(JSON.stringify({ type: "subscribe", graph }));
+    this.ws?.send(JSON.stringify({ type: "subscribe", graph, debug: this.debug }));
+  }
+
+  /** Live debug on or off for the subscribed graph (it switches the graph's debug taps). */
+  setDebug(on: boolean) {
+    if (this.debug === on) return;
+    this.debug = on;
+    if (this.ready && this.sent) this.ws?.send(JSON.stringify({ type: "debug", on }));
   }
 
   close() {

@@ -6,8 +6,10 @@ opened editor show the last turns.
 
 Editor socket (``GET /api/editor/ws``), JSON text frames:
 
-- client → ``{"type": "hello", "token": "..."}`` then ``{"type": "subscribe", "graph": "main"}``
-  (one graph at a time; subscribing again switches)
+- client → ``{"type": "hello", "token": "..."}`` then ``{"type": "subscribe", "graph": "main",
+  "debug": true}`` (one graph at a time; subscribing again switches); ``{"type": "debug", "on":
+  bool}`` turns live debug on or off for the subscribed graph. While any socket has live debug on
+  for a graph, its debug taps run (``NodeSpec.debug_tap``).
 - server → ``{"type": "hello.ok"}``, ``{"type": "subscribed", "graph": ..}``, then trace events
   ``{"type": "trace", "graph", "turn_id", "event", "node", "t_ms", "attrs"}`` where ``t_ms`` is
   milliseconds since the turn started; ``{"type": "deployed", "graph"}`` after a redeploy.
@@ -48,6 +50,7 @@ class TraceHub:
         self._subscribers: dict[str, set[asyncio.Queue[dict[str, Any]]]] = {}
         self._backlog: dict[str, deque[dict[str, Any]]] = {}
         self._turn_start: dict[str, int] = {}
+        self._watchers: dict[str, set[asyncio.Queue[dict[str, Any]]]] = {}
 
     def sink(self, graph_id: str) -> TraceSink:
         return _GraphSink(self, graph_id)
@@ -90,6 +93,18 @@ class TraceHub:
 
     def unsubscribe(self, graph_id: str, queue: asyncio.Queue[dict[str, Any]]) -> None:
         self._subscribers.get(graph_id, set()).discard(queue)
+        self.set_debug(graph_id, queue, on=False)
+
+    def set_debug(self, graph_id: str, queue: asyncio.Queue[dict[str, Any]], *, on: bool) -> None:
+        watchers = self._watchers.setdefault(graph_id, set())
+        if on:
+            watchers.add(queue)
+        else:
+            watchers.discard(queue)
+
+    def watching(self, graph_id: str) -> bool:
+        """Someone has live debug on for this graph."""
+        return bool(self._watchers.get(graph_id))
 
 
 def _jsonable(attrs: dict[str, Any]) -> dict[str, Any]:
@@ -143,6 +158,9 @@ async def editor_socket(request: web.Request, server: FlowPilotServer) -> web.We
                 graph = str(data.get("graph"))
                 await ws.send_json({"type": "subscribed", "graph": graph})
                 hub.subscribe(graph, queue)
+                hub.set_debug(graph, queue, on=bool(data.get("debug")))
+            elif kind == "debug" and graph is not None:
+                hub.set_debug(graph, queue, on=bool(data.get("on")))
     finally:
         if graph is not None:
             hub.unsubscribe(graph, queue)

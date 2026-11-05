@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@vue-flow/core";
 import { computed } from "vue";
-import { brokenEdges, currentTurn, debug } from "../store";
+import { brokenEdges, currentTurn, debug, idleTaps } from "../store";
 import { typeColor } from "../types";
 
 const props = defineProps<EdgeProps<{ type: string }>>();
@@ -27,6 +27,8 @@ const flow = computed(() => {
 });
 
 const broken = computed(() => brokenEdges.value.has(props.id));
+// nothing flows into a debug tap while live debug is off
+const idle = computed(() => idleTaps.value.has(props.target));
 </script>
 
 <template>
@@ -34,8 +36,8 @@ const broken = computed(() => brokenEdges.value.has(props.id));
     :id="id"
     :path="path[0]"
     class="typed-edge"
-    :class="[flow ? `flow-${flow.state}` : '', { selected, broken, dimmed: flow && flow.state === 'idle' }]"
-    :style="{ '--wire': color }"
+    :class="[flow ? `flow-${flow.state}` : '', { selected, broken, idle, dimmed: flow && flow.state === 'idle' }]"
+    :style="{ '--wire': idle ? 'var(--faint)' : color }"
     :interaction-width="18"
   />
   <EdgeLabelRenderer v-if="flow && flow.items > 0">
@@ -66,6 +68,11 @@ const broken = computed(() => brokenEdges.value.has(props.id));
 
 .typed-edge.broken {
   stroke-dasharray: 4 6;
+}
+
+.typed-edge.idle {
+  stroke-dasharray: 2 6;
+  opacity: 0.6;
 }
 
 .typed-edge.dimmed,

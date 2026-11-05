@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // Live debug drawer: recent turns and a waterfall of node runs for the selected turn.
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount } from "vue";
 import { t } from "../i18n";
-import { api, currentTurn, debug, flash, nodes, selectedId, specs } from "../store";
+import { download, play, playing, removeRecording, stopPlaying } from "../playback";
+import { currentTurn, debug, nodes, selectedId, specs } from "../store";
 import { categoryColor } from "../types";
 
 const rows = computed(() => {
@@ -29,61 +30,6 @@ function ms(value: number) {
 
 function pct(ms: number) {
   return `${(ms / span.value) * 100}%`;
-}
-
-// Recordings of the selected turn (debug.record nodes): played through the authenticated API.
-const playing = ref<string | null>(null);
-let player: HTMLAudioElement | null = null;
-let playerUrl = "";
-
-function stopPlaying() {
-  player?.pause();
-  if (playerUrl) URL.revokeObjectURL(playerUrl);
-  player = null;
-  playerUrl = "";
-  playing.value = null;
-}
-
-async function blobOf(file: string): Promise<Blob | null> {
-  try {
-    return await api.value!.recording(file);
-  } catch {
-    flash(t("debug.recordingGone"), "error");
-    return null;
-  }
-}
-
-async function play(file: string) {
-  const wasPlaying = playing.value === file;
-  stopPlaying();
-  if (wasPlaying) return;
-  const blob = await blobOf(file);
-  if (!blob) return;
-  playerUrl = URL.createObjectURL(blob);
-  player = new Audio(playerUrl);
-  player.onended = stopPlaying;
-  playing.value = file;
-  await player.play();
-}
-
-async function download(file: string) {
-  const blob = await blobOf(file);
-  if (!blob) return;
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = file;
-  link.click();
-  URL.revokeObjectURL(link.href);
-}
-
-async function remove(file: string) {
-  if (playing.value === file) stopPlaying();
-  try {
-    await api.value!.deleteRecording(file);
-  } catch {
-    /* already gone */
-  }
-  for (const turn of debug.turns) turn.recordings = turn.recordings.filter((r) => r.file !== file);
 }
 
 onBeforeUnmount(stopPlaying);
@@ -133,7 +79,7 @@ function status(s: string) {
           <button class="icon" :title="t('debug.download')" :aria-label="t('debug.download')" @click="download(rec.file)">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10" /></svg>
           </button>
-          <button class="icon" :title="t('debug.deleteRecording')" :aria-label="t('debug.deleteRecording')" @click="remove(rec.file)">
+          <button class="icon" :title="t('debug.deleteRecording')" :aria-label="t('debug.deleteRecording')" @click="removeRecording(rec.file)">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 4.5h9M6.5 4.5V3h3v1.5M5 4.5l.6 8.5h4.8l.6-8.5" /></svg>
           </button>
         </span>

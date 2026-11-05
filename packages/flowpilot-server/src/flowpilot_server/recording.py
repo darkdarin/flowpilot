@@ -1,5 +1,7 @@
 """Debug recordings: a node that saves the audio on a wire, and the files it keeps.
 
+A debug tap: it records only while someone watches the graph in live debug.
+
 ``debug.record`` is wired to any audio output next to the regular consumer (an output feeds several
 inputs), so recording never holds a turn up: the audio is read as it comes and written to disk in a
 thread when the stream ends. One WAV per turn and node, in the runtime's data under
@@ -46,6 +48,7 @@ class RecordAudio:
         version="1.0.0",
         title="Record audio",
         category="debug",
+        debug_tap=True,
         inputs={
             "audio": PortSpec(
                 "audio.pcm/1",
@@ -77,7 +80,8 @@ class RecordAudio:
         turn_timeout_s=660.0,
         description=(
             "For debugging: saves the audio of each turn to a WAV file on the runtime, to play "
-            "back in live debug. Recordings stay on this machine."
+            "back in live debug. Works only while live debug is on; recordings stay on this "
+            "machine."
         ),
     )
 

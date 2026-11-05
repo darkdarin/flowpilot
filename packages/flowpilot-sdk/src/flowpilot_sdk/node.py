@@ -91,6 +91,10 @@ class NodeSpec:
     turn_timeout_s: float | None = None
     host_ops: frozenset[str] = frozenset()  # host operations the node may call (ADR-014)
     description: str = ""
+    # A debugging tap (records or shows what reaches it): it only runs while someone watches the
+    # graph in live debug; otherwise its inputs get nothing and the turn does not wait for it.
+    # Taps have no outputs, so nothing else depends on them.
+    debug_tap: bool = False
     # Texts in other languages (see flowpilot_sdk.text); English is title/description above.
     translations: Mapping[str, NodeText] = field(default_factory=dict)
 
@@ -114,6 +118,8 @@ class NodeSpec:
                 )
         if self.turn_timeout_s is not None and self.turn_timeout_s <= 0:
             raise ValueError("turn_timeout_s must be positive")
+        if self.debug_tap and (self.outputs or self.category != "debug"):
+            raise ValueError(f"{self.type}: a debug tap has no outputs and the debug category")
         settings = set(self.config_schema.get("properties") or {})
         for language, text in self.translations.items():
             if not LANGUAGE_RE.match(language):

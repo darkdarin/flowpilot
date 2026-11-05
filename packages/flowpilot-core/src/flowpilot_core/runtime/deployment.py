@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterable, Mapping
+from collections.abc import AsyncIterable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -192,8 +192,11 @@ class Deployment:
         trace: TraceSink | None = None,
         sessions: MemorySessionStore | None = None,
         data_dir: Path | None = None,
+        taps_active: Callable[[], bool] | None = None,
     ) -> None:
         self.graph = graph
+        # asked at the start of each turn: run the debug taps (someone watches live debug)?
+        self._taps_active = taps_active
         # nodes get <data_dir>/nodes/<node type>/ for their files
         self._data_dir = data_dir
         self._registry = registry
@@ -264,8 +267,13 @@ class Deployment:
         """
         g = self.graph
         turn_id = context.turn_id
+        # Debug taps nobody watches are left out of the turn: no channels, no task, no data.
+        watched = self._taps_active is not None and self._taps_active()
+        idle = set() if watched else {n for n, spec in g.specs.items() if spec.debug_tap}
         channels: dict[tuple[str, str], Channel] = {}
         for node_id, ports in g.incoming.items():
+            if node_id in idle:
+                continue
             spec = g.specs[node_id]
             for port_name, edge in ports.items():
                 port = spec.inputs[port_name]
@@ -274,7 +282,8 @@ class Deployment:
                 )
 
         sessions: dict[str, RuntimeTurnSession] = {}
-        for node_id in g.order:
+        running = [n for n in g.order if n not in idle]
+        for node_id in running:
             spec = g.specs[node_id]
             inputs = {
                 name: RuntimeInputStream(name, port, channels.get((node_id, name)))
@@ -288,6 +297,7 @@ class Deployment:
                     [
                         channels[(e.dst.node, e.dst.port)]
                         for e in g.outgoing.get(node_id, {}).get(name, ())
+                        if e.dst.node not in idle
                     ],
                     turn_id,
                     on_first_item=self._first_item_tracer(turn_id, node_id),
@@ -312,7 +322,7 @@ class Deployment:
         timed_out = False
         try:
             async with asyncio.timeout(remaining_s), asyncio.TaskGroup() as tg:
-                for node_id in g.order:
+                for node_id in running:
                     tg.create_task(
                         self._run_node(node_id, sessions[node_id], outcomes),
                         name=f"flowpilot:{turn_id}:{node_id}",

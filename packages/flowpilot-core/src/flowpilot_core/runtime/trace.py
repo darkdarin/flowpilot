@@ -1,4 +1,8 @@
-"""Turn tracing. Events never carry payload content (audio, text); nodes add safe attributes."""
+"""Turn tracing. Events carry no payload content (audio, text); nodes add safe attributes.
+
+The one exception is a debug tap that shows text (``debug.text_tap``): it runs only while someone
+watches the graph in live debug, and only on the wires it is connected to.
+"""
 
 from __future__ import annotations
 

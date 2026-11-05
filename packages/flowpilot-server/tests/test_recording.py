@@ -59,7 +59,9 @@ def wav(seconds: float) -> tuple[bytes, bytes]:
     return out.getvalue(), pcm
 
 
-async def runtime(tmp_path: Path, **record: Any) -> AsyncIterator[tuple[Any, Any, Path]]:
+async def runtime(
+    tmp_path: Path, *, watch: bool = True, **record: Any
+) -> AsyncIterator[tuple[Any, Any, Path]]:
     registry = register_builtin(NodeRegistry())
     classes: list[type[Node]] = [ClientSource, ClientSink, RecordAudio, *DEV_NODES]
     for cls in classes:
@@ -72,7 +74,13 @@ async def runtime(tmp_path: Path, **record: Any) -> AsyncIterator[tuple[Any, Any
     ts = TestServer(server.app())
     await ts.start_server()
     async with aiohttp.ClientSession() as session:
-        yield session, ts.make_url, recordings_dir(tmp_path)
+        # the recorder is a debug tap: it records only while live debug watches the graph
+        async with session.ws_connect(ts.make_url("/api/editor/ws")) as ws:
+            await ws.send_json({"type": "hello", "token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "subscribe", "graph": "voice", "debug": watch})
+            await ws.receive_json()
+            yield session, ts.make_url, recordings_dir(tmp_path)
     await ts.close()
     await manager.stop()
 
@@ -132,3 +140,11 @@ async def test_long_audio_is_cut(tmp_path: Path) -> None:
         await turn(session, url, wav(1.0)[0])
         listing = await (await session.get(url("/api/editor/recordings"), headers=AUTH)).json()
         assert listing["recordings"][0]["seconds"] == 0.2
+
+
+async def test_nothing_is_recorded_without_live_debug(tmp_path: Path) -> None:
+    async for session, url, directory in runtime(tmp_path, watch=False):
+        result = await turn(session, url, wav(0.3)[0])
+        assert result["status"] == "ok"  # the turn does not wait for the idle recorder
+        assert "rec" not in result["nodes"]  # it did not even run
+        assert not directory.exists() or not any(directory.glob("*.wav"))
