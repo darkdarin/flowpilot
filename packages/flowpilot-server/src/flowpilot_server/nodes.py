@@ -422,6 +422,8 @@ class HaTts(_Lifecycle):
                     "title": "Sample rate, Hz",
                     "description": "Sample rate requested from the entity; 16000 when not set.",
                     "type": "integer",
+                    "default": 16000,
+                    "maximum": 48000,
                     "minimum": 8000,
                 },
             },

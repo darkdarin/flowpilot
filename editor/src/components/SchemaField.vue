@@ -5,6 +5,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import type { HostOption, JsonSchema } from "../api";
 import { languageName, t } from "../i18n";
 import { hostOptions, nodeOptions, refreshOptions } from "../store";
+import NumberSlider from "./NumberSlider.vue";
 import OptionPicker, { type PickerOption } from "./OptionPicker.vue";
 
 const props = defineProps<{
@@ -32,6 +33,16 @@ const kind = computed(() => {
 });
 
 const inputId = computed(() => `cfg-${props.name}`);
+
+// Numbers with both bounds get a slider; the exclusive lower bound counts as the bound.
+const range = computed(() => {
+  const s = props.schema;
+  const min = s.minimum ?? s.exclusiveMinimum;
+  return kind.value === "number" && min !== undefined && s.maximum !== undefined
+    ? { min, max: s.maximum }
+    : null;
+});
+const numberValue = computed(() => (typeof props.modelValue === "number" ? props.modelValue : undefined));
 
 const stringValue = computed(() => (props.modelValue === undefined ? "" : String(props.modelValue)));
 const invalidPattern = computed(() => {
@@ -219,6 +230,17 @@ const hint = computed(() => {
       <input :id="inputId" type="checkbox" :checked="modelValue === true" @change="emit('update:modelValue', ($event.target as HTMLInputElement).checked)" />
       <span>{{ modelValue === undefined ? t("form.unset") : String(modelValue) }}</span>
     </label>
+
+    <NumberSlider
+      v-else-if="range"
+      :input-id="inputId"
+      :model-value="numberValue"
+      :min="range.min"
+      :max="range.max"
+      :integer="schema.type === 'integer'"
+      :fallback="typeof schema.default === 'number' ? schema.default : undefined"
+      @update:model-value="(v: number | undefined) => emit('update:modelValue', v)"
+    />
 
     <input
       v-else-if="kind === 'number'"

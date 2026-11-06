@@ -111,6 +111,8 @@ class WyomingTts:
                         "How long to wait for the service to accept the connection; 5 when not set."
                     ),
                     "type": "number",
+                    "default": 5,
+                    "maximum": 60,
                     "exclusiveMinimum": 0,
                 },
             },

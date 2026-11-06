@@ -60,18 +60,24 @@ class VadSegmenter:
                         "Speech needed before a command counts as started; 0.3 when not set."
                     ),
                     "type": "number",
+                    "default": 0.3,
+                    "maximum": 5,
                     "exclusiveMinimum": 0,
                 },
                 "command_s": {
                     "title": "Shortest command, s",
                     "description": "A command is never shorter than this; 1.0 when not set.",
                     "type": "number",
+                    "default": 1.0,
+                    "maximum": 10,
                     "exclusiveMinimum": 0,
                 },
                 "silence_s": {
                     "title": "Silence to end, s",
                     "description": "Silence that ends a started command; 0.7 when not set.",
                     "type": "number",
+                    "default": 0.7,
+                    "maximum": 5,
                     "exclusiveMinimum": 0,
                 },
                 "timeout_s": {
@@ -80,6 +86,8 @@ class VadSegmenter:
                         "The audio ends after this even if the user keeps talking; 15 when not set."
                     ),
                     "type": "number",
+                    "default": 15,
+                    "maximum": 60,
                     "exclusiveMinimum": 0,
                 },
                 "speech_dbfs": {
@@ -88,6 +96,8 @@ class VadSegmenter:
                         "For the energy detector: loudness that counts as speech; -35 when not set."
                     ),
                     "type": "number",
+                    "default": -35,
+                    "minimum": -90,
                     "maximum": 0,
                 },
             },

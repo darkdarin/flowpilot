@@ -102,6 +102,8 @@ class WyomingStt:
                         "How long to wait for the service to accept the connection; 5 when not set."
                     ),
                     "type": "number",
+                    "default": 5,
+                    "maximum": 60,
                     "exclusiveMinimum": 0,
                 },
                 "final_timeout_s": {
@@ -110,6 +112,8 @@ class WyomingStt:
                         "How long to wait for the final text after the audio ends; 15 when not set."
                     ),
                     "type": "number",
+                    "default": 15,
+                    "maximum": 120,
                     "exclusiveMinimum": 0,
                 },
             },

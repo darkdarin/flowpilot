@@ -76,6 +76,7 @@ class FixedAnswer:
                     "title": "Pause between words, ms",
                     "description": "Word by word only; 150 when not set.",
                     "type": "integer",
+                    "default": 150,
                     "minimum": 0,
                     "maximum": 5000,
                 },
