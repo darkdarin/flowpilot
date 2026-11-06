@@ -172,6 +172,8 @@ async def test_catalog_describes_nodes_and_types(env: Any) -> None:
         }
     ]
     assert reply["config_schema"]["required"] == ["text"]
+    fixed = {n["type"] for n in body["nodes"] if n["fixed"]}
+    assert fixed == {"client.source", "client.sink"}  # every graph has them, exactly once
     types = {t["id"]: t["privileged"] for t in body["types"]}
     assert types["identity.principal/1"] is True
     assert types["text.utterance/1"] is False

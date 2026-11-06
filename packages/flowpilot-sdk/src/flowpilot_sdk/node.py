@@ -97,6 +97,9 @@ class NodeSpec:
     # graph in live debug; otherwise its inputs get nothing and the turn does not wait for it.
     # Taps have no outputs, so nothing else depends on them.
     debug_tap: bool = False
+    # A boundary node every graph has exactly once (the client input and output of a turn): it is
+    # created with the graph, and editors neither offer it nor let it be deleted.
+    fixed: bool = False
     # Texts in other languages (see flowpilot_sdk.text); English is title/description above.
     translations: Mapping[str, NodeText] = field(default_factory=dict)
 

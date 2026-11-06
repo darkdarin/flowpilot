@@ -11,9 +11,10 @@ const groups = computed(() => {
   const q = query.value.trim().toLowerCase();
   const nodes = (catalog.value?.nodes ?? []).filter(
     (n) =>
-      !q ||
+      !n.fixed &&
+      (!q ||
       n.type.includes(q) ||
-      [n.title, nodeTitle(n), nodeDescription(n)].some((text) => text.toLowerCase().includes(q)),
+      [n.title, nodeTitle(n), nodeDescription(n)].some((text) => text.toLowerCase().includes(q))),
   );
   const byCat = new Map<string, typeof nodes>();
   for (const n of nodes) byCat.set(n.category, [...(byCat.get(n.category) ?? []), n]);

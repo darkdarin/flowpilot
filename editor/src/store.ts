@@ -16,6 +16,7 @@ import {
   type TraceMsg,
   TraceSocket,
 } from "./api";
+import { t } from "./i18n";
 
 export interface FpNodeData {
   type: string;
@@ -200,6 +201,7 @@ function toCanvas(doc: GraphDoc) {
     type: "fp",
     position: positions[n.id] ?? { x: 0, y: 0 },
     data: { type: n.type, config: structuredClone(n.config ?? {}) },
+    deletable: !specs.value.get(n.type)?.fixed, // the client input and output stay
   }));
   const types = new Map(doc.nodes.map((n) => [n.id, n.type]));
   edges.value = doc.edges.map((e) => {
@@ -329,6 +331,7 @@ export async function openGraph(id: string) {
   trace?.subscribe(id);
   savedSnapshot = snapshot();
   loading = false;
+  if (addMissingFixed().length) flash(t("graph.fixedAdded")); // saved as a draft by the watcher
 }
 
 export async function createGraph(id: string, name: string) {
@@ -425,7 +428,31 @@ export function addNode(type: string, position: { x: number; y: number }) {
   selectedId.value = id;
 }
 
+/**
+ * Every graph has its fixed nodes (client input and output) exactly once. A graph without one
+ * (written by hand, imported) gets it added to the draft: the palette does not offer it.
+ */
+function addMissingFixed(): string[] {
+  const present = new Set(nodes.value.map((n) => n.data?.type));
+  const missing = (catalog.value?.nodes ?? []).filter((s) => s.fixed && !present.has(s.type));
+  if (!missing.length) return [];
+  const xs = nodes.value.map((n) => n.position.x);
+  const ys = nodes.value.map((n) => n.position.y);
+  const y = ys.length ? Math.round(ys.reduce((a, b) => a + b, 0) / ys.length) : 200;
+  for (const spec of missing) {
+    const left = spec.category === "input";
+    const x = left ? Math.min(80, ...xs) - (xs.length ? 330 : 0) : Math.max(720, ...xs) + (xs.length ? 330 : 0);
+    nodes.value = [
+      ...nodes.value,
+      { id: uniqueNodeId(spec.type), type: "fp", position: { x, y }, data: { type: spec.type, config: {} }, deletable: false },
+    ];
+  }
+  return missing.map((s) => s.type);
+}
+
 export function removeNode(id: string) {
+  const node = nodes.value.find((n) => n.id === id);
+  if (node && specs.value.get(node.data?.type ?? "")?.fixed) return; // never deleted
   nodes.value = nodes.value.filter((n) => n.id !== id);
   edges.value = edges.value.filter((e) => e.source !== id && e.target !== id);
   if (selectedId.value === id) selectedId.value = null;

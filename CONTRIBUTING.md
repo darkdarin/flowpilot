@@ -65,6 +65,8 @@ uv run pytest
 - A node that only looks at what reaches it for debugging (it records or shows data) sets
   `debug_tap=True` (category `debug`, no outputs): it runs only while someone watches the graph in
   live debug; otherwise nothing is sent to it and the turn does not wait for it.
+- `fixed=True` marks a boundary node every graph has exactly once (Client input and output): it is
+  created with the graph, and the editor neither offers it in the palette nor lets it be deleted.
 - Do not commit secrets, API keys or voice recordings.
 
 ## License of contributions

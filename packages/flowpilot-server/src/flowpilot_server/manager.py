@@ -329,6 +329,7 @@ class GraphManager:
                     "grants": sorted(spec.grants),
                     "turn_timeout_s": spec.turn_timeout_s,
                     "debug_tap": spec.debug_tap,
+                    "fixed": spec.fixed,
                     "translations": {
                         language: text.as_dict() for language, text in spec.translations.items()
                     },

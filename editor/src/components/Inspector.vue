@@ -110,7 +110,8 @@ function setConfig(key: string, value: unknown) {
         </p>
       </section>
 
-      <button class="btn danger" @click="removeNode(selectedNode.id)">{{ t("inspector.delete") }}</button>
+      <button v-if="!spec?.fixed" class="btn danger" @click="removeNode(selectedNode.id)">{{ t("inspector.delete") }}</button>
+      <p v-else class="fixed-note">{{ t("inspector.fixed") }}</p>
     </template>
 
     <template v-else>
@@ -276,5 +277,11 @@ section > h3 {
 
 .btn.danger {
   align-self: flex-start;
+}
+
+.fixed-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 </style>

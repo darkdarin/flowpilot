@@ -33,6 +33,8 @@ export interface NodeInfo {
   translations: Record<string, NodeTexts>;
   /** a debugging tap: runs only while someone watches the graph in live debug */
   debug_tap?: boolean;
+  /** every graph has exactly one: created with the graph, not in the palette, not deletable */
+  fixed?: boolean;
 }
 
 export interface Catalog {

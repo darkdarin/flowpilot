@@ -74,6 +74,7 @@ class ClientSource(_Lifecycle):
         version="1.0.0",
         title="Client input",
         category="input",
+        fixed=True,
         outputs={
             "audio": PortSpec(
                 AUDIO, description="Speech from the client as it is recorded; absent in text turns."
@@ -117,6 +118,7 @@ class ClientSink(_Lifecycle):
         version="1.0.0",
         title="Client output",
         category="output",
+        fixed=True,
         inputs={
             "transcript": PortSpec(
                 "text.transcript/1",
