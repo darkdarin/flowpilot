@@ -12,6 +12,7 @@ import {
   type HostOptions,
   type Issue,
   type NodeInfo,
+  type SecretInfo,
   type TraceMsg,
   TraceSocket,
 } from "./api";
@@ -79,6 +80,8 @@ export const saving = ref(false);
 export const deploying = ref(false);
 export const selectedId = ref<string | null>(null);
 export const turnStarting = ref(false);
+export const secrets = ref<SecretInfo[]>([]);
+export const secretsOpen = ref(false);
 export const notice = ref<{ text: string; kind: "info" | "error" } | null>(null);
 
 export const debug = reactive({
@@ -266,10 +269,32 @@ export async function connect(value: string): Promise<boolean> {
   trace = new TraceSocket(value, onTrace, (c) => (debug.connected = c));
   trace.setDebug(debug.enabled);
   await refreshGraphs();
+  void refreshSecrets();
   const wanted = localStorage.getItem("flowpilot.graph");
   const pick = graphs.value.find((g) => g.id === wanted) ?? graphs.value.find((g) => g.default) ?? graphs.value[0];
   if (pick) await openGraph(pick.id);
   return true;
+}
+
+export async function refreshSecrets() {
+  try {
+    secrets.value = (await api.value!.secrets()).secrets;
+  } catch {
+    secrets.value = [];
+  }
+}
+
+/** Set (value) or remove (null) a secret; graphs using it redeploy. Returns graphs that failed. */
+export async function changeSecret(name: string, value: string | null): Promise<Record<string, string>> {
+  const result = value === null ? await api.value!.deleteSecret(name) : await api.value!.setSecret(name, value);
+  await refreshSecrets();
+  if (graphId.value) {
+    const detail = await api.value!.graph(graphId.value);
+    warnings.value = detail.warnings ?? [];
+    live.value = detail.live;
+  }
+  await refreshGraphs();
+  return Object.fromEntries(Object.entries(result.redeployed).filter((e): e is [string, string] => e[1] !== null));
 }
 
 export async function refreshGraphs() {

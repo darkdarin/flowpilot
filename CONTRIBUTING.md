@@ -58,6 +58,10 @@ uv run pytest
   `async def config_options(cls, field, config) -> list[ConfigOption]` (a classmethod; return `[]`
   when it cannot tell yet, raise to explain why the list is empty). Language settings add
   `"format": "language"` so the editor shows language names.
+- A setting that holds a credential is `{"type": "secret"}`: the graph stores a reference
+  (`{"secret": "soniox"}`), users enter the value under Secrets in the editor, and the node reads it
+  with `ctx.secret(name)` at start. `config_options` gets such references already resolved, so a
+  node can list a cloud API's models or voices with the user's key.
 - A node that only looks at what reaches it for debugging (it records or shows data) sets
   `debug_tap=True` (category `debug`, no outputs): it runs only while someone watches the graph in
   live debug; otherwise nothing is sent to it and the turn does not wait for it.

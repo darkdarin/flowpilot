@@ -58,6 +58,7 @@ from .references import (
     reference_warnings,
     references,
 )
+from .secret_store import secret_fields
 from .tracehub import EDITOR_WS_PATH, TraceHub, editor_socket
 
 _LOGGER = logging.getLogger(__name__)
@@ -247,10 +248,21 @@ class FlowPilotServer:
         return value
 
     async def reference_warnings(self, data: Any) -> list[dict[str, Any]]:
+        warnings = [
+            {
+                "code": "missing_secret",
+                "path": f"$.nodes[{index}].config.{field}",
+                "node": node,
+                "field": field,
+                "message": f"secret {name!r} is not set: add it under Secrets",
+            }
+            for index, node, field, name in secret_fields(data)
+            if name not in self.manager.secrets
+        ]
         options = await self.host_options()
         if not options["available"]:
-            return []
-        return reference_warnings(
+            return warnings
+        return warnings + reference_warnings(
             data, self.manager.registry, options["options"], options["strict"]
         )
 

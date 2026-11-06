@@ -32,6 +32,7 @@ from flowpilot_sdk import registered_types
 from flowpilot_sdk.types import PRIVILEGED_TYPES
 
 from .migrations import migrate_graph
+from .secret_store import secret_fields
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -127,7 +128,8 @@ class GraphManager:
         self.data_dir = data_dir  # nodes keep their files under <data_dir>/nodes/<type>/
         self.registry = registry
         self.store = store
-        self._secrets = dict(secrets or {})
+        # the live mapping (a SecretStore): deploys after a change see the new values
+        self.secrets: Mapping[str, str] = secrets if secrets is not None else {}
         self._grants = grants or GrantPolicy()
         self._check = check
         self._trace_factory = trace_factory
@@ -205,7 +207,7 @@ class GraphManager:
         deployment = Deployment(
             graph,
             self.registry,
-            secrets=self._secrets,
+            secrets=self.secrets,
             trace=trace,
             data_dir=self.data_dir,
             taps_active=(lambda: watching(graph_id)) if watching else None,
@@ -229,6 +231,25 @@ class GraphManager:
             self._retiring.add(task)
             task.add_done_callback(self._retiring.discard)
         return deployment
+
+    async def secret_changed(self, name: str) -> dict[str, str | None]:
+        """Redeploy the stored graphs that use secret ``name``, so their nodes start with the new
+        value (or fail without it); returns ``{graph: None | error}``. A graph that fails keeps
+        its running version."""
+        results: dict[str, str | None] = {}
+        if self.store is None:
+            return results
+        for graph_id in self.store.ids():
+            data = self.store.load(graph_id)
+            if not any(secret == name for *_, secret in secret_fields(data)):
+                continue
+            try:
+                await self.deploy_data(graph_id, data, persist=False)
+                results[graph_id] = None
+            except (GraphError, DeployError, ValueError) as err:
+                results[graph_id] = str(err)
+                _LOGGER.warning("graph %s not redeployed after a secret change: %s", graph_id, err)
+        return results
 
     async def deploy_draft(self, graph_id: str) -> Deployment:
         if self.store is None:

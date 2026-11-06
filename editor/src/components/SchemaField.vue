@@ -4,7 +4,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import type { HostOption, JsonSchema } from "../api";
 import { languageName, t } from "../i18n";
-import { hostOptions, nodeOptions, refreshOptions } from "../store";
+import { hostOptions, nodeOptions, refreshOptions, secrets, secretsOpen } from "../store";
 import NumberSlider from "./NumberSlider.vue";
 import OptionPicker, { type PickerOption } from "./OptionPicker.vue";
 
@@ -159,6 +159,10 @@ const secretName = computed(() => {
   const v = props.modelValue as { secret?: string } | undefined;
   return v && typeof v === "object" ? (v.secret ?? "") : "";
 });
+const secretSet = computed(() => secrets.value.some((s) => s.name === secretName.value && s.set));
+const secretOptions = computed<PickerOption[]>(() =>
+  secrets.value.map((s) => ({ id: s.name, description: s.set ? t("secrets.set") : t("secrets.unset") })),
+);
 
 const jsonText = ref("");
 const jsonBad = ref(false);
@@ -254,19 +258,18 @@ const hint = computed(() => {
     />
 
     <template v-else-if="kind === 'secret'">
-      <input
-        :id="inputId"
-        class="field code"
-        :value="secretName"
-        :placeholder="t('form.secret')"
-        @input="
-          (e) => {
-            const v = (e.target as HTMLInputElement).value.trim();
-            emit('update:modelValue', v ? { secret: v } : undefined);
-          }
-        "
+      <OptionPicker
+        :input-id="inputId"
+        :model-value="secretName"
+        :options="secretOptions"
+        :empty-label="required ? undefined : t('form.unset')"
+        :allow-custom="true"
+        :warn="!!secretName && !secretSet"
+        @update:model-value="(v: string) => emit('update:modelValue', v ? { secret: v } : undefined)"
       />
-      <small>{{ t("form.secretHint") }}</small>
+      <small v-if="secretName && !secretSet" class="warn">{{ t("form.secretUnset") }}</small>
+      <small v-else>{{ t("form.secretHint") }}</small>
+      <button type="button" class="refresh" @click="secretsOpen = true">{{ t("form.manageSecrets") }}</button>
     </template>
 
 

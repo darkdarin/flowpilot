@@ -7,6 +7,7 @@ import BrandMark from "./components/BrandMark.vue";
 import DebugPanel from "./components/DebugPanel.vue";
 import FpNode from "./components/FpNode.vue";
 import Inspector from "./components/Inspector.vue";
+import SecretsDialog from "./components/SecretsDialog.vue";
 import Login from "./components/Login.vue";
 import Palette from "./components/Palette.vue";
 import TypedEdge from "./components/TypedEdge.vue";
@@ -37,6 +38,7 @@ import {
   selectedId,
   specs,
   token,
+  secretsOpen,
 } from "./store";
 import { typeColor } from "./types";
 
@@ -274,6 +276,9 @@ function legendTypes() {
       <button class="btn debug-toggle" :class="{ on: debug.enabled }" :aria-pressed="debug.enabled" @click="debug.enabled = !debug.enabled">
         <i />{{ t("action.debug") }}
       </button>
+      <button class="btn icon ghost" :title="t('secrets.title')" :aria-label="t('secrets.title')" @click="secretsOpen = true">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5.5" cy="8" r="3" /><path d="M8.5 8H14.5M12.5 8v2.5M14.5 8v2" /></svg>
+      </button>
       <button class="btn icon ghost" :title="t('action.fit')" :aria-label="t('action.fit')" @click="fitView({ padding: 0.2 })">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" /></svg>
       </button>
@@ -325,6 +330,8 @@ function legendTypes() {
     <Inspector class="right" />
 
     <DebugPanel v-if="debug.enabled" class="bottom" />
+
+    <SecretsDialog v-if="secretsOpen" />
 
     <div v-if="creating" class="modal" @click.self="creating = false">
       <form @submit.prevent="onCreate">

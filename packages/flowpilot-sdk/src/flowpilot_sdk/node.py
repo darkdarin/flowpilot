@@ -57,6 +57,8 @@ OPTIONS_KEY = "x-flowpilot-options"
 #
 # which editors call while the node is being configured (no instance, no turn). Return what fits
 # the given config, or ``[]`` when it cannot tell (for example the service is unreachable).
+# Secret references in ``config`` arrive resolved to their values (a cloud API's key), as
+# ``NodeContext.secret`` would give them at start; unset secrets stay references.
 # Language settings carry ``"format": "language"`` so editors show language names for the codes.
 NODE_OPTIONS_KEY = "x-flowpilot-node-options"
 

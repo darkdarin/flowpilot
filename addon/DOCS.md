@@ -23,7 +23,9 @@ editor to add speech-to-text, other agents or text-to-speech, then press **Deplo
 ## Data
 
 Everything lives in the add-on's data folder and is part of its backups: `config.json` (ports,
-default graph), `token` (for clients outside Home Assistant), `graphs/` (each graph and its draft).
+default graph), `token` (for clients outside Home Assistant), `graphs/` (each graph and its draft),
+`secrets.json` (API keys entered under Secrets in the editor). Debug recordings are kept out of
+backups.
 
 ## Clients outside Home Assistant
 

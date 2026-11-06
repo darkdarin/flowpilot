@@ -109,6 +109,13 @@ export interface Issue {
   field?: string;
 }
 
+/** A runtime secret: never its value, only whether it is set and which graphs use it. */
+export interface SecretInfo {
+  name: string;
+  set: boolean;
+  graphs: string[];
+}
+
 export interface GraphSummary {
   id: string;
   name: string;
@@ -215,6 +222,16 @@ export class Api {
     const data = await resp.json().catch(() => ({ error: resp.statusText }));
     if (!resp.ok) throw new ApiError(resp.status, data.error ?? resp.statusText);
     return data;
+  }
+  secrets() {
+    return this.call<{ secrets: SecretInfo[] }>("GET", "/secrets");
+  }
+  /** Set a secret; graphs using it redeploy: ``{graph: null | error}``. */
+  setSecret(name: string, value: string) {
+    return this.call<{ redeployed: Record<string, string | null> }>("PUT", `/secrets/${encodeURIComponent(name)}`, { value });
+  }
+  deleteSecret(name: string) {
+    return this.call<{ redeployed: Record<string, string | null> }>("DELETE", `/secrets/${encodeURIComponent(name)}`);
   }
   setDefault(graph: string) {
     return this.call<{ default: string }>("PUT", "/default", { graph });

@@ -44,6 +44,7 @@ from .devnodes import DEV_NODES
 from .manager import GraphManager, GraphStore
 from .nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
 from .probe import DebugProbe
+from .secret_store import SecretStore
 from .server import FlowPilotServer
 
 _LOGGER = logging.getLogger("flowpilot_server")
@@ -81,7 +82,7 @@ async def serve(config_path: Path, *, dev: bool = False, announce: bool = False)
     base = config_path.parent
     config = _read_json(config_path)
     token = config.get("token") or (base / config["token_file"]).read_text().strip()
-    secrets = _read_json(base / config["secrets_file"]) if config.get("secrets_file") else {}
+    secrets = SecretStore(base / config.get("secrets_file", "secrets.json"))
     grants = GrantPolicy({node: frozenset(gs) for node, gs in (config.get("grants") or {}).items()})
     manager = GraphManager(
         build_registry(dev=dev),

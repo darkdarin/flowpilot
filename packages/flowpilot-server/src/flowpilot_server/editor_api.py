@@ -7,6 +7,10 @@ All routes need ``Authorization: Bearer <token>``.
                                               (``?refresh=1`` skips the short cache)
 - ``POST /api/editor/node-options``           ``{type, field, config}``: choices a node lists itself
                                               for a setting (``NODE_OPTIONS_KEY``)
+- ``GET  /api/editor/secrets``                secret names: set or not, and the graphs using them
+                                              (values are never returned)
+- ``PUT  /api/editor/secrets/{name}``         ``{value}``: set a secret; graphs using it redeploy.
+                                              ``DELETE`` removes it
 - ``GET  /api/editor/recordings``             debug recordings (``?graph=``), newest first
 - ``GET  /api/editor/recordings/{file}``      one recording as audio/wav; ``DELETE`` removes it
 - ``PUT  /api/editor/default``                ``{graph}``: the graph turns go to when a client
@@ -26,7 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, MutableMapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -38,6 +42,7 @@ from .auth import bearer_token
 from .manager import GRAPH_ID_RE, DeployError, GraphManager, GraphStore, issue_dicts
 from .probe import list_recordings, recording_path, recordings_dir
 from .references import OPTIONS_CACHE_S
+from .secret_store import secret_fields
 
 if TYPE_CHECKING:
     from .server import FlowPilotServer
@@ -107,6 +112,14 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
         config = body.get("config") if isinstance(body.get("config"), dict) else {}
         if provider is None:
             return web.json_response({"options": []})
+        # A node lists choices with its own credentials (a cloud API's models): secret references
+        # arrive resolved, as at start. The values stay inside the runtime.
+        config = {
+            k: manager.secrets.get(v["secret"], v)
+            if isinstance(v, dict) and set(v) == {"secret"} and isinstance(v["secret"], str)
+            else v
+            for k, v in config.items()
+        }
         try:
             async with asyncio.timeout(NODE_OPTIONS_TIMEOUT_S):
                 options = await provider(str(body.get("field")), config)
@@ -232,7 +245,49 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
             return _error(500, f"the graph failed to start: {err}")
         return web.json_response({"deployed": True})
 
+    def secret_store() -> MutableMapping[str, str]:
+        if not isinstance(manager.secrets, MutableMapping):
+            raise web.HTTPNotImplemented(text="this runtime's secrets are read-only")
+        return manager.secrets
+
+    async def list_secrets(request: web.Request) -> web.Response:
+        used: dict[str, set[str]] = {}
+        if manager.store is not None:
+            for graph_id in manager.store.ids():
+                for draft in (False, True):
+                    for *_, name in secret_fields(manager.store.load(graph_id, draft=draft)):
+                        used.setdefault(name, set()).add(graph_id)
+        names = sorted(set(manager.secrets) | set(used))
+        return web.json_response(
+            {
+                "secrets": [
+                    {"name": n, "set": n in manager.secrets, "graphs": sorted(used.get(n, ()))}
+                    for n in names
+                ]
+            }
+        )
+
+    async def set_secret(request: web.Request) -> web.Response:
+        name = request.match_info["name"]
+        body = await request.json()
+        value = body.get("value") if isinstance(body, dict) else None
+        if not isinstance(value, str):
+            return _error(400, "send {value}")
+        try:
+            secret_store()[name] = value
+        except ValueError as err:
+            return _error(400, str(err))
+        return web.json_response({"redeployed": await manager.secret_changed(name)})
+
+    async def delete_secret(request: web.Request) -> web.Response:
+        name = request.match_info["name"]
+        secret_store().pop(name, None)
+        return web.json_response({"redeployed": await manager.secret_changed(name)})
+
     routes = [
+        ("GET", f"{PREFIX}/secrets", list_secrets),
+        ("PUT", f"{PREFIX}/secrets/{{name}}", set_secret),
+        ("DELETE", f"{PREFIX}/secrets/{{name}}", delete_secret),
         ("GET", f"{PREFIX}/catalog", catalog),
         ("GET", f"{PREFIX}/options", options),
         ("POST", f"{PREFIX}/node-options", node_options),

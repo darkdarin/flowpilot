@@ -12,6 +12,7 @@ members = [
     "flowpilot-core",
     "flowpilot-sdk",
     "flowpilot-server",
+    "flowpilot-soniox",
     "flowpilot-vad",
     "flowpilot-workspace",
     "flowpilot-wyoming",
@@ -269,6 +270,21 @@ requires-dist = [
 ]
 
 [[package]]
+name = "flowpilot-soniox"
+version = "0.1.5"
+source = { editable = "plugins/flowpilot-soniox" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "flowpilot-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.10" },
+    { name = "flowpilot-sdk", editable = "packages/flowpilot-sdk" },
+]
+
+[[package]]
 name = "flowpilot-vad"
 version = "0.1.5"
 source = { editable = "plugins/flowpilot-vad" }
@@ -292,6 +308,7 @@ dependencies = [
     { name = "flowpilot-core" },
     { name = "flowpilot-sdk" },
     { name = "flowpilot-server" },
+    { name = "flowpilot-soniox" },
     { name = "flowpilot-vad" },
     { name = "flowpilot-wyoming" },
 ]
@@ -311,6 +328,7 @@ requires-dist = [
     { name = "flowpilot-core", editable = "packages/flowpilot-core" },
     { name = "flowpilot-sdk", editable = "packages/flowpilot-sdk" },
     { name = "flowpilot-server", editable = "packages/flowpilot-server" },
+    { name = "flowpilot-soniox", editable = "plugins/flowpilot-soniox" },
     { name = "flowpilot-vad", editable = "plugins/flowpilot-vad" },
     { name = "flowpilot-wyoming", editable = "plugins/flowpilot-wyoming" },
 ]
