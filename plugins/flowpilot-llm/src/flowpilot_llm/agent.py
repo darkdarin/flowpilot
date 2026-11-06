@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from typing import Any, ClassVar
 
@@ -37,8 +37,12 @@ from flowpilot_sdk import (
     node_translations,
 )
 
+from .tools import Toolbox, memory_tools
+
 DEFAULT_URL = "https://api.openai.com/v1"
 DEFAULT_HISTORY_HOURS = 24
+# Rounds of tool calls in one turn; the last round must answer in words.
+MAX_TOOL_ROUNDS = 4
 
 
 class LlmError(Exception):
@@ -176,6 +180,15 @@ class LlmAgent:
                     },
                     "default": "personal",
                 },
+                "tools": {
+                    "title": "Remember on request",
+                    "description": (
+                        'The agent may remember and forget facts itself ("remember that…"); '
+                        "needs a model with function calling. On when not set."
+                    ),
+                    "type": "boolean",
+                    "default": True,
+                },
                 "temperature": {
                     "title": "Temperature",
                     "description": "Lower is steadier, higher is more varied.",
@@ -278,34 +291,21 @@ class LlmAgent:
             [f.text for f in facts if f.owner is not None and f.owner == owner],
         )
 
-    async def run_turn(self, turn: TurnSession) -> None:
-        said: Utterance | None = await turn.input("utterance").value()
-        if said is None or not said.text.strip():
-            return
-        language = said.language or turn.context.language
-        home, own = self._known(await self._speaker(turn))
-        history_key = f"history:{self._node}"
-        keep = int(self._config.get("history_turns", 10))
-        history: list[dict[str, str]] = list(await turn.state.get(history_key) or [])
-        system = "\n\n".join(p for p in (self._system(language), _memory_text(home, own)) if p)
-        messages = [{"role": "system", "content": system}] if system else []
-        messages += history[-2 * keep :] if keep else []
-        messages.append({"role": "user", "content": said.text})
-        body: dict[str, Any] = {
-            "model": self._config["model"],
-            "messages": messages,
-            "stream": True,
-        }
-        if "temperature" in self._config:
-            body["temperature"] = float(self._config["temperature"])
-        if "max_tokens" in self._config:
-            body["max_tokens"] = int(self._config["max_tokens"])
+    def _toolbox(self, speaker: str | None) -> Toolbox:
+        mode = self._config.get("memory", "personal")
+        if self._memory is None or mode == "off" or not self._config.get("tools", True):
+            return Toolbox([])
+        return Toolbox(memory_tools(self._memory, speaker, personal=mode == "personal"))
 
-        started = time.monotonic()
-        first_ms: int | None = None
-        pieces: list[str] = []
-        delta = turn.output("delta")
+    async def _complete(
+        self,
+        body: dict[str, Any],
+        on_text: Callable[[str], Awaitable[None]],
+    ) -> tuple[str, list[dict[str, Any]]]:
+        """One streamed completion: its text (sent on as it comes) and the tool calls asked for."""
         assert self._http is not None
+        pieces: list[str] = []
+        calls: dict[int, dict[str, Any]] = {}
         async with self._http.post(
             f"{_base(self._config)}/chat/completions", json=body, headers=_headers(self._key)
         ) as resp:
@@ -322,12 +322,101 @@ class LlmAgent:
                 if "error" in chunk:
                     raise LlmError(str(chunk["error"].get("message") or chunk["error"]))
                 for choice in chunk.get("choices") or []:
-                    text = (choice.get("delta") or {}).get("content")
-                    if text:
-                        if first_ms is None:
-                            first_ms = round(1000 * (time.monotonic() - started))
+                    step = choice.get("delta") or {}
+                    if text := step.get("content"):
                         pieces.append(text)
-                        await delta.send(TextDelta(text))
+                        await on_text(text)
+                    for part in step.get("tool_calls") or []:
+                        call = calls.setdefault(
+                            int(part.get("index", 0)), {"id": "", "name": "", "arguments": ""}
+                        )
+                        call["id"] = part.get("id") or call["id"]
+                        function = part.get("function") or {}
+                        call["name"] += function.get("name") or ""
+                        call["arguments"] += function.get("arguments") or ""
+        return "".join(pieces), [calls[i] for i in sorted(calls)]
+
+    async def run_turn(self, turn: TurnSession) -> None:
+        said: Utterance | None = await turn.input("utterance").value()
+        if said is None or not said.text.strip():
+            return
+        language = said.language or turn.context.language
+        speaker = await self._speaker(turn)
+        home, own = self._known(speaker)
+        toolbox = self._toolbox(speaker)
+        history_key = f"history:{self._node}"
+        keep = int(self._config.get("history_turns", 10))
+        history: list[dict[str, str]] = list(await turn.state.get(history_key) or [])
+        system = "\n\n".join(p for p in (self._system(language), _memory_text(home, own)) if p)
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system}] if system else []
+        messages += history[-2 * keep :] if keep else []
+        messages.append({"role": "user", "content": said.text})
+        body: dict[str, Any] = {"model": self._config["model"], "stream": True}
+        if "temperature" in self._config:
+            body["temperature"] = float(self._config["temperature"])
+        if "max_tokens" in self._config:
+            body["max_tokens"] = int(self._config["max_tokens"])
+
+        started = time.monotonic()
+        first_ms: int | None = None
+        pieces: list[str] = []
+        delta = turn.output("delta")
+
+        gap = False  # a new round after tool calls: keep its words apart from the earlier ones
+
+        async def on_text(text: str) -> None:
+            nonlocal first_ms, gap
+            if first_ms is None:
+                first_ms = round(1000 * (time.monotonic() - started))
+            if gap and pieces and not pieces[-1][-1:].isspace() and not text[:1].isspace():
+                text = " " + text
+            gap = False
+            pieces.append(text)
+            await delta.send(TextDelta(text))
+
+        used: list[str] = []
+        for round_ in range(MAX_TOOL_ROUNDS + 1):
+            request = body | {"messages": messages}
+            offer = bool(toolbox) and round_ < MAX_TOOL_ROUNDS
+            if offer:
+                request["tools"] = toolbox.definitions()
+            try:
+                text, calls = await self._complete(request, on_text)
+            except LlmError as err:
+                if not offer or "tool" not in str(err).lower():
+                    raise
+                # a model without function calling: answer without tools from now on
+                turn.trace("llm.agent.no_tools", reason=str(err)[:200])
+                toolbox = Toolbox([])
+                text, calls = await self._complete(body | {"messages": messages}, on_text)
+            if not calls:
+                break
+            gap = True
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": text or None,
+                    "tool_calls": [
+                        {
+                            "id": c["id"] or f"call_{round_}_{i}",
+                            "type": "function",
+                            "function": {"name": c["name"], "arguments": c["arguments"]},
+                        }
+                        for i, c in enumerate(calls)
+                    ],
+                }
+            )
+            for i, call in enumerate(calls):
+                result, ok = await toolbox.call(call["name"], call["arguments"])
+                used.append(call["name"] if ok else f"{call['name']}!")
+                turn.trace("llm.agent.tool", tool=call["name"], ok=ok)
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call["id"] or f"call_{round_}_{i}",
+                        "content": result,
+                    }
+                )
         await delta.end()
         answer = "".join(pieces).strip()
         turn.trace(
@@ -338,6 +427,7 @@ class LlmAgent:
             chars=len(answer),
             history=len(history) // 2,
             facts=len(home) + len(own),
+            tools=",".join(used) or None,
         )
         if not answer:
             raise LlmError("the model gave an empty answer")
