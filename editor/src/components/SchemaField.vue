@@ -273,6 +273,16 @@ const hint = computed(() => {
     </template>
 
 
+    <textarea
+      v-else-if="kind === 'string' && schema.format === 'multiline'"
+      :id="inputId"
+      class="field multiline"
+      rows="6"
+      :value="stringValue"
+      :placeholder="schema.default !== undefined ? String(schema.default) : ''"
+      @input="setString(($event.target as HTMLTextAreaElement).value)"
+    />
+
     <input
       v-else-if="kind === 'string'"
       :id="inputId"
@@ -398,6 +408,13 @@ small.chosen {
   to {
     transform: rotate(360deg);
   }
+}
+
+.multiline {
+  resize: vertical;
+  min-height: 90px;
+  font-size: 12.5px;
+  line-height: 1.45;
 }
 
 .check {
