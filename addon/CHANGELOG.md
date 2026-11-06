@@ -4,6 +4,29 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.9
+
+### App
+
+- **Memory.** A new **Memory** page in the editor (the button next to Secrets) keeps facts the
+  assistant knows: the home's, for everyone, and each person's own, only for them. LLM agents put
+  them into their instructions on every turn; edits apply at once.
+- **The agent remembers on request.** Say "remember that…" or "forget…", and the LLM agent keeps
+  or removes the fact itself (needs a model with function calling; the new setting **Remember on
+  request** turns it off). A personal fact needs to know who is speaking: the Home Assistant user of
+  the Assist chat, or a Telegram user mapped in Telegram Assist; others' personal facts are never
+  shown or forgotten.
+- **Dialogues survive restarts and graph edits.** They used to be forgotten on every Deploy and app
+  restart. A Telegram chat stays one dialogue until `/new`; the new agent setting **Dialogue kept,
+  hours** (24) says when a quiet dialogue is forgotten.
+- **Voice or text turn has two outputs**: one for spoken turns, one for typed ones, instead of a
+  setting. Graphs using it are updated when the app starts.
+
+### Integration
+
+- Lists Home Assistant users to the app, so facts on the Memory page can belong to a person.
+  Update it together with the app.
+
 ## 0.1.8
 
 ### App

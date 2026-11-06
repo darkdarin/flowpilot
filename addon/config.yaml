@@ -2,7 +2,7 @@
 # The image is the repository's Dockerfile, published to ghcr for each release (release.yml);
 # scripts/build_addon.py makes a local add-on that Home Assistant builds from source instead.
 name: FlowPilot
-version: "0.1.8"
+version: "0.1.9"
 slug: flowpilot
 description: Visual orchestrator for voice and AI flows
 url: https://github.com/darkdarin/flowpilot

@@ -41,7 +41,7 @@ from .types import (
     validate_type_id,
 )
 
-__version__ = "0.1.8"
+__version__ = "0.1.9"
 
 __all__ = [
     "MAX_FACT_CHARS",
