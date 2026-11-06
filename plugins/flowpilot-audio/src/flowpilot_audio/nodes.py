@@ -265,8 +265,8 @@ class AutoGain:
         turn_timeout_s=60.0,
         description=(
             "Brings speech to an even level without delay: raises quiet speech, lowers loud "
-            "speech, leaves background noise alone and never clips. Put it in front of the "
-            "voice command segmenter and speech-to-text."
+            "speech, leaves background noise alone and never clips. Put it in front of Voice "
+            "command segmenter and speech-to-text."
         ),
     )
 
