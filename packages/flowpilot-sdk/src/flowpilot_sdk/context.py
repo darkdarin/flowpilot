@@ -41,6 +41,9 @@ class TurnContext:
     device: DeviceInfo | None = None
     language: str | None = None
     external: Mapping[str, str] = field(default_factory=dict)
+    # The client sends audio: a spoken turn (Assist voice, a satellite), not a typed one (chat,
+    # Telegram through Assist). Graphs use it to skip what only voice needs (text-to-speech).
+    voice: bool = False
 
 
 @dataclass(frozen=True, slots=True)

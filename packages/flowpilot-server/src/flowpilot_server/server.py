@@ -357,6 +357,7 @@ class FlowPilotServer:
             source={"kind": "http"},
             language=language,
             external={"http.conversation_id": conversation_id} if conversation_id else {},
+            voice=inp.audio is not None,
         )
         outlet = _Collector()
         with self.manager.turn(graph_id) as deployment:
@@ -420,6 +421,7 @@ class FlowPilotServer:
         language: str | None,
         external: Mapping[str, str],
         user_id: Any = None,
+        voice: bool = False,
     ) -> tuple[TurnContext, SessionInfo]:
         """Context and session for a new turn on ``graph_id``."""
         session = self.sessions.resolve(external)
@@ -444,6 +446,7 @@ class FlowPilotServer:
             ),
             language=language,
             external=dict(external),
+            voice=voice,
         )
         return ctx, session
 
@@ -853,6 +856,7 @@ class Connection:
             language=msg.get("language"),
             external={str(k): str(v) for k, v in (msg.get("external") or {}).items()},
             user_id=msg.get("user_id"),
+            voice=inp.audio is not None,
         )
 
         if audio_stream is not None:

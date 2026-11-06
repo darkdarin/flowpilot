@@ -6,6 +6,7 @@ import asyncio
 from typing import Any, ClassVar
 
 from flowpilot_sdk import (
+    ENUM_TITLES_KEY,
     InputStream,
     NodeContext,
     NodeSpec,
@@ -196,7 +197,72 @@ class TextConvert:
         await turn.output("response").send(answer or Response(text=text, language=language))
 
 
+class TurnFilter:
+    """Passes a text stream only in spoken (or only in typed) turns.
+
+    Typical use: between an agent and text-to-speech, so a typed turn (chat, Telegram through
+    Assist) gets its answer as text without synthesizing speech nobody hears.
+    """
+
+    spec: ClassVar[NodeSpec] = NodeSpec(
+        type="logic.turn_filter",
+        translations=node_translations(__package__, "logic.turn_filter"),
+        version="1.0.0",
+        title="Voice or text turn",
+        category="logic",
+        inputs={"text": PortSpec(DELTA, description="A text stream, e.g. an agent's answer.")},
+        outputs={
+            "text": PortSpec(
+                DELTA, description="The same stream in the chosen turns; absent in the others."
+            )
+        },
+        config_schema={
+            "type": "object",
+            "properties": {
+                "turns": {
+                    "title": "Pass in",
+                    "description": (
+                        "Spoken turns: the client sent audio (a satellite, Assist voice). Typed "
+                        "turns: text only (Assist chat, automations, Telegram through Assist)."
+                    ),
+                    "enum": ["voice", "text"],
+                    ENUM_TITLES_KEY: {"voice": "Spoken turns", "text": "Typed turns"},
+                    "default": "voice",
+                },
+            },
+            "additionalProperties": False,
+        },
+        turn_timeout_s=120.0,
+        description=(
+            "Lets a text stream through only in spoken turns (or only in typed ones): put it in "
+            "front of text-to-speech so typed turns get no speech."
+        ),
+    )
+
+    def __init__(self) -> None:
+        self._voice = True
+
+    async def start(self, ctx: NodeContext) -> None:
+        self._voice = ctx.config.get("turns", "voice") == "voice"
+
+    async def stop(self) -> None:
+        return None
+
+    async def run_turn(self, turn: TurnSession) -> None:
+        source: InputStream[Any] = turn.input("text")
+        if turn.context.voice != self._voice:
+            source.close()  # not this kind of turn: the output stays absent
+            return
+        if await source.header() is None:
+            return
+        out = turn.output("text")
+        async for piece in source:
+            await out.send(piece)
+        await out.end()
+
+
 def register_builtin(registry: NodeRegistry) -> NodeRegistry:
     registry.register(TextFirst)
     registry.register(TextConvert)
+    registry.register(TurnFilter)
     return registry
