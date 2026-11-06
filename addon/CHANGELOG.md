@@ -4,6 +4,23 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.8
+
+### App
+
+- **LLM agent.** A lightweight agent for any OpenAI-compatible API (OpenAI, OpenRouter, Ollama,
+  LM Studio…): the answer is streamed, so speech starts on the first words; the dialogue is
+  remembered per conversation; instructions can use the current date, time, weekday and language;
+  the model is picked from the list the API offers.
+- **Voice or text turn.** A filter that lets a text stream through only in spoken turns (or only in
+  typed ones). Put it in front of text-to-speech, and typed turns (Assist chat, automations,
+  Telegram through Assist) get their answer as text without synthesizing speech.
+- Long text settings (an agent's instructions) are edited in a multi-line field.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.7
 
 ### App

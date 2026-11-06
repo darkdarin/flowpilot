@@ -40,7 +40,7 @@ from .types import (
     validate_type_id,
 )
 
-__version__ = "0.1.7"
+__version__ = "0.1.8"
 
 __all__ = [
     "ENUM_TITLES_KEY",

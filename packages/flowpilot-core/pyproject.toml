@@ -1,6 +1,6 @@
 [project]
 name = "flowpilot-core"
-version = "0.1.7"
+version = "0.1.8"
 description = "FlowPilot runtime: graph validation and execution"
 readme = "README.md"
 license = "Apache-2.0"
