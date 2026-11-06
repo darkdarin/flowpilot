@@ -4,7 +4,25 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
-## 0.1.5
+## 0.1.6
+
+### App
+
+- **Soniox nodes.** Soniox speech-to-text and text-to-speech talk to Soniox directly, with every
+  setting in the node: model, language, terms and context, how quickly the end of speech is
+  detected, the longest command, wake words to cut; voice, speed and sample rate for speech. Speech
+  recognition streams partial results and detects the end of speech itself, so it needs no voice
+  command segmenter; text-to-speech speaks while the agent is still writing. The Soniox Wyoming app
+  is no longer needed for FlowPilot (Assist without FlowPilot still uses it).
+- **Secrets.** API keys are entered once under Secrets in the editor (the key button in the top
+  bar) and picked by name in node settings. A value is never shown again; graphs that use a secret
+  restart when it changes, and a graph whose secret is not set shows a warning.
+
+### Integration
+
+- Renamed to **FlowPilot Assist**, so its updates are not confused with the FlowPilot app's.
+  Settings and entities stay as they are.
+
 
 ### App
 
