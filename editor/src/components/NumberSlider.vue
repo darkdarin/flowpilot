@@ -55,6 +55,21 @@ function fromPosition(position: number): number {
     : props.min + share * (props.max - props.min);
 }
 
+// Digits after the point the slider can produce, shown always, so values do not jump while sliding
+// (a value typed with more digits keeps them).
+function decimalsOf(value: number): number {
+  const text = String(value);
+  return text.includes("e") ? 0 : (text.split(".")[1]?.length ?? 0);
+}
+const decimals = computed(() => {
+  if (props.integer) return 0;
+  if (log.value) return Math.max(0, 1 - Math.floor(Math.log10(props.min))); // 2 significant at min
+  return decimalsOf(Number(step.value.toPrecision(12)));
+});
+function format(value: number | undefined): string {
+  return value === undefined ? "" : value.toFixed(Math.max(decimals.value, decimalsOf(value)));
+}
+
 const unset = computed(() => props.modelValue === undefined);
 const shown = computed(() => props.modelValue ?? props.fallback ?? props.min);
 const position = computed(() => toPosition(shown.value));
@@ -93,8 +108,8 @@ const outOfRange = computed(
       class="field exact"
       :class="{ invalid: outOfRange }"
       inputmode="decimal"
-      :value="modelValue ?? ''"
-      :placeholder="fallback !== undefined ? String(fallback) : ''"
+      :value="format(modelValue)"
+      :placeholder="format(fallback)"
       @change="onType"
       @keydown.enter="onType"
     />
