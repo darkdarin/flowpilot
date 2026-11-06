@@ -23,6 +23,7 @@ version says what changed in each of them: a part that says "No changes" does no
 - Renamed to **FlowPilot Assist**, so its updates are not confused with the FlowPilot app's.
   Settings and entities stay as they are.
 
+## 0.1.5
 
 ### App
 
