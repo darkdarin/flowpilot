@@ -23,6 +23,8 @@ Development documentation is kept in **Notion**, page
 - [05 · Speaker identification, security and child mode](https://app.notion.com/p/40de74ee720f81869845d32daf4a8625)
 - [07 · Roadmap, backlog and architecture decisions (ADR)](https://app.notion.com/p/40de74ee720f81fdad0ac07cab8fe6c8)
 - [08 · Development: environment and commands](https://app.notion.com/p/40de74ee720f8129b245de50c6bfa7e1)
+- [Поставка в Home Assistant](https://app.notion.com/p/410e74ee720f81f184cfc6ecf07080ba) — how the
+  family of projects ships: README, branding, app image, changelog, releases, CI (shared practice)
 
 Page "06 · Prototype v0.1" describes a starter archive that is not in this repository; reference only.
 
