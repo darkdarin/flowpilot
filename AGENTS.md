@@ -63,6 +63,10 @@ Page "06 · Prototype v0.1" describes a starter archive that is not in this repo
   `v<version>`. `release.yml` checks the versions, publishes `ghcr.io/darkdarin/flowpilot:<version>`
   (amd64 + arm64) and creates the GitHub release; users get the app update and the integration
   (Marketplace/HACS) from it. A release is public: do it when the owner asks.
+- A version section of the changelog has `### App` and `### Integration`; a part that did not change
+  says "No changes, no need to update." Home Assistant shows this text for the app update and the
+  Marketplace/HACS for the integration update: users see two updates with one version and must know
+  which one matters. The app is called **FlowPilot**, the integration **FlowPilot Assist**.
 
 ## Rules
 

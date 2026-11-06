@@ -37,6 +37,9 @@ jobs:
             found { print }
           ' addon/CHANGELOG.md > notes.md
           [ -s notes.md ] || { echo "::error file=addon/CHANGELOG.md::no section for $version"; exit 1; }
+          for part in "### App" "### Integration"; do
+            grep -qx "$part" notes.md || { echo "::error file=addon/CHANGELOG.md::$version has no '$part'"; exit 1; }
+          done
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:

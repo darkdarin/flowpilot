@@ -10,8 +10,8 @@
         }
       },
       "hassio_confirm": {
-        "title": "FlowPilot add-on found",
-        "description": "Connect Home Assistant to the FlowPilot runtime of the {addon} add-on?"
+        "title": "FlowPilot app found",
+        "description": "Connect Home Assistant to the FlowPilot runtime of the {addon} app?"
       }
     },
     "error": {

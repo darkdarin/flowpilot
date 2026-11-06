@@ -10,8 +10,8 @@
         }
       },
       "hassio_confirm": {
-        "title": "Найден add-on FlowPilot",
-        "description": "Подключить Home Assistant к рантайму FlowPilot из add-on {addon}?"
+        "title": "Найдено приложение FlowPilot",
+        "description": "Подключить Home Assistant к рантайму FlowPilot из приложения {addon}?"
       }
     },
     "error": {

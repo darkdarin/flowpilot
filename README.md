@@ -73,16 +73,19 @@ The app is the FlowPilot runtime with the graph editor.
 
 ### Step 2. Install the integration
 
+The integration is called **FlowPilot Assist**: it plugs FlowPilot into Assist. The app and the
+integration have different names, so their updates are easy to tell apart.
+
 [![Open in the Marketplace](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=darkdarin&repository=flowpilot&category=integration)
 
 1. Press the button. By hand on Home Assistant 2026.11 and newer: **Settings → Marketplace → Add
    from link**, enter `darkdarin/flowpilot` (type **Integration** if asked). On 2026.10: **HACS →
    ⋮ → Custom repositories**, add `https://github.com/darkdarin/flowpilot` with type
    **Integration**.
-2. Install **FlowPilot** and **restart Home Assistant**.
-3. **Settings → Devices & services** shows the discovered **FlowPilot** (the app announces itself).
-   Press **Add** and confirm: no address or token needed. **Add integration → FlowPilot** finds the
-   app the same way.
+2. Install **FlowPilot Assist** and **restart Home Assistant**.
+3. **Settings → Devices & services** shows the discovered **FlowPilot Assist** (the app announces
+   itself). Press **Add** and confirm: no address or token needed. **Add integration → FlowPilot
+   Assist** finds the app the same way.
 
 ### Step 3. Make an assistant use FlowPilot
 
@@ -95,7 +98,7 @@ The app is the FlowPilot runtime with the graph editor.
    same graph's `tts.flowpilot_<graph>`, and the answer is spoken by the graph's own text-to-speech
    nodes (any Wyoming or Home Assistant voice, a different voice per graph). For what FlowPilot has
    no speech for (answers of local intents, satellite announcements, `tts.speak`, a graph without
-   text-to-speech), choose a **fallback voice** in the FlowPilot integration's options.
+   text-to-speech), choose a **fallback voice** in the FlowPilot Assist integration options.
 4. Pick this assistant on the satellite's device page. Different assistants can run different
    graphs, for example one per room.
 

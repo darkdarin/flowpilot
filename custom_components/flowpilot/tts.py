@@ -136,7 +136,7 @@ class FlowPilotTtsEntity(GraphEntity, tts.TextToSpeechEntity):
         if not engine:
             raise HomeAssistantError(
                 "FlowPilot has no speech of its own for this text; choose a fallback voice in "
-                "the FlowPilot integration options"
+                "the FlowPilot Assist integration options"
             )
         entity = er.async_get(self.hass).async_get(engine)
         if entity is not None and entity.platform == DOMAIN:

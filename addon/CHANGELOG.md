@@ -1,6 +1,12 @@
 # Changelog
 
+The app (**FlowPilot**: the runtime and the graph editor) and the integration (**FlowPilot
+Assist**) are released together with one version, so Home Assistant offers to update both. Each
+version says what changed in each of them: a part that says "No changes" does not need updating.
+
 ## 0.1.5
+
+### App
 
 - Gain and Automatic gain nodes for quiet microphones: a fixed gain, or speech brought to an even
   level (quiet speech raised, loud speech lowered, background noise left alone, no clipping). Put
@@ -10,6 +16,10 @@
 - Number settings with a range get a slider with a field for exact values and a reset to the
   default. Voice command segmenter and Wyoming timeouts now have upper limits (for example, the
   longest command is at most 60 s).
+
+### Integration
+
+- No changes, no need to update.
 
 ## 0.1.4
 

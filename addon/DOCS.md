@@ -4,10 +4,10 @@
 
 1. Install and start the app. The **FlowPilot** item appears in the sidebar: that is the graph
    editor, already signed in through Home Assistant.
-2. Install the **FlowPilot** integration from the same repository: Settings → Marketplace → Add from
+2. Install the **FlowPilot Assist** integration from the same repository: Settings → Marketplace → Add from
    link → `darkdarin/flowpilot` (on Home Assistant 2026.10: HACS → Custom repositories, type
    Integration), then restart Home Assistant.
-3. Home Assistant finds the app's runtime by itself: confirm the discovered **FlowPilot** in
+3. Home Assistant finds the app's runtime by itself: confirm the discovered **FlowPilot Assist** in
    Settings → Devices & services. You do not need a URL or a token.
 4. In Settings → Voice assistants, create (or edit) an assistant with **FlowPilot** as its
    speech-to-text and conversation agent. Satellites using that assistant now run your graph.

@@ -1,4 +1,4 @@
-"""Constants for the FlowPilot integration."""
+"""Constants for the FlowPilot Assist integration."""
 
 from __future__ import annotations
 

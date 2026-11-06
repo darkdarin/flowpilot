@@ -1,6 +1,6 @@
 {
   "domain": "flowpilot",
-  "name": "FlowPilot",
+  "name": "FlowPilot Assist",
   "after_dependencies": [
     "hassio"
   ],
