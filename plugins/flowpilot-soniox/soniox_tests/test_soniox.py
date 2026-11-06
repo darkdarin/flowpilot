@@ -18,6 +18,8 @@ from flowpilot_sdk import AudioChunk, AudioFormat, TextDelta
 from flowpilot_soniox import SonioxError, SonioxStt, SonioxTts, common, stt, tts
 
 KEY = "test-key"
+MINE = "497f6eca-6276-4993-bfeb-53cbbbba6f08"  # a cloned voice, ready for tts-rt-v1
+OLD = "0a6c7d1e-0000-4000-8000-000000000001"  # cloned before the model existed
 CONFIG = {"api_key": {"secret": "soniox"}}
 
 
@@ -92,6 +94,15 @@ class FakeSoniox:
     async def models(self, request: web.Request) -> web.Response:
         return web.json_response({"models": [{"id": "stt-rt-v5", "name": "Real-time v5"}]})
 
+    async def voices(self, request: web.Request) -> web.Response:
+        def voice(uuid: str, name: str, status: str) -> dict[str, Any]:
+            return {"id": uuid, "name": name, "models": [{"model": "tts-rt-v1", "status": status}]}
+
+        if request.query.get("cursor") != "page2":
+            page = [voice(MINE, "Моя бабушка", "ready")]
+            return web.json_response({"voices": page, "next_page_cursor": "page2"})
+        return web.json_response({"voices": [voice(OLD, "Old", "not_computed")]})
+
     async def tts_models(self, request: web.Request) -> web.Response:
         if request.headers.get("Authorization") != f"Bearer {KEY}":
             return web.json_response({"error": "unauthorized"}, status=401)
@@ -108,6 +119,7 @@ async def fake(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[FakeSoniox]:
     app.router.add_get("/tts", soniox.tts)
     app.router.add_get("/v1/models", soniox.models)
     app.router.add_get("/v1/tts-models", soniox.tts_models)
+    app.router.add_get("/v1/voices", soniox.voices)
     server = TestServer(app)
     await server.start_server()
     base = str(server.make_url("")).rstrip("/")
@@ -212,12 +224,30 @@ async def test_tts_starts_a_new_stream_after_a_pause(fake: FakeSoniox) -> None:
 async def test_tts_rejects_an_unknown_voice(fake: FakeSoniox) -> None:
     with pytest.raises(SonioxError, match="no voice"):
         await started(SonioxTts, {"voice": "Nobody"})
+    with pytest.raises(SonioxError, match="not_computed for model tts-rt-v1"):
+        await started(SonioxTts, {"voice": OLD})
+    with pytest.raises(SonioxError, match="no cloned voice"):
+        await started(SonioxTts, {"voice": "11111111-2222-4333-8444-555555555555"})
+
+
+async def test_tts_speaks_with_a_cloned_voice(fake: FakeSoniox) -> None:
+    node = await started(SonioxTts, {"voice": MINE})
+    run = await run_node_once(
+        node, {"text": InputFeed(items=[TextDelta("Hi")], meta={}, end="end")}
+    )
+    assert run.error is None, run.error
+    assert fake.tts_configs[0]["voice"] == MINE  # Soniox resolves the UUID to the clone
 
 
 async def test_setting_choices_use_the_resolved_key(fake: FakeSoniox) -> None:
     resolved = {"api_key": KEY}
     voices = await SonioxTts.config_options("voice", resolved)
-    assert [(v.id, v.description) for v in voices] == [("Maya", "female"), ("Adrian", "male")]
+    assert [(v.id, v.name, v.description) for v in voices] == [
+        (MINE, "Моя бабушка", "cloned"),  # every page of the project's voices, first
+        (OLD, "Old", "cloned, not_computed for tts-rt-v1"),
+        ("Maya", "Maya", "female"),
+        ("Adrian", "Adrian", "male"),
+    ]
     models = await SonioxStt.config_options("model", resolved)
     assert [m.id for m in models] == ["stt-rt-v5"]
     assert await SonioxTts.config_options("voice", CONFIG) == []  # the key is not set yet

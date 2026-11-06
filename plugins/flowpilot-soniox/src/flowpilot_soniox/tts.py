@@ -13,8 +13,10 @@ import base64
 import itertools
 import json
 import time
+import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, ClassVar
+from urllib.parse import quote
 
 import aiohttp
 
@@ -53,6 +55,34 @@ async def tts_models(api_key: str) -> list[dict[str, Any]]:
     return list(data.get("models", []))
 
 
+def is_uuid(value: str) -> bool:
+    """Soniox takes a UUID as ``voice`` to mean a cloned voice of the project."""
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
+async def cloned_voices(api_key: str) -> list[dict[str, Any]]:
+    """The project's cloned voices (``GET /v1/voices``), every page."""
+    voices: list[dict[str, Any]] = []
+    cursor: str | None = None
+    while True:
+        query = "voices?limit=1000" + (f"&cursor={quote(cursor)}" if cursor else "")
+        data = await get_json(query, api_key)
+        voices += list(data.get("voices") or [])
+        cursor = data.get("next_page_cursor")
+        if not cursor:
+            return voices
+
+
+def cloned_status(voice: Mapping[str, Any], model: str) -> str:
+    """``ready``, ``not_computed``, ``failed``, … of a cloned voice for one model."""
+    found = next((m for m in voice.get("models") or [] if m.get("model") == model), None)
+    return str(found.get("status") or "unknown") if found else "not_computed"
+
+
 class SonioxTts:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="soniox.tts",
@@ -73,7 +103,10 @@ class SonioxTts:
                 "api_key": API_KEY_SETTING,
                 "voice": {
                     "title": "Voice",
-                    "description": "The model's first voice when not set.",
+                    "description": (
+                        "A built-in voice or one you cloned in Soniox (ready for the model); the "
+                        "model's first voice when not set."
+                    ),
                     "type": "string",
                     NODE_OPTIONS_KEY: True,
                 },
@@ -133,7 +166,8 @@ class SonioxTts:
             return [ConfigOption(str(m["id"]), str(m.get("name") or m["id"])) for m in models]
         chosen = [m for m in models if m["id"] == config.get("model")] or models[:1]
         if field == "voice":
-            return [
+            model = str(chosen[0]["id"]) if chosen else ""
+            built_in = [
                 ConfigOption(
                     str(v["id"]),
                     str(v["id"]),
@@ -142,6 +176,13 @@ class SonioxTts:
                 for m in chosen
                 for v in m.get("voices", [])
             ]
+            # the project's cloned voices first: picked by name, sent as their UUID
+            yours = []
+            for v in await cloned_voices(key):
+                status = cloned_status(v, model)
+                note = "cloned" if status == "ready" else f"cloned, {status} for {model}"
+                yours.append(ConfigOption(str(v["id"]), str(v.get("name") or v["id"]), note))
+            return yours + built_in
         return [ConfigOption(str(lang["code"])) for m in chosen for lang in m.get("languages", [])]
 
     async def start(self, ctx: NodeContext) -> None:
@@ -158,10 +199,25 @@ class SonioxTts:
             model = models[0]
         voices = [str(v["id"]) for v in model.get("voices", [])]
         voice = self._config.get("voice") or (voices[0] if voices else "")
-        if voices and voice not in voices:
+        if is_uuid(str(voice)):
+            await self._check_cloned(str(voice), str(model["id"]))
+        elif voices and voice not in voices:
             raise SonioxError(f"model {model['id']} has no voice {voice!r}")
         self._model, self._voice = str(model["id"]), str(voice)
         self._languages = [str(lang["code"]) for lang in model.get("languages", [])]
+
+    async def _check_cloned(self, voice: str, model: str) -> None:
+        """A cloned voice must exist and be ready for the model (Soniox prepares it per model)."""
+        found = next((v for v in await cloned_voices(self._api_key) if v.get("id") == voice), None)
+        if found is None:
+            raise SonioxError(f"the Soniox project has no cloned voice {voice}")
+        status = cloned_status(found, model)
+        if status != "ready":
+            name = found.get("name") or voice
+            raise SonioxError(
+                f"cloned voice {name!r} is {status} for model {model}; "
+                "recompute it in the Soniox console"
+            )
 
     async def stop(self) -> None:
         return None

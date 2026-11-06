@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { Handle, Position, type NodeProps } from "@vue-flow/core";
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { languageName, t } from "../i18n";
 import { play, playing } from "../playback";
 import {
+  api,
   currentTurn,
   debug,
   edges,
   hostOptions,
   idleTaps,
   nodeIssues,
+  nodeOptions,
   nodeWarnings,
   specs,
   type FpNodeData,
@@ -65,7 +67,7 @@ function portRun(port: string) {
 
 // The setting that says most about the node, shown under its title by name rather than raw value:
 // a choice from a list first (a Wyoming service, an entity), then a required one, then any.
-const summary = computed(() => {
+const pick = computed(() => {
   const cfg = props.data.config;
   const props_ = spec.value?.config_schema.properties ?? {};
   const required = new Set(spec.value?.config_schema.required ?? []);
@@ -73,13 +75,37 @@ const summary = computed(() => {
   const rank = ([key]: [string, unknown]) =>
     props_[key]?.["x-flowpilot-options"] ? 0 : required.has(key) ? 1 : 2;
   const [key, value] = [...shown].sort((a, b) => rank(a) - rank(b))[0] ?? [];
-  if (key === undefined) return "";
-  const schema = props_[key] ?? {};
+  return key === undefined ? null : { key, value, schema: props_[key] ?? {} };
+});
+
+// Choices the node lists itself (a cloned Soniox voice is a UUID, its name comes from the list).
+const listedName = ref<string | undefined>();
+watch(
+  () => [pick.value?.key, pick.value?.value, JSON.stringify(props.data.config)] as const,
+  async () => {
+    listedName.value = undefined;
+    const p = pick.value;
+    if (!p || !p.schema["x-flowpilot-node-options"] || !api.value) return;
+    const listed = await nodeOptions(props.data.type, p.key, props.data.config);
+    if (pick.value?.key === p.key && pick.value.value === p.value) {
+      listedName.value = listed.options.find((o) => o.id === String(p.value))?.name || undefined;
+    }
+  },
+  { immediate: true },
+);
+
+const summary = computed(() => {
+  const p = pick.value;
+  if (!p) return "";
+  const { key, value, schema } = p;
   const kind = schema["x-flowpilot-options"];
   const known = kind ? hostOptions.value.options[kind]?.find((o) => o.id === value) : undefined;
   const label = fieldOptionTitles(spec.value, key)[String(value)];
   const text =
-    known?.name || label || (schema.format === "language" ? languageName(String(value)) : String(value));
+    known?.name ||
+    listedName.value ||
+    label ||
+    (schema.format === "language" ? languageName(String(value)) : String(value));
   return `${fieldTitle(spec.value, key) || key}: ${text}`;
 });
 </script>
