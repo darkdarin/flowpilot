@@ -36,9 +36,58 @@ def _config(old_type: str, config: dict[str, Any]) -> dict[str, Any]:
 
 
 def migrate_graph(data: Any) -> Any:
-    """``data`` with old node types replaced; the same object when there is nothing to change."""
+    """``data`` brought up to date; the same object when there is nothing to change."""
     if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
         return data
+    return _split_turn_filter(_rename_nodes(data))
+
+
+def _split_turn_filter(data: dict[str, Any]) -> dict[str, Any]:
+    """0.1.8 → 0.1.9: Voice or text turn chose its turns in ``turns``; now it has two outputs.
+
+    The old ``text`` output becomes ``spoken`` (the default) or ``typed``, and ``turns`` goes.
+    """
+    nodes = {
+        n["id"]: n
+        for n in data["nodes"]
+        if isinstance(n, dict)
+        and n.get("type") == "logic.turn_filter"
+        and isinstance(n.get("id"), str)
+    }
+    old = {
+        node_id: "typed" if (node.get("config") or {}).get("turns") == "text" else "spoken"
+        for node_id, node in nodes.items()
+        if "turns" in (node.get("config") or {})
+        or any(
+            isinstance(e, dict) and e.get("from") == f"{node_id}.text"
+            for e in data.get("edges") or []
+        )
+    }
+    if not old:
+        return data
+    data = copy.deepcopy(data)
+    for node in data["nodes"]:
+        if isinstance(node, dict) and node.get("id") in old:
+            node.pop("version", None)
+            config = {k: v for k, v in (node.get("config") or {}).items() if k != "turns"}
+            if config:
+                node["config"] = config
+            else:
+                node.pop("config", None)
+    data["edges"] = [
+        {**e, "from": f"{e['from'][: -len('.text')]}.{old[e['from'][: -len('.text')]]}"}
+        if isinstance(e, dict)
+        and isinstance(e.get("from"), str)
+        and e["from"].endswith(".text")
+        and e["from"][: -len(".text")] in old
+        else e
+        for e in data.get("edges") or []
+    ]
+    _LOGGER.info("graph %s: Voice or text turn %s now has two outputs", data.get("id"), sorted(old))
+    return data
+
+
+def _rename_nodes(data: dict[str, Any]) -> dict[str, Any]:
     old = {
         n["id"]: n["type"]
         for n in data["nodes"]

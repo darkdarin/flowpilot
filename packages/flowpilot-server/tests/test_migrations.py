@@ -60,3 +60,30 @@ def test_current_graphs_are_left_alone() -> None:
     data = {"schema_version": 1, "id": "g", "nodes": [{"id": "a", "type": "debug.probe"}]}
     assert migrate_graph(data) is data
     assert migrate_graph(migrate_graph(OLD)) == migrate_graph(OLD)
+
+
+def test_voice_or_text_turn_gets_two_outputs() -> None:
+    data = {
+        "schema_version": 1,
+        "id": "g",
+        "nodes": [
+            {"id": "voice", "type": "logic.turn_filter", "version": "1.0.0"},
+            {"id": "chat", "type": "logic.turn_filter", "config": {"turns": "text"}},
+            {"id": "new", "type": "logic.turn_filter"},
+        ],
+        "edges": [
+            {"from": "a.delta", "to": "voice.text"},
+            {"from": "voice.text", "to": "tts.text"},
+            {"from": "chat.text", "to": "out.delta"},
+            {"from": "new.typed", "to": "out.delta"},
+        ],
+    }
+    migrated = migrate_graph(data)
+    assert [n.get("config") for n in migrated["nodes"]] == [None, None, None]
+    assert [(e["from"], e["to"]) for e in migrated["edges"]] == [
+        ("a.delta", "voice.text"),
+        ("voice.spoken", "tts.text"),
+        ("chat.typed", "out.delta"),
+        ("new.typed", "out.delta"),
+    ]
+    assert migrate_graph(migrated) is migrated
