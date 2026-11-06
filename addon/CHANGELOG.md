@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.5
+
+- Gain and Automatic gain nodes for quiet microphones: a fixed gain, or speech brought to an even
+  level (quiet speech raised, loud speech lowered, background noise left alone, no clipping). Put
+  them in front of Voice command segmenter and speech-to-text.
+- Live debug shows what each node reported about the selected turn right on the node: the speech
+  level that came in, the gain applied, why a voice command ended.
+- Number settings with a range get a slider with a field for exact values and a reset to the
+  default. Voice command segmenter and Wyoming timeouts now have upper limits (for example, the
+  longest command is at most 60 s).
+
 ## 0.1.4
 
 - FlowPilot text-to-speech: pick `tts.flowpilot_<graph>` (or FlowPilot Text-to-speech for the

@@ -1,6 +1,6 @@
 [project]
 name = "flowpilot-vad"
-version = "0.1.4"
+version = "0.1.5"
 description = "FlowPilot voice activity detection: end-of-command segmentation for speech-to-text"
 readme = "README.md"
 license = "Apache-2.0"
