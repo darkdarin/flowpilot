@@ -4,6 +4,24 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.7
+
+### App
+
+- **Cloned voices in Soniox text-to-speech.** The voice list adds the voices you cloned in Soniox,
+  by name, with a note when a voice is not yet ready for the chosen model.
+- **Text converter.** One node turns recognized speech, an utterance, a text stream or an agent's
+  answer into all four: for example an answer that comes whole into a stream for text-to-speech,
+  or one agent's answer into the next agent's utterance.
+- **Client input and output are always there.** Every graph has them exactly once: they are no
+  longer in the palette, cannot be deleted, and a graph without one gets it back when opened.
+- Node subtitles show the names of choices a node lists itself (a voice, a model) instead of raw
+  ids.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.6
 
 ### App
