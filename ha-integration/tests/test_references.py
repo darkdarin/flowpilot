@@ -42,6 +42,9 @@ async def test_entities_list(hass: HomeAssistant) -> None:
     wyoming.add_to_hass(hass)
     registry.async_get_or_create("stt", "wyoming", "whisper", config_entry=wyoming)
 
+    masha = await hass.auth.async_create_user("Masha")
+    await hass.auth.async_create_system_user("Supervisor")
+
     result = await build_host_ops(hass, MockConfigEntry(domain="flowpilot"))["ha.entities.list"](
         HostRequest(None, {})
     )
@@ -52,6 +55,9 @@ async def test_entities_list(hass: HomeAssistant) -> None:
     assert options["wyoming.asr"] == [{"id": "tcp://10.0.0.5:10300", "name": "faster-whisper"}]
     assert options["wyoming.tts"] == []
     assert result["strict"] == ["ha.stt", "ha.tts", "ha.conversation"]
+    people = {o["id"]: o["name"] for o in options["ha.user"]}
+    assert people[masha.id] == "Masha"  # people for the memory's facts; system users left out
+    assert "Supervisor" not in people.values()
 
 
 def issues(hass: HomeAssistant) -> dict[str, ir.IssueEntry]:

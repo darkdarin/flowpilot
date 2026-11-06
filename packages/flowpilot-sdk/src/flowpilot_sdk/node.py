@@ -12,6 +12,7 @@ from typing import Any, ClassVar, Literal, Protocol
 
 from .context import SessionInfo, SessionState, TurnContext
 from .host import HostAudio
+from .memory import Memory
 from .payloads import AudioFormat
 from .streams import InputStream, OutputStream
 from .text import LANGUAGE_RE, NodeText
@@ -152,6 +153,9 @@ class NodeContext(Protocol):
     # A directory of this node type in the runtime's data, kept across turns and restarts (files a
     # node keeps: recordings, enrolled voices). ``None`` when the runtime has no storage.
     data_dir: Path | None
+    # The runtime's long-term memory (facts about the home and its people); ``None`` when the
+    # runtime keeps none. Read it per turn: people edit it while graphs run.
+    memory: Memory | None
 
     def secret(self, name: str) -> str:
         """Value of a secret referenced in the node config; ``KeyError`` if not granted."""

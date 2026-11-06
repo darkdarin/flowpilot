@@ -31,6 +31,7 @@ from flowpilot_core.runtime import Deployment, MemorySessionStore, TraceSink
 from flowpilot_sdk import registered_types
 from flowpilot_sdk.types import PRIVILEGED_TYPES
 
+from .memory_store import MemoryStore
 from .migrations import migrate_graph
 from .secret_store import secret_fields
 
@@ -124,8 +125,13 @@ class GraphManager:
         check: GraphCheck | None = None,
         trace_factory: TraceFactory | None = None,
         data_dir: Path | None = None,
+        memory: MemoryStore | None = None,
     ) -> None:
-        self.data_dir = data_dir  # nodes keep their files under <data_dir>/nodes/<type>/
+        self.data_dir = data_dir
+        # long-term facts for every graph (flowpilot_sdk.Memory); in memory only when not given
+        self.memory = (
+            memory if memory is not None else MemoryStore(None)
+        )  # nodes keep their files under <data_dir>/nodes/<type>/
         # one session state for every graph and deployment: a redeploy keeps the dialogues
         self.sessions = MemorySessionStore()
         self.registry = registry
@@ -213,6 +219,7 @@ class GraphManager:
             trace=trace,
             data_dir=self.data_dir,
             sessions=self.sessions,
+            memory=self.memory,
             taps_active=(lambda: watching(graph_id)) if watching else None,
         )
         try:

@@ -83,6 +83,7 @@ export const selectedId = ref<string | null>(null);
 export const turnStarting = ref(false);
 export const secrets = ref<SecretInfo[]>([]);
 export const secretsOpen = ref(false);
+export const memoryOpen = ref(false);
 export const notice = ref<{ text: string; kind: "info" | "error" } | null>(null);
 
 export const debug = reactive({

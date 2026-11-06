@@ -25,6 +25,7 @@ from .const import (
     OPTION_CONVERSATION,
     OPTION_STT,
     OPTION_TTS,
+    OPTION_USER,
 )
 from .wav import open_wav
 
@@ -123,7 +124,7 @@ def build_host_ops(
         return {"sample_rate": fmt.sample_rate}
 
     async def entities_list(request: HostRequest) -> Any:
-        """What graphs may refer to: STT/TTS/conversation entities and known Wyoming services."""
+        """What graphs may refer to: STT/TTS/conversation entities, Wyoming services, users."""
         registry = er.async_get(hass)
 
         def foreign(entity_id: str) -> bool:
@@ -149,8 +150,14 @@ def build_host_ops(
             if "tts" in domains:
                 wyoming["wyoming.tts"].append(option)
 
+        people = [
+            {"id": user.id, "name": user.name or user.id}
+            for user in await hass.auth.async_get_users()
+            if user.is_active and not user.system_generated
+        ]
         return {
             "options": {
+                OPTION_USER: people,
                 OPTION_STT: states("stt"),
                 OPTION_TTS: states("tts"),
                 OPTION_CONVERSATION: states("conversation"),

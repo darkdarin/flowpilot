@@ -24,6 +24,7 @@ from aiohttp import WSCloseCode, WSMsgType, web
 from flowpilot_core import GraphIssue, ValidatedGraph
 from flowpilot_core.runtime import Deployment, TurnStatus
 from flowpilot_sdk import (
+    Assurance,
     AudioFormat,
     DeviceInfo,
     Evidence,
@@ -374,6 +375,7 @@ class FlowPilotServer:
             return web.json_response({"error": f"unknown graph {graph_id!r}"}, status=404)
         language = request.query.get("language")
         conversation_id = request.query.get("conversation_id")
+        user_id = request.query.get("user_id")
         inp = ClientInput()
         if request.content_type == "application/json":
             body = await request.json()
@@ -381,6 +383,7 @@ class FlowPilotServer:
                 inp.text = str(body["text"])
             language = body.get("language", language)
             conversation_id = body.get("conversation_id", conversation_id)
+            user_id = body.get("user_id", user_id)
         elif request.content_type in ("audio/wav", "audio/x-wav", "audio/wave"):
             try:
                 fmt, pcm = _read_wav(await request.read())
@@ -402,6 +405,7 @@ class FlowPilotServer:
             source={"kind": "http"},
             language=language,
             external={"http.conversation_id": conversation_id} if conversation_id else {},
+            user_id=user_id,
             voice=inp.audio is not None,
         )
         outlet = _Collector()
@@ -470,8 +474,16 @@ class FlowPilotServer:
     ) -> tuple[TurnContext, SessionInfo]:
         """Context and session for a new turn on ``graph_id``."""
         session = self.sessions.resolve(external)
+        # The client (Home Assistant: the signed-in user, a Telegram user mapped to one) says who
+        # asks. Clients hold the runtime's token, so their word is taken, but only as MEDIUM:
+        # roles and higher assurance come from identity nodes.
         principal = (
-            Principal.unknown(Evidence("client_user", {"user_id": str(user_id)}))
+            Principal(
+                user_id=str(user_id),
+                roles=frozenset(),
+                assurance=Assurance.MEDIUM,
+                evidence=(Evidence("client_user", {"user_id": str(user_id)}),),
+            )
             if user_id
             else Principal.unknown()
         )

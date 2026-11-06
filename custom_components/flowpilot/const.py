@@ -21,6 +21,8 @@ HOST_OP_ENTITIES: Final = "ha.entities.list"
 OPTION_STT: Final = "ha.stt"
 OPTION_TTS: Final = "ha.tts"
 OPTION_CONVERSATION: Final = "ha.conversation"
+# People whose facts the runtime's memory keeps (their Home Assistant user ids)
+OPTION_USER: Final = "ha.user"
 DEFAULT_AGENT_ID: Final = "conversation.home_assistant"
 # Conversation ids that are not ULIDs are kept as-is by Home Assistant, so the inner agent gets a
 # stable dialogue of its own next to the FlowPilot one.

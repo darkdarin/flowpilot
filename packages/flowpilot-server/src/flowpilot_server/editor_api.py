@@ -11,6 +11,10 @@ All routes need ``Authorization: Bearer <token>``.
                                               (values are never returned)
 - ``PUT  /api/editor/secrets/{name}``         ``{value}``: set a secret; graphs using it redeploy.
                                               ``DELETE`` removes it
+- ``GET  /api/editor/memory``                 facts of the long-term memory and the people (Home
+                                              Assistant users) they may belong to
+- ``POST /api/editor/memory``                 ``{text, owner}``: add a fact (``owner`` null: the
+                                              home's); ``PUT``/``DELETE /api/editor/memory/{id}``
 - ``GET  /api/editor/recordings``             debug recordings (``?graph=``), newest first
 - ``GET  /api/editor/recordings/{file}``      one recording as audio/wav; ``DELETE`` removes it
 - ``PUT  /api/editor/default``                ``{graph}``: the graph turns go to when a client
@@ -31,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, MutableMapping
+from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -284,7 +289,53 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
         secret_store().pop(name, None)
         return web.json_response({"redeployed": await manager.secret_changed(name)})
 
+    async def list_memory(request: web.Request) -> web.Response:
+        hosts = await server.host_options()
+        people = hosts["options"].get("ha.user", []) if hosts["available"] else []
+        return web.json_response(
+            {
+                "facts": [asdict(f) for f in manager.memory.all()],
+                "people": people,
+                "people_known": bool(hosts["available"]),
+            }
+        )
+
+    def fact_body(body: Any) -> tuple[str, str | None]:
+        if not isinstance(body, dict) or not isinstance(body.get("text"), str):
+            raise ValueError("send {text, owner}")
+        owner = body.get("owner")
+        if owner is not None and not isinstance(owner, str):
+            raise ValueError("owner must be a user id or null")
+        return body["text"], owner
+
+    async def add_fact(request: web.Request) -> web.Response:
+        try:
+            text, owner = fact_body(await request.json())
+            fact = manager.memory.add(text, owner, source="editor")
+        except ValueError as err:
+            return _error(400, str(err))
+        return web.json_response(asdict(fact))
+
+    async def update_fact(request: web.Request) -> web.Response:
+        try:
+            text, owner = fact_body(await request.json())
+            fact = manager.memory.update(request.match_info["fact_id"], text=text, owner=owner)
+        except KeyError:
+            return _error(404, "no such fact")
+        except ValueError as err:
+            return _error(400, str(err))
+        return web.json_response(asdict(fact))
+
+    async def delete_fact(request: web.Request) -> web.Response:
+        if not manager.memory.remove(request.match_info["fact_id"]):
+            return _error(404, "no such fact")
+        return web.json_response({"removed": True})
+
     routes = [
+        ("GET", f"{PREFIX}/memory", list_memory),
+        ("POST", f"{PREFIX}/memory", add_fact),
+        ("PUT", f"{PREFIX}/memory/{{fact_id}}", update_fact),
+        ("DELETE", f"{PREFIX}/memory/{{fact_id}}", delete_fact),
         ("GET", f"{PREFIX}/secrets", list_secrets),
         ("PUT", f"{PREFIX}/secrets/{{name}}", set_secret),
         ("DELETE", f"{PREFIX}/secrets/{{name}}", delete_secret),

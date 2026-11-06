@@ -16,6 +16,7 @@ from flowpilot_sdk import (
     AudioFormat,
     HostAudio,
     HostUnavailable,
+    Memory,
     Node,
     SessionInfo,
     SessionState,
@@ -71,10 +72,12 @@ class RuntimeNodeContext:
         *,
         graph_id: str = "",
         data_dir: Path | None = None,
+        memory: Memory | None = None,
     ) -> None:
         self.node_id = node_id
         self.graph_id = graph_id
         self.data_dir = data_dir
+        self.memory = memory
         self.config = config
         self.logger = logging.getLogger(f"flowpilot.node.{node_id}")
         self._secrets = secrets
@@ -192,6 +195,7 @@ class Deployment:
         trace: TraceSink | None = None,
         sessions: MemorySessionStore | None = None,
         data_dir: Path | None = None,
+        memory: Memory | None = None,
         taps_active: Callable[[], bool] | None = None,
     ) -> None:
         self.graph = graph
@@ -199,6 +203,7 @@ class Deployment:
         self._taps_active = taps_active
         # nodes get <data_dir>/nodes/<node type>/ for their files
         self._data_dir = data_dir
+        self._memory = memory
         self._registry = registry
         self._secrets = secrets or {}
         self.trace: TraceSink = trace or NullTraceSink()
@@ -237,6 +242,7 @@ class Deployment:
                     self.graph.secret_refs[node_id],
                     graph_id=self.graph.graph.id,
                     data_dir=self._data_dir / "nodes" / decl.type if self._data_dir else None,
+                    memory=self._memory,
                 )
                 await instance.start(ctx)
                 self._instances[node_id] = instance

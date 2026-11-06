@@ -19,6 +19,7 @@ from flowpilot_core.runtime import RuntimeNodeContext
 from flowpilot_llm import LlmAgent, LlmError
 from flowpilot_sdk import Utterance
 from flowpilot_server.manager import GraphManager, GraphStore
+from flowpilot_server.memory_store import MemoryStore
 from flowpilot_server.nodes import ClientSink, ClientSource
 from flowpilot_server.protocol import TURN_PATH
 from flowpilot_server.secret_store import SecretStore
@@ -172,3 +173,52 @@ async def test_conforms(fake: tuple[FakeOpenAI, str]) -> None:
         LlmAgent, config=config, secrets={"openai": KEY}, sample=said("привет")
     )
     assert_conforms(report)
+
+
+async def test_knows_the_homes_and_the_speakers_facts(
+    fake: tuple[FakeOpenAI, str], tmp_path: Path
+) -> None:
+    """Facts go into the instructions: the home's for anyone, a person's own only to them."""
+    api, url = fake
+    registry = register_builtin(NodeRegistry())
+    for cls in (ClientSource, ClientSink, LlmAgent):
+        registry.register(cls)
+    store = GraphStore(tmp_path)
+    config = {"base_url": url, "model": "gpt-small", "api_key": {"secret": "openai"}}
+    store.save(
+        "main",
+        {
+            "schema_version": 1,
+            "id": "main",
+            "nodes": [
+                {"id": "in", "type": "client.source"},
+                {"id": "brain", "type": "llm.agent", "config": config | {"system_prompt": "Hi"}},
+                {"id": "out", "type": "client.sink"},
+            ],
+            "edges": [
+                {"from": "in.utterance", "to": "brain.utterance"},
+                {"from": "brain.response", "to": "out.response"},
+            ],
+        },
+    )
+    memory = MemoryStore(None)
+    memory.add("The cat is called Barsik.", None, source="editor")
+    memory.add("Masha does not eat meat.", "masha", source="editor")
+    memory.add("Pavel drives a Skoda.", "pavel", source="editor")
+    secrets = SecretStore(None, {"openai": KEY})
+    manager = GraphManager(registry, store=store, secrets=secrets, memory=memory)
+    assert await manager.load_all() == {}
+    server = TestServer(FlowPilotServer(token="t", default_graph="main", manager=manager).app())
+    await server.start_server()
+    try:
+        async with aiohttp.ClientSession(headers={"Authorization": "Bearer t"}) as http:
+            for user in ("masha", None):
+                body = {"text": "что ты знаешь", "user_id": user}
+                assert (await http.post(server.make_url(TURN_PATH), json=body)).status == 200
+    finally:
+        await server.close()
+        await manager.stop()
+    masha, nobody = (r["messages"][0]["content"] for r in api.requests)
+    assert masha.startswith("Hi\n\n")
+    assert "Barsik" in masha and "Masha does not eat meat" in masha and "Skoda" not in masha
+    assert "Barsik" in nobody and "Masha" not in nobody and "Skoda" not in nobody

@@ -3,6 +3,7 @@
 from .context import DeviceInfo, SessionInfo, SessionState, SourceInfo, TurnContext
 from .host import HostAudio, HostError, HostUnavailable
 from .ids import new_ulid
+from .memory import MAX_FACT_CHARS, Fact, Memory
 from .node import (
     ENUM_TITLES_KEY,
     NODE_OPTIONS_KEY,
@@ -43,6 +44,9 @@ from .types import (
 __version__ = "0.1.8"
 
 __all__ = [
+    "MAX_FACT_CHARS",
+    "Fact",
+    "Memory",
     "ENUM_TITLES_KEY",
     "ConfigOption",
     "NODE_OPTIONS_KEY",

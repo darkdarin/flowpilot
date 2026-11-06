@@ -118,6 +118,22 @@ export interface SecretInfo {
   graphs: string[];
 }
 
+/** A fact of the long-term memory: the home's (``owner`` null) or one person's. */
+export interface Fact {
+  id: string;
+  text: string;
+  owner: string | null;
+  created_at: string;
+  source: string;
+}
+
+export interface MemoryList {
+  facts: Fact[];
+  /** Home Assistant users facts may belong to (from the connected host). */
+  people: { id: string; name: string }[];
+  people_known: boolean;
+}
+
 export interface GraphSummary {
   id: string;
   name: string;
@@ -234,6 +250,18 @@ export class Api {
   }
   deleteSecret(name: string) {
     return this.call<{ redeployed: Record<string, string | null> }>("DELETE", `/secrets/${encodeURIComponent(name)}`);
+  }
+  memory() {
+    return this.call<MemoryList>("GET", "/memory");
+  }
+  addFact(text: string, owner: string | null) {
+    return this.call<Fact>("POST", "/memory", { text, owner });
+  }
+  updateFact(id: string, text: string, owner: string | null) {
+    return this.call<Fact>("PUT", `/memory/${encodeURIComponent(id)}`, { text, owner });
+  }
+  deleteFact(id: string) {
+    return this.call<{ removed: boolean }>("DELETE", `/memory/${encodeURIComponent(id)}`);
   }
   setDefault(graph: string) {
     return this.call<{ default: string }>("PUT", "/default", { graph });

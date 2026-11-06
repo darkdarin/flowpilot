@@ -10,6 +10,7 @@ Configuration (JSON)::
       "default_graph": "main",
       "secrets_file": "secrets.json",      # optional {name: value}
       "sessions_file": "sessions.json",    # optional; dialogues kept across restarts
+      "memory_file": "memory.json",        # optional; facts about the home and its people
       "grants": {"identity.resolve": ["identity.provider"]},
       "ingress": {"port": 8099, "trusted_peers": ["172.30.32.2"]}   # optional, see auth.py
     }
@@ -43,6 +44,7 @@ from . import datadir, supervisor
 from .answer import FixedAnswer
 from .devnodes import DEV_NODES
 from .manager import GraphManager, GraphStore
+from .memory_store import MemoryStore
 from .nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
 from .probe import DebugProbe
 from .secret_store import SecretStore
@@ -92,6 +94,7 @@ async def serve(config_path: Path, *, dev: bool = False, announce: bool = False)
         secrets=secrets,
         grants=grants,
         data_dir=base,
+        memory=MemoryStore(base / config.get("memory_file", "memory.json")),
     )
 
     def remember_default(graph_id: str) -> None:

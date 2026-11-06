@@ -22,11 +22,14 @@ from typing import Any, ClassVar
 import aiohttp
 
 from flowpilot_sdk import (
+    ENUM_TITLES_KEY,
     NODE_OPTIONS_KEY,
     ConfigOption,
+    Memory,
     NodeContext,
     NodeSpec,
     PortSpec,
+    Principal,
     Response,
     TextDelta,
     TurnSession,
@@ -66,6 +69,17 @@ async def _error_text(resp: aiohttp.ClientResponse) -> str:
     return f"HTTP {resp.status}: {message or body}"
 
 
+def _memory_text(home: list[str], own: list[str]) -> str:
+    if not home and not own:
+        return ""
+    parts = ["What you know from long-term memory (use it when it helps; do not recite it):"]
+    if home:
+        parts += ["About the home:", *(f"- {t}" for t in home)]
+    if own:
+        parts += ["About the person you are talking to:", *(f"- {t}" for t in own)]
+    return "\n".join(parts)
+
+
 class LlmAgent:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="llm.agent",
@@ -76,7 +90,16 @@ class LlmAgent:
         inputs={
             "utterance": PortSpec(
                 "text.utterance/1", kind="value", description="What the user said or typed."
-            )
+            ),
+            "principal": PortSpec(
+                "identity.principal/1",
+                kind="value",
+                required=False,
+                description=(
+                    "Who is speaking, from an identity node; without it, the user Home Assistant "
+                    "names (the signed-in user, a mapped Telegram user)."
+                ),
+            ),
         },
         outputs={
             "delta": PortSpec(
@@ -139,6 +162,20 @@ class LlmAgent:
                     "maximum": 720,
                     "default": DEFAULT_HISTORY_HOURS,
                 },
+                "memory": {
+                    "title": "Memory",
+                    "description": (
+                        "Facts from the Memory page go into the instructions: the home's, and "
+                        "the speaker's own when it is known who speaks."
+                    ),
+                    "enum": ["personal", "home", "off"],
+                    ENUM_TITLES_KEY: {
+                        "personal": "The home's and the speaker's",
+                        "home": "The home's only",
+                        "off": "None",
+                    },
+                    "default": "personal",
+                },
                 "temperature": {
                     "title": "Temperature",
                     "description": "Lower is steadier, higher is more varied.",
@@ -178,6 +215,7 @@ class LlmAgent:
         self._key: str | None = None
         self._node = ""
         self._http: aiohttp.ClientSession | None = None
+        self._memory: Memory | None = None
 
     @classmethod
     async def config_options(cls, field: str, config: Mapping[str, Any]) -> list[ConfigOption]:
@@ -197,6 +235,7 @@ class LlmAgent:
     async def start(self, ctx: NodeContext) -> None:
         self._config = dict(ctx.config)
         self._node = ctx.node_id
+        self._memory = getattr(ctx, "memory", None)
         ref = ctx.config.get("api_key")
         self._key = ctx.secret(ref["secret"]) if isinstance(ref, dict) else None
         timeout = aiohttp.ClientTimeout(total=float(self._config.get("timeout_s", 60)))
@@ -219,17 +258,37 @@ class LlmAgent:
             prompt = prompt.replace("{" + name + "}", value)
         return prompt
 
+    async def _speaker(self, turn: TurnSession) -> str | None:
+        """The user id of who speaks, when known: an identity node's word, else the client's."""
+        principal: Principal | None = None
+        if turn.input("principal").connected:
+            principal = await turn.input("principal").value()
+        principal = principal or turn.context.initial_principal
+        return principal.user_id if principal.is_known else None
+
+    def _known(self, speaker: str | None) -> tuple[list[str], list[str]]:
+        """Facts for this turn: the home's, and the speaker's own."""
+        mode = self._config.get("memory", "personal")
+        if self._memory is None or mode == "off":
+            return [], []
+        owner = speaker if mode == "personal" else None
+        facts = self._memory.facts(owner)
+        return (
+            [f.text for f in facts if f.owner is None],
+            [f.text for f in facts if f.owner is not None and f.owner == owner],
+        )
+
     async def run_turn(self, turn: TurnSession) -> None:
         said: Utterance | None = await turn.input("utterance").value()
         if said is None or not said.text.strip():
             return
         language = said.language or turn.context.language
+        home, own = self._known(await self._speaker(turn))
         history_key = f"history:{self._node}"
         keep = int(self._config.get("history_turns", 10))
         history: list[dict[str, str]] = list(await turn.state.get(history_key) or [])
-        messages = (
-            [{"role": "system", "content": system}] if (system := self._system(language)) else []
-        )
+        system = "\n\n".join(p for p in (self._system(language), _memory_text(home, own)) if p)
+        messages = [{"role": "system", "content": system}] if system else []
         messages += history[-2 * keep :] if keep else []
         messages.append({"role": "user", "content": said.text})
         body: dict[str, Any] = {
@@ -278,6 +337,7 @@ class LlmAgent:
             total_ms=round(1000 * (time.monotonic() - started)),
             chars=len(answer),
             history=len(history) // 2,
+            facts=len(home) + len(own),
         )
         if not answer:
             raise LlmError("the model gave an empty answer")
