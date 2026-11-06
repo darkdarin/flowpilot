@@ -1,0 +1,26 @@
+[project]
+name = "flowpilot-audio"
+version = "0.1.4"
+description = "FlowPilot audio processing: gain and automatic gain control for speech"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    { name = "Pavel Babushkin", email = "idarksoft@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "flowpilot-sdk",
+]
+
+[project.entry-points."flowpilot.nodes"]
+audio = "flowpilot_audio:nodes"
+
+[tool.uv.sources]
+flowpilot-sdk = { workspace = true }
+
+[project.urls]
+Repository = "https://github.com/darkdarin/flowpilot"
+
+[build-system]
+requires = ["uv_build>=0.13.6,<0.14.0"]
+build-backend = "uv_build"

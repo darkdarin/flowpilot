@@ -47,6 +47,8 @@ export interface TurnRun {
   recordings: { node: string; file: string; seconds: number }[];
   /** what Show text taps saw, by node and input port */
   texts: Record<string, Record<string, TapText>>;
+  /** what nodes reported about the turn in their own trace events (levels, counts), by node */
+  notes: Record<string, { event: string; attrs: TraceMsg["attrs"] }[]>;
 }
 
 export interface TapText {
@@ -459,7 +461,7 @@ function onTrace(msg: TraceMsg | { type: string; graph?: string }) {
   let turn = debug.turns.find((t) => t.id === ev.turn_id);
   if (!turn) {
     if (ev.event !== "turn.start") return; // backlog tail of a turn we never saw starting
-    turn = { id: ev.turn_id, status: "running", nodes: {}, ports: {}, hostCalls: [], recordings: [], texts: {} };
+    turn = { id: ev.turn_id, status: "running", nodes: {}, ports: {}, hostCalls: [], recordings: [], texts: {}, notes: {} };
     debug.turns.unshift(turn);
     debug.turns.splice(MAX_TURNS);
     turn = debug.turns[0];
@@ -511,5 +513,14 @@ function onTrace(msg: TraceMsg | { type: string; graph?: string }) {
         ...(ev.attrs.error ? { error: String(ev.attrs.error) } : {}),
       };
       break;
+    default: {
+      // a node's own event (audio.agc levels, vad.end, ...): shown on the node in live debug
+      if (!node || ev.event.startsWith("turn.") || ev.event.startsWith("port.")) break;
+      const notes = (turn.notes[node] ??= []);
+      const same = (n: { event: string; attrs: TraceMsg["attrs"] }) =>
+        n.event === ev.event && JSON.stringify(n.attrs) === JSON.stringify(ev.attrs);
+      if (!notes.some(same)) notes.push({ event: ev.event, attrs: ev.attrs }); // a resent backlog
+      break;
+    }
   }
 }

@@ -28,6 +28,13 @@ const run = computed(() => (debug.enabled ? currentTurn.value?.nodes[props.id] :
 // A debug tap idles (greyed out, nothing reaches it) until live debug is on; then it shows what it
 // recorded or saw in the selected turn.
 const idle = computed(() => idleTaps.value.has(props.id));
+// What the node reported about the selected turn (input levels, why it ended, ...).
+const notes = computed(() => (debug.enabled ? (currentTurn.value?.notes[props.id] ?? []) : []));
+
+function noteValue(value: unknown): string {
+  return value === null || value === undefined ? "—" : String(value);
+}
+
 const tapView = computed(() => {
   const turn = currentTurn.value;
   if (!debug.enabled || !spec.value?.debug_tap || !turn) return null;
@@ -137,6 +144,14 @@ const summary = computed(() => {
     </div>
     <p v-else class="missing">{{ t("inspector.unknownType") }}</p>
     <ClientInput v-if="debug.enabled && data.type === 'client.source'" />
+    <div v-if="notes.length" class="notes nodrag nowheel">
+      <div v-for="(note, i) in notes" :key="i" class="note">
+        <span class="note-event">{{ note.event }}</span>
+        <span v-for="(value, key) in note.attrs" :key="key" class="note-attr">
+          <span class="note-key">{{ key }}</span> {{ noteValue(value) }}
+        </span>
+      </div>
+    </div>
     <div v-if="tapView" class="tap nodrag nowheel">
       <div v-for="rec in tapView.recordings" :key="rec.file" class="tap-rec">
         <button
@@ -355,6 +370,38 @@ header::before {
   box-shadow: none;
   filter: grayscale(1);
   opacity: 0.55;
+}
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 12px 8px;
+  border-top: 1px solid var(--line);
+  max-width: 300px;
+  font-family: var(--font-code);
+  font-size: 10.5px;
+  cursor: auto;
+  user-select: text;
+}
+
+.note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+
+.note-event {
+  width: 100%;
+  color: var(--muted);
+}
+
+.note-attr {
+  font-variant-numeric: tabular-nums;
+}
+
+.note-key {
+  color: var(--faint);
 }
 
 .badge.hint {

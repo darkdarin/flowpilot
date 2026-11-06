@@ -31,7 +31,7 @@ join branches, and watch every turn flow through the graph live.
 
 - **A graph editor in the sidebar.** Nodes for Home Assistant speech-to-text, text-to-speech and
   conversation agents, any [Wyoming](https://github.com/OHF-Voice/wyoming) speech service, a voice
-  command segmenter and logic. Wires are colored by the data they carry and only connect where the
+  command segmenter, gain and automatic gain for quiet microphones, and logic. Wires are colored by the data they carry and only connect where the
   types match. Light and dark themes, English and Russian.
 - **Safe changes.** Every edit is saved as a draft and checked; **Deploy** switches the running
   graph without a restart, and a turn in progress finishes on the old version.

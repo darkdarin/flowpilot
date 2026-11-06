@@ -14,6 +14,7 @@ dependencies = [
     "flowpilot-server",
     "flowpilot-wyoming",
     "flowpilot-vad",
+    "flowpilot-audio",
 ]
 
 [tool.uv]
@@ -30,6 +31,7 @@ flowpilot-core = { workspace = true }
 flowpilot-server = { workspace = true }
 flowpilot-wyoming = { workspace = true }
 flowpilot-vad = { workspace = true }
+flowpilot-audio = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -54,7 +56,7 @@ target-version = "py314"
 select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "BLE"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["flowpilot_sdk", "flowpilot_core", "flowpilot_server", "flowpilot_wyoming", "flowpilot_vad", "custom_components"]
+known-first-party = ["flowpilot_sdk", "flowpilot_core", "flowpilot_server", "flowpilot_wyoming", "flowpilot_vad", "flowpilot_audio", "custom_components"]
 
 [tool.mypy]
 python_version = "3.14"
@@ -70,6 +72,8 @@ files = [
     "plugins/flowpilot-wyoming/wyoming_tests",
     "plugins/flowpilot-vad/src",
     "plugins/flowpilot-vad/vad_tests",
+    "plugins/flowpilot-audio/src",
+    "plugins/flowpilot-audio/audio_tests",
 ]
 
 [[tool.mypy.overrides]]

@@ -8,6 +8,7 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "flowpilot-audio",
     "flowpilot-core",
     "flowpilot-sdk",
     "flowpilot-server",
@@ -220,6 +221,17 @@ wheels = [
 ]
 
 [[package]]
+name = "flowpilot-audio"
+version = "0.1.4"
+source = { editable = "plugins/flowpilot-audio" }
+dependencies = [
+    { name = "flowpilot-sdk" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flowpilot-sdk", editable = "packages/flowpilot-sdk" }]
+
+[[package]]
 name = "flowpilot-core"
 version = "0.1.4"
 source = { editable = "packages/flowpilot-core" }
@@ -276,6 +288,7 @@ name = "flowpilot-workspace"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "flowpilot-audio" },
     { name = "flowpilot-core" },
     { name = "flowpilot-sdk" },
     { name = "flowpilot-server" },
@@ -294,6 +307,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "flowpilot-audio", editable = "plugins/flowpilot-audio" },
     { name = "flowpilot-core", editable = "packages/flowpilot-core" },
     { name = "flowpilot-sdk", editable = "packages/flowpilot-sdk" },
     { name = "flowpilot-server", editable = "packages/flowpilot-server" },
