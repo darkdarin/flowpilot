@@ -2,8 +2,9 @@
 
 The answer is streamed (``stream: true``): each piece goes out on ``delta`` as it comes, so
 text-to-speech starts on the first words. The dialogue's history (the user's utterances and the
-answers) is kept in the session's state, per node, for the configured number of exchanges, so a
-follow-up question in the same conversation has its context. The system prompt may use
+answers) is kept in the session's state, per node, for the configured number of exchanges and
+hours (the runtime saves it across restarts), so a follow-up question in the same conversation has
+its context. The system prompt may use
 ``{date}``, ``{time}``, ``{weekday}`` and ``{language}``.
 
 One HTTP session is kept for the node's life, so later turns reuse the connection (and its TLS
@@ -34,7 +35,7 @@ from flowpilot_sdk import (
 )
 
 DEFAULT_URL = "https://api.openai.com/v1"
-HISTORY_TTL_S = 6 * 3600.0
+DEFAULT_HISTORY_HOURS = 24
 
 
 class LlmError(Exception):
@@ -125,6 +126,18 @@ class LlmAgent:
                     "minimum": 0,
                     "maximum": 50,
                     "default": 10,
+                },
+                "history_hours": {
+                    "title": "Dialogue kept, hours",
+                    "description": (
+                        "After this long without a word the dialogue is forgotten and the next "
+                        "question starts afresh; 24. A spoken dialogue in Home Assistant also "
+                        "ends after 5 minutes of silence; a Telegram chat lasts until /new."
+                    ),
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 720,
+                    "default": DEFAULT_HISTORY_HOURS,
                 },
                 "temperature": {
                     "title": "Temperature",
@@ -273,5 +286,9 @@ class LlmAgent:
                 {"role": "user", "content": said.text},
                 {"role": "assistant", "content": answer},
             ]
-            await turn.state.set(history_key, history[-2 * keep :], ttl_s=HISTORY_TTL_S)
+            await turn.state.set(
+                history_key,
+                history[-2 * keep :],
+                ttl_s=3600.0 * int(self._config.get("history_hours", DEFAULT_HISTORY_HOURS)),
+            )
         await turn.output("response").send(Response(text=answer, language=language))

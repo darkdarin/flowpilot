@@ -9,6 +9,7 @@ Configuration (JSON)::
       "graphs_dir": "graphs",              # <id>.json deployed, <id>.draft.json drafts
       "default_graph": "main",
       "secrets_file": "secrets.json",      # optional {name: value}
+      "sessions_file": "sessions.json",    # optional; dialogues kept across restarts
       "grants": {"identity.resolve": ["identity.provider"]},
       "ingress": {"port": 8099, "trusted_peers": ["172.30.32.2"]}   # optional, see auth.py
     }
@@ -46,6 +47,7 @@ from .nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
 from .probe import DebugProbe
 from .secret_store import SecretStore
 from .server import FlowPilotServer
+from .session_file import SessionFile
 
 _LOGGER = logging.getLogger("flowpilot_server")
 
@@ -107,6 +109,11 @@ async def serve(config_path: Path, *, dev: bool = False, announce: bool = False)
         on_default_changed=remember_default,
     )
     host, port = config.get("host", "0.0.0.0"), int(config.get("port", 8765))
+    dialogues = SessionFile(
+        base / config.get("sessions_file", "sessions.json"), manager.sessions, server.sessions
+    )
+    dialogues.load()
+    saving = asyncio.create_task(dialogues.run())
     runners: list[web.AppRunner] = []
     try:
         await manager.load_all()
@@ -132,6 +139,11 @@ async def serve(config_path: Path, *, dev: bool = False, announce: bool = False)
         for runner in runners:
             await runner.cleanup()
         await manager.stop()
+        saving.cancel()
+        try:
+            dialogues.save()
+        except OSError as err:
+            _LOGGER.warning("dialogues not saved: %s", err)
 
 
 def main() -> None:

@@ -9,6 +9,7 @@ import hmac
 import io
 import json
 import logging
+import re
 import time
 import wave
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable, Mapping
@@ -63,7 +64,11 @@ from .tracehub import EDITOR_WS_PATH, TraceHub, editor_socket
 
 _LOGGER = logging.getLogger(__name__)
 
+# A dialogue key Home Assistant made up (a ULID) is dropped by Home Assistant after 5 minutes of
+# silence; one a client chose (e.g. a Telegram chat's) lasts until the client changes it.
 SESSION_IDLE_S = 3600.0
+NAMED_SESSION_IDLE_S = 30 * 86400.0
+_ULID_RE = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$", re.IGNORECASE)
 OPTIONS_TIMEOUT_S = 5.0
 AUDIO_QUEUE_CHUNKS = 64
 MAX_HTTP_AUDIO_BYTES = 16 * 1024 * 1024
@@ -72,19 +77,27 @@ MAX_HTTP_AUDIO_BYTES = 16 * 1024 * 1024
 @dataclass
 class _Session:
     info: SessionInfo
-    last_used: float
+    last_used: float  # wall-clock: the index is saved across restarts
 
 
 class SessionIndex:
     """Maps external dialogue keys (e.g. an HA conversation id) to FlowPilot sessions."""
 
-    def __init__(self, idle_s: float = SESSION_IDLE_S) -> None:
+    def __init__(
+        self, idle_s: float = SESSION_IDLE_S, named_idle_s: float = NAMED_SESSION_IDLE_S
+    ) -> None:
         self._idle_s = idle_s
+        self._named_idle_s = named_idle_s
         self._by_key: dict[tuple[str, str], _Session] = {}
+        self.changes = 0
+
+    def _alive(self, key: tuple[str, str], session: _Session, now: float) -> bool:
+        idle = self._idle_s if _ULID_RE.match(key[1]) else self._named_idle_s
+        return now - session.last_used < idle
 
     def resolve(self, external: Mapping[str, str]) -> SessionInfo:
-        now = time.monotonic()
-        self._by_key = {k: s for k, s in self._by_key.items() if now - s.last_used < self._idle_s}
+        now = time.time()
+        self._by_key = {k: s for k, s in self._by_key.items() if self._alive(k, s, now)}
         key = next(
             ((k, v) for k, v in sorted(external.items()) if k.endswith("conversation_id")), None
         )
@@ -99,7 +112,39 @@ class SessionIndex:
                 prev.session_id, prev.created_at, prev.turn_index + 1, dict(external)
             )
         self._by_key[key] = _Session(info, now)
+        self.changes += 1
         return info
+
+    def dump(self) -> list[dict[str, Any]]:
+        now = time.time()
+        return [
+            {
+                "key": list(key),
+                "session": s.info.session_id,
+                "created_at": s.info.created_at.isoformat(),
+                "turn_index": s.info.turn_index,
+                "last_used": s.last_used,
+            }
+            for key, s in self._by_key.items()
+            if self._alive(key, s, now)
+        ]
+
+    def load(self, records: Any) -> None:
+        now = time.time()
+        for record in records if isinstance(records, list) else []:
+            try:
+                kind, value = (str(part) for part in record["key"])
+                info = SessionInfo(
+                    str(record["session"]),
+                    datetime.fromisoformat(record["created_at"]),
+                    int(record["turn_index"]),
+                    {kind: value},
+                )
+                session = _Session(info, float(record["last_used"]))
+            except KeyError, TypeError, ValueError:
+                continue
+            if self._alive((kind, value), session, now):
+                self._by_key[(kind, value)] = session
 
 
 def client_graph_issues(graph: ValidatedGraph) -> list[GraphIssue]:

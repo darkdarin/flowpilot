@@ -27,7 +27,7 @@ from flowpilot_core import (
     parse_graph,
     validate_graph,
 )
-from flowpilot_core.runtime import Deployment, TraceSink
+from flowpilot_core.runtime import Deployment, MemorySessionStore, TraceSink
 from flowpilot_sdk import registered_types
 from flowpilot_sdk.types import PRIVILEGED_TYPES
 
@@ -126,6 +126,8 @@ class GraphManager:
         data_dir: Path | None = None,
     ) -> None:
         self.data_dir = data_dir  # nodes keep their files under <data_dir>/nodes/<type>/
+        # one session state for every graph and deployment: a redeploy keeps the dialogues
+        self.sessions = MemorySessionStore()
         self.registry = registry
         self.store = store
         # the live mapping (a SecretStore): deploys after a change see the new values
@@ -210,6 +212,7 @@ class GraphManager:
             secrets=self.secrets,
             trace=trace,
             data_dir=self.data_dir,
+            sessions=self.sessions,
             taps_active=(lambda: watching(graph_id)) if watching else None,
         )
         try:
