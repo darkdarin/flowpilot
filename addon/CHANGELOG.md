@@ -4,6 +4,23 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.11
+
+### App
+
+- **Reasoning setting for the LLM agent**: how much a reasoning model thinks before answering
+  (none, low, medium, high). Thinking helps with tricky questions but delays the first word; None
+  suits voice. Not set, the model decides and nothing is sent, so APIs that do not know the setting
+  keep working.
+- **Remembering works with OpenAI's reasoning models** (such as gpt-6-sol). They refuse tools while
+  reasoning, and the agent used to answer without them, so it could not remember anything. Now it
+  turns reasoning off for itself and keeps the tools; live debug shows `llm.agent.no_reasoning`.
+  Set **Reasoning** to None to skip that first refused request.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.10
 
 ### App
