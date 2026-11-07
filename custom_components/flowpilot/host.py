@@ -17,6 +17,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import llm
 from homeassistant.helpers.json import JSONEncoder
 
+from . import music
 from .client import FlowPilotClient, HostHandler, HostRequest
 from .const import (
     ATTACH_TIMEOUT_S,
@@ -223,13 +224,25 @@ def build_host_ops(
             tools.append(
                 {"name": tool.name, "description": tool.description or "", "parameters": schema}
             )
+        # FlowPilot's own tools where Home Assistant's fall short (starting music)
+        tools.extend(music.music_tools(hass))
         return {"prompt": api.api_prompt, "tools": tools}
 
     async def llm_call(request: HostRequest) -> Any:
         """Run one tool of the Assist API; failures come back as text for the model."""
         api = await llm_api(request)
         arguments = request.args.get("arguments") or {}
-        tool_input = llm.ToolInput(tool_name=str(request.args["name"]), tool_args=dict(arguments))
+        name = str(request.args["name"])
+        if name == music.TOOL_NAME:
+            try:
+                found = await music.play_music(hass, api.llm_context, dict(arguments))
+            except (HomeAssistantError, ValueError) as err:
+                return {"error": True, "data": {"error": type(err).__name__, "message": str(err)}}
+            return {
+                "error": "error" in found,
+                "data": json.loads(json.dumps(found, cls=JSONEncoder)),
+            }
+        tool_input = llm.ToolInput(tool_name=name, tool_args=dict(arguments))
         try:
             result = await api.async_call_tool(tool_input)
         except (HomeAssistantError, ValueError) as err:  # bad arguments, unknown entity, ...
