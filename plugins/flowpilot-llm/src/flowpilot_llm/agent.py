@@ -13,6 +13,7 @@ handshake) to the provider.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections.abc import Awaitable, Callable, Mapping
@@ -27,6 +28,8 @@ from flowpilot_sdk import (
     GROUPS_KEY,
     NODE_OPTIONS_KEY,
     ConfigOption,
+    HostError,
+    HostUnavailable,
     Memory,
     NodeContext,
     NodeSpec,
@@ -43,6 +46,9 @@ from .tools import Toolbox, memory_tools
 
 DEFAULT_URL = "https://api.openai.com/v1"
 DEFAULT_HISTORY_HOURS = 24
+# Who lives in the home, from the turn's client (Home Assistant: people and users)
+PEOPLE_OP = "ha.people.list"
+PEOPLE_TIMEOUT_S = 2.0
 # Rounds of tool calls in one turn; the last round must answer in words.
 MAX_TOOL_ROUNDS = 4
 
@@ -86,6 +92,33 @@ def _memory_text(home: list[str], own: list[str]) -> str:
     return "\n".join(parts)
 
 
+def _people_text(people: list[Mapping[str, Any]] | None, speaker: str | None) -> str:
+    """Who is talking and who lives in the home, with where they are."""
+    if not people:
+        return ""
+    lines = ["People of the home:"]
+    talking = None
+    for person in people:
+        name = str(person.get("name") or "").strip()
+        if not name:
+            continue
+        state = person.get("state")
+        where = {"home": "at home", "not_home": "away", None: "", "unknown": ""}.get(
+            state, f"at {state}"
+        )
+        lines.append(f"- {name}" + (f" ({where})" if where else ""))
+        if speaker is not None and person.get("user_id") == speaker:
+            talking = name
+    if len(lines) == 1:
+        return ""
+    who = (
+        f"You are talking to {talking}."
+        if talking
+        else "It is not known which of them you are talking to."
+    )
+    return "\n".join([*lines, who])
+
+
 def _tools_text(speaker_known: bool, *, auto: bool) -> str:
     """How to use the memory tools. Without it models tend to say they cannot remember anything
     between conversations, which is their default belief, and never call the tools."""
@@ -117,7 +150,7 @@ class LlmAgent:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="llm.agent",
         translations=node_translations(__package__, "llm.agent"),
-        version="1.2.0",
+        version="1.3.0",
         title="LLM agent",
         category="agent",
         inputs={
@@ -148,8 +181,8 @@ class LlmAgent:
                 "memory": {
                     "title": "Memory",
                     "description": (
-                        "The dialogue, facts from the Memory page and what the agent remembers "
-                        "itself."
+                        "The dialogue, the home's people, facts from the Memory page and what the "
+                        "agent remembers itself."
                     ),
                 }
             },
@@ -237,6 +270,17 @@ class LlmAgent:
                     "default": "personal",
                     GROUP_KEY: "memory",
                 },
+                "people": {
+                    "title": "Knows the household",
+                    "description": (
+                        "Who is talking and who lives in the home, with who is home, from Home "
+                        "Assistant's people and users; needs FlowPilot Assist 0.1.12 or newer. "
+                        "On when not set."
+                    ),
+                    "type": "boolean",
+                    "default": True,
+                    GROUP_KEY: "memory",
+                },
                 "remember": {
                     "title": "Remembers facts",
                     "description": (
@@ -280,6 +324,7 @@ class LlmAgent:
             "required": ["model"],
             "additionalProperties": False,
         },
+        optional_host_ops=frozenset({PEOPLE_OP}),
         turn_timeout_s=310.0,
         description=(
             "Answers with a language model of any OpenAI-compatible API (OpenAI, OpenRouter, "
@@ -409,6 +454,21 @@ class LlmAgent:
                         call["arguments"] += function.get("arguments") or ""
         return "".join(pieces), [calls[i] for i in sorted(calls)]
 
+    async def _people(self, turn: TurnSession) -> list[Mapping[str, Any]] | None:
+        """The home's people from the turn's client, or None without one (or when turned off)."""
+        if not self._config.get("people", True):
+            return None
+        try:
+            async with asyncio.timeout(PEOPLE_TIMEOUT_S):
+                result = await turn.call_host(PEOPLE_OP, {})
+        except HostUnavailable:
+            return None
+        except (HostError, TimeoutError) as err:
+            turn.trace("llm.agent.people_failed", reason=str(err)[:200])
+            return None
+        people = result.get("people") if isinstance(result, Mapping) else None
+        return [p for p in people if isinstance(p, Mapping)] if isinstance(people, list) else None
+
     async def _complete_with_tools(
         self,
         turn: TurnSession,
@@ -444,7 +504,8 @@ class LlmAgent:
         personal = self._config.get("memory", "personal") == "personal"
         auto = self._remember() == "auto"
         guide = _tools_text(speaker is not None or not personal, auto=auto) if toolbox else ""
-        parts = (self._system(language), _memory_text(home, own))
+        people = await self._people(turn)
+        parts = (self._system(language), _people_text(people, speaker), _memory_text(home, own))
         system = "\n\n".join(p for p in (*parts, guide) if p)
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}] if system else []
         messages += history[-2 * keep :] if keep else []
@@ -535,6 +596,7 @@ class LlmAgent:
             chars=len(answer),
             history=len(history) // 2,
             facts=len(home) + len(own),
+            people=len(people) if people is not None else None,
             tools=",".join(used) or None,
         )
         if not answer:

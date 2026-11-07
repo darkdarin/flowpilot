@@ -319,7 +319,7 @@ class Deployment:
                 outputs,
                 self.trace,
                 host=host,
-                host_ops=spec.host_ops,
+                host_ops=spec.host_ops | spec.optional_host_ops,
             )
 
         outcomes: dict[str, NodeOutcome] = {}

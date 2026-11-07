@@ -19,6 +19,7 @@ from .const import (
     DOMAIN,
     HOST_OP_CONVERSATION,
     HOST_OP_ENTITIES,
+    HOST_OP_PEOPLE,
     HOST_OP_STT,
     HOST_OP_TTS,
     INNER_CONVERSATION_PREFIX,
@@ -168,8 +169,39 @@ def build_host_ops(
             "strict": [OPTION_STT, OPTION_TTS, OPTION_CONVERSATION],
         }
 
+    async def people_list(request: HostRequest) -> Any:
+        """Who lives in the home: Home Assistant people with where they are, and users without a
+        person, so an agent knows who it talks to and who is home."""
+        people: list[dict[str, Any]] = []
+        users_with_person: set[str] = set()
+        for state in hass.states.async_all("person"):
+            user_id = state.attributes.get("user_id")
+            if isinstance(user_id, str):
+                users_with_person.add(user_id)
+            people.append(
+                {
+                    "name": state.name,
+                    "user_id": user_id if isinstance(user_id, str) else None,
+                    "entity_id": state.entity_id,
+                    # "home", "not_home", a zone's name, or "unknown"
+                    "state": state.state,
+                }
+            )
+        for user in await hass.auth.async_get_users():
+            if user.is_active and not user.system_generated and user.id not in users_with_person:
+                people.append(
+                    {
+                        "name": user.name or user.id,
+                        "user_id": user.id,
+                        "entity_id": None,
+                        "state": None,
+                    }
+                )
+        return {"people": people}
+
     return {
         HOST_OP_ENTITIES: entities_list,
+        HOST_OP_PEOPLE: people_list,
         HOST_OP_CONVERSATION: conversation_process,
         HOST_OP_STT: stt_process,
         HOST_OP_TTS: tts_synthesize,

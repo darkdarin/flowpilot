@@ -60,6 +60,34 @@ async def test_entities_list(hass: HomeAssistant) -> None:
     assert "Supervisor" not in people.values()
 
 
+async def test_people_list(hass: HomeAssistant) -> None:
+    pavel = await hass.auth.async_create_user("Pavel")
+    masha = await hass.auth.async_create_user("Masha")
+    await hass.auth.async_create_system_user("Supervisor")
+    hass.states.async_set("person.pavel", "Work", {"friendly_name": "Павел", "user_id": pavel.id})
+    hass.states.async_set("person.grisha", "home", {"friendly_name": "Гриша"})  # no login
+
+    result = await build_host_ops(hass, MockConfigEntry(domain="flowpilot"))["ha.people.list"](
+        HostRequest(None, {})
+    )
+    people = {p["name"]: p for p in result["people"]}
+    assert people["Павел"] == {
+        "name": "Павел",
+        "user_id": pavel.id,
+        "entity_id": "person.pavel",
+        "state": "Work",
+    }
+    assert people["Гриша"]["user_id"] is None and people["Гриша"]["state"] == "home"
+    # a user without a person is still someone the agent may talk to; Pavel is not listed twice
+    assert people["Masha"] == {
+        "name": "Masha",
+        "user_id": masha.id,
+        "entity_id": None,
+        "state": None,
+    }
+    assert "Pavel" not in people and "Supervisor" not in people
+
+
 def issues(hass: HomeAssistant) -> dict[str, ir.IssueEntry]:
     return {
         issue_id: issue

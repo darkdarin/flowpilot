@@ -99,7 +99,11 @@ class NodeSpec:
     isolation: Isolation = "any"
     grants: frozenset[str] = frozenset()
     turn_timeout_s: float | None = None
-    host_ops: frozenset[str] = frozenset()  # host operations the node may call (ADR-014)
+    host_ops: frozenset[str] = frozenset()  # host operations the node needs (ADR-014)
+    # Host operations the node uses when the turn's client offers them and works without (e.g.
+    # who lives in the home, for an agent that also runs without Home Assistant): they are not
+    # required of clients, and ``call_host`` raises ``HostUnavailable`` when they are missing.
+    optional_host_ops: frozenset[str] = frozenset()
     description: str = ""
     # A debugging tap (records or shows what reaches it): it only runs while someone watches the
     # graph in live debug; otherwise its inputs get nothing and the turn does not wait for it.
@@ -112,7 +116,7 @@ class NodeSpec:
     translations: Mapping[str, NodeText] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        for op in self.host_ops:
+        for op in self.host_ops | self.optional_host_ops:
             if not NODE_TYPE_RE.match(op):
                 raise ValueError(f"invalid host operation name {op!r} in {self.type}")
         if not NODE_TYPE_RE.match(self.type):
@@ -199,7 +203,8 @@ class TurnSession(Protocol):
         audio_in: AsyncIterable[bytes] | None = None,
         audio_format: AudioFormat | None = None,
     ) -> Any:
-        """Ask the turn's client to perform ``op`` (declared in ``spec.host_ops``).
+        """Ask the turn's client to perform ``op`` (declared in ``spec.host_ops`` or
+        ``spec.optional_host_ops``).
 
         With ``audio_in`` the PCM chunks (in ``audio_format``) are streamed to the host while the
         operation runs (e.g. speech-to-text). Raises ``HostUnavailable`` if the client does not

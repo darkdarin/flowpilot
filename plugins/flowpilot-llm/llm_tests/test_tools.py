@@ -79,7 +79,9 @@ async def api() -> AsyncIterator[tuple[ToolCallingApi, str]]:
     await server.close()
 
 
-async def ask(url: str, store: MemoryStore, text: str, user: str | None, **config: Any) -> Any:
+async def ask(
+    url: str, store: MemoryStore, text: str, user: str | None, *, host: Any = None, **config: Any
+) -> Any:
     node = LlmAgent()
     cfg = {"base_url": url, "model": "m", "api_key": {"secret": "k"}} | config
     ctx = RuntimeNodeContext("brain", cfg, {"k": KEY}, frozenset({"k"}), memory=store)
@@ -89,7 +91,7 @@ async def ask(url: str, store: MemoryStore, text: str, user: str | None, **confi
         who = Principal(user, frozenset(), Assurance.MEDIUM)
         inputs["principal"] = InputFeed(items=[who], meta={}, end="end")
     try:
-        run = await run_node_once(node, inputs)
+        run = await run_node_once(node, inputs, host=host)
     finally:
         await node.stop()
     assert run.error is None, run.error
@@ -232,3 +234,54 @@ async def test_reasoning_is_sent_only_when_set(api: tuple[ToolCallingApi, str]) 
     run = await ask(url, MemoryStore(None), "привет", "masha", reasoning="none")
     assert len(fake.requests) == 1 and "tools" in fake.requests[0]  # no refusal, no retry
     assert all(e.event != "llm.agent.no_reasoning" for e in run.trace.events)
+
+
+class PeopleHost:
+    """Home Assistant's side: lists the home's people (``ha.people.list``)."""
+
+    def __init__(self, people: list[dict[str, Any]] | None) -> None:
+        self.people = people
+        self.calls = 0
+
+    def offers(self, op: str) -> bool:
+        return op == "ha.people.list" and self.people is not None
+
+    async def call(self, turn_id: str, op: str, args: Any, **kwargs: Any) -> Any:
+        self.calls += 1
+        return {"people": self.people}
+
+    def stream(self, turn_id: str, op: str, args: Any) -> Any:
+        raise NotImplementedError
+
+
+HOME: list[dict[str, Any]] = [
+    {"name": "Павел", "user_id": "pavel", "entity_id": "person.pavel", "state": "home"},
+    {"name": "Анастасия", "user_id": "nastya", "entity_id": "person.nastya", "state": "Работа"},
+    {"name": "Григорий", "user_id": None, "entity_id": "person.grisha", "state": "not_home"},
+    {"name": "Гость", "user_id": "guest", "entity_id": None, "state": None},
+]
+
+
+async def test_the_agent_knows_who_it_talks_to(api: tuple[ToolCallingApi, str]) -> None:
+    fake, url = api
+    run = await ask(url, MemoryStore(None), "кто я?", "pavel", host=PeopleHost(HOME))
+    system = fake.requests[0]["messages"][0]["content"]
+    assert "- Павел (at home)" in system and "- Анастасия (at Работа)" in system
+    assert "- Григорий (away)" in system and "- Гость\n" in system
+    assert "You are talking to Павел." in system
+    [summary] = [e for e in run.trace.events if e.event == "llm.agent"]
+    assert summary.attrs["people"] == 4
+    await ask(url, MemoryStore(None), "кто я?", None, host=PeopleHost(HOME))
+    assert "not known which of them" in fake.requests[1]["messages"][0]["content"]
+
+
+async def test_no_people_without_home_assistant_or_when_off(
+    api: tuple[ToolCallingApi, str],
+) -> None:
+    fake, url = api
+    await ask(url, MemoryStore(None), "привет", "pavel")  # no client offers the list
+    off = PeopleHost(HOME)
+    await ask(url, MemoryStore(None), "привет", "pavel", host=off, people=False)
+    await ask(url, MemoryStore(None), "привет", "pavel", host=PeopleHost(None))  # old integration
+    assert off.calls == 0
+    assert all("People of the home" not in r["messages"][0]["content"] for r in fake.requests)

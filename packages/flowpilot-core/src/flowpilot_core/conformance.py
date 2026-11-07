@@ -212,7 +212,7 @@ async def run_node_once(
         out_streams,
         trace,
         host=host,
-        host_ops=spec.host_ops,
+        host_ops=spec.host_ops | spec.optional_host_ops,
     )
 
     started = time.monotonic()
