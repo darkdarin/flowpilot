@@ -26,6 +26,7 @@ class ToolCallingApi:
         self.calls: list[dict[str, Any]] = []
         self.requests: list[dict[str, Any]] = []
         self.no_tools = False
+        self.tools_need_no_reasoning = False  # like OpenAI's reasoning models in Chat Completions
 
     async def chat(self, request: web.Request) -> web.StreamResponse:
         body = await request.json()
@@ -33,6 +34,17 @@ class ToolCallingApi:
         if self.no_tools and "tools" in body:
             error = {"error": {"message": "model does not support tools"}}
             return web.json_response(error, status=400)
+        if (
+            self.tools_need_no_reasoning
+            and "tools" in body
+            and body.get("reasoning_effort") != "none"
+        ):
+            message = (
+                "Function tools with reasoning_effort are not supported for gpt-x in "
+                "/v1/chat/completions. To use function tools, use /v1/responses or set "
+                "reasoning_effort to 'none'."
+            )
+            return web.json_response({"error": {"message": message}}, status=400)
         resp = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
         resp.force_close()
         await resp.prepare(request)
@@ -179,3 +191,31 @@ async def test_on_its_own_the_agent_keeps_what_it_learns(api: tuple[ToolCallingA
     run = await ask(url, memory, "кошка Сиеста", "pavel", remember="auto")
     assert len(memory.all()) == 1  # the same fact is not kept twice
     assert "already remembered" in run.outputs["response"].items[0].text
+
+
+async def test_tools_turn_reasoning_off_when_the_provider_asks(
+    api: tuple[ToolCallingApi, str],
+) -> None:
+    fake, url = api
+    fake.tools_need_no_reasoning = True
+    memory = MemoryStore(None)
+    fake.calls = [
+        {"name": "remember", "arguments": {"fact": "Кошку зовут Сиеста.", "about": "home"}}
+    ]
+    node = LlmAgent()
+    cfg = {"base_url": url, "model": "m", "api_key": {"secret": "k"}}
+    ctx = RuntimeNodeContext("brain", cfg, {"k": KEY}, frozenset({"k"}), memory=memory)
+    await node.start(ctx)
+    try:
+        for text in ("запомни: кошку зовут Сиеста", "привет"):
+            inputs = {"utterance": InputFeed(items=[Utterance(text, "ru")], meta={}, end="end")}
+            run = await run_node_once(node, inputs)
+            assert run.error is None, run.error
+            if text.startswith("запомни"):
+                events = [e.event for e in run.trace.events]
+                assert "llm.agent.no_reasoning" in events and "llm.agent.no_tools" not in events
+    finally:
+        await node.stop()
+    assert [f.text for f in memory.all()] == ["Кошку зовут Сиеста."]
+    efforts = [r.get("reasoning_effort") for r in fake.requests]
+    assert efforts[0] is None and set(efforts[1:]) == {"none"}  # refused once, then off for good

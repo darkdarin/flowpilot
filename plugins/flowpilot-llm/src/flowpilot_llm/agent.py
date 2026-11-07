@@ -278,6 +278,8 @@ class LlmAgent:
         self._node = ""
         self._http: aiohttp.ClientSession | None = None
         self._memory: Memory | None = None
+        # the provider refused tools with reasoning on (see _complete_with_tools)
+        self._no_reasoning = False
 
     @classmethod
     async def config_options(cls, field: str, config: Mapping[str, Any]) -> list[ConfigOption]:
@@ -391,6 +393,26 @@ class LlmAgent:
                         call["arguments"] += function.get("arguments") or ""
         return "".join(pieces), [calls[i] for i in sorted(calls)]
 
+    async def _complete_with_tools(
+        self,
+        turn: TurnSession,
+        body: dict[str, Any],
+        request: dict[str, Any],
+        on_text: Callable[[str], Awaitable[None]],
+    ) -> tuple[str, list[dict[str, Any]]]:
+        """``_complete``; when the provider takes tools only without reasoning (OpenAI's reasoning
+        models in Chat Completions), turn reasoning off for this node from now on and ask again."""
+        try:
+            return await self._complete(request, on_text)
+        except LlmError as err:
+            text = str(err)
+            if "tools" not in request or "reasoning_effort" not in text or self._no_reasoning:
+                raise
+            turn.trace("llm.agent.no_reasoning", reason=text[:200])
+            self._no_reasoning = True
+            body["reasoning_effort"] = "none"
+            return await self._complete(request | {"reasoning_effort": "none"}, on_text)
+
     async def run_turn(self, turn: TurnSession) -> None:
         said: Utterance | None = await turn.input("utterance").value()
         if said is None or not said.text.strip():
@@ -415,6 +437,8 @@ class LlmAgent:
             body["temperature"] = float(self._config["temperature"])
         if "max_tokens" in self._config:
             body["max_tokens"] = int(self._config["max_tokens"])
+        if self._no_reasoning and toolbox:
+            body["reasoning_effort"] = "none"
 
         started = time.monotonic()
         first_ms: int | None = None
@@ -440,13 +464,14 @@ class LlmAgent:
             if offer:
                 request["tools"] = toolbox.definitions()
             try:
-                text, calls = await self._complete(request, on_text)
+                text, calls = await self._complete_with_tools(turn, body, request, on_text)
             except LlmError as err:
                 if not offer or "tool" not in str(err).lower():
                     raise
                 # a model without function calling: answer without tools from now on
                 turn.trace("llm.agent.no_tools", reason=str(err)[:200])
                 toolbox = Toolbox([])
+                body.pop("reasoning_effort", None)
                 if guide:  # the model cannot keep facts after all: do not tell it it can
                     plain = "\n\n".join(p for p in parts if p)
                     messages = [{"role": "system", "content": plain}] if plain else []
