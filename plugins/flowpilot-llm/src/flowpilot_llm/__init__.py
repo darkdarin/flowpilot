@@ -6,7 +6,7 @@ from flowpilot_sdk import Node
 
 from .agent import LlmAgent, LlmError
 
-__version__ = "0.1.19"
+__version__ = "0.1.20"
 
 
 def nodes() -> list[type[Node]]:

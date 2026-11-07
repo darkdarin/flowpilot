@@ -4,6 +4,19 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.20
+
+### App
+
+- **Changing a quick command no longer makes a copy.** Asked to add phrases to a quick command,
+  the LLM agent saved a second one and the first stayed. It now changes the command itself: add
+  or remove phrases, replace what it does or its answer; saving a command with a phrase another
+  one has replaces that one. Remove copies made before on the Quick commands page.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.19
 
 ### App
