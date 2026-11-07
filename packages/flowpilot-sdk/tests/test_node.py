@@ -287,7 +287,35 @@ def test_translations_must_match_ports_and_settings() -> None:
 def test_node_texts_round_trip_and_reject_unknown_keys() -> None:
     from flowpilot_sdk import NodeText
 
-    data = {"title": "T", "inputs": {"a": "A"}, "config": {"x": {"description": "X"}}}
+    data = {
+        "title": "T",
+        "inputs": {"a": "A"},
+        "config": {"x": {"description": "X"}},
+        "groups": {"g": {"title": "G"}},
+    }
     assert NodeText.from_dict(data).as_dict() == data
     with pytest.raises(ValueError, match="unknown keys"):
         NodeText.from_dict({"titel": "typo"})
+
+
+def test_settings_groups_must_be_declared() -> None:
+    from flowpilot_sdk import GROUP_KEY, GROUPS_KEY, FieldText, NodeText
+
+    def spec(schema: dict[str, Any], **texts: Any) -> NodeSpec:
+        translations = {"ru": NodeText(**texts)} if texts else {}
+        return NodeSpec(
+            "test.groups",
+            "1.0.0",
+            "Groups",
+            "logic",
+            config_schema=schema,
+            translations=translations,
+        )
+
+    grouped = {"type": "object", "properties": {"a": {"type": "string", GROUP_KEY: "g"}}}
+    with pytest.raises(ValueError, match="unknown group 'g'"):
+        spec(grouped)
+    declared = grouped | {GROUPS_KEY: {"g": {"title": "G"}}}
+    assert spec(declared, groups={"g": FieldText("Г")}).translations["ru"].groups["g"].title == "Г"
+    with pytest.raises(ValueError, match="unknown groups"):
+        spec(declared, groups={"h": FieldText("Х")})

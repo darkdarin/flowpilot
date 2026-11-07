@@ -132,7 +132,7 @@ async def test_forgets_only_what_the_speaker_may_see(api: tuple[ToolCallingApi, 
 async def test_no_tools_without_memory_or_when_turned_off(api: tuple[ToolCallingApi, str]) -> None:
     fake, url = api
     await ask(url, MemoryStore(None), "привет", "masha", memory="off")
-    await ask(url, MemoryStore(None), "привет", "masha", tools=False)
+    await ask(url, MemoryStore(None), "привет", "masha", remember="off")
     assert all("tools" not in r for r in fake.requests)
     await ask(url, MemoryStore(None), "привет", "masha")
     assert "tools" in fake.requests[-1]
@@ -155,8 +155,27 @@ async def test_the_agent_is_told_it_can_remember(api: tuple[ToolCallingApi, str]
     fake, url = api
     await ask(url, MemoryStore(None), "привет", "masha")
     await ask(url, MemoryStore(None), "привет", None)
-    await ask(url, MemoryStore(None), "привет", "masha", tools=False)
+    await ask(url, MemoryStore(None), "привет", "masha", remember="off")
     known, unknown, off = (r["messages"][0]["content"] for r in fake.requests)
     assert "call the remember tool" in known and "not known who is speaking" not in known
     assert "keep facts as the home's" in unknown
     assert "remember tool" not in off
+    assert "on your own" not in known
+
+
+async def test_on_its_own_the_agent_keeps_what_it_learns(api: tuple[ToolCallingApi, str]) -> None:
+    fake, url = api
+    memory = MemoryStore(None)
+    fake.calls = [
+        {"name": "remember", "arguments": {"fact": "Кошку зовут Сиеста.", "about": "home"}}
+    ]
+    await ask(url, memory, "у нас кошка Сиеста", "pavel", remember="auto")
+    system = fake.requests[0]["messages"][0]["content"]
+    assert "remember on your own" in system and "health" in system
+    [tool] = [t for t in fake.requests[0]["tools"] if t["function"]["name"] == "remember"]
+    assert "lasting fact about the home" in tool["function"]["description"]
+    [fact] = memory.all()
+    assert (fact.text, fact.owner) == ("Кошку зовут Сиеста.", None)
+    run = await ask(url, memory, "кошка Сиеста", "pavel", remember="auto")
+    assert len(memory.all()) == 1  # the same fact is not kept twice
+    assert "already remembered" in run.outputs["response"].items[0].text

@@ -68,6 +68,13 @@ NODE_OPTIONS_KEY = "x-flowpilot-node-options"
 # Translations carry the same under ``config.<setting>.options``.
 ENUM_TITLES_KEY = "x-flowpilot-enum-titles"
 
+# Settings that belong together: the config schema names its groups with their English texts,
+# ``{GROUPS_KEY: {"memory": {"title": "Memory", "description": "..."}}}``, and each grouped
+# property says ``{GROUP_KEY: "memory"}``. Editors show a group as one entry that opens its
+# settings; translations carry the texts under ``groups.<group>``.
+GROUPS_KEY = "x-flowpilot-groups"
+GROUP_KEY = "x-flowpilot-group"
+
 
 @dataclass(frozen=True, slots=True)
 class ConfigOption:
@@ -127,6 +134,11 @@ class NodeSpec:
         if self.debug_tap and (self.outputs or self.category != "debug"):
             raise ValueError(f"{self.type}: a debug tap has no outputs and the debug category")
         settings = set(self.config_schema.get("properties") or {})
+        groups = set(self.config_schema.get(GROUPS_KEY) or {})
+        for name, prop in (self.config_schema.get("properties") or {}).items():
+            group = prop.get(GROUP_KEY)
+            if group is not None and group not in groups:
+                raise ValueError(f"{self.type}: setting {name!r} is in unknown group {group!r}")
         for language, text in self.translations.items():
             if not LANGUAGE_RE.match(language):
                 raise ValueError(f"{self.type}: invalid language code {language!r}")
@@ -137,6 +149,8 @@ class NodeSpec:
                 raise ValueError(f"{where}: translations for unknown outputs {sorted(unknown)}")
             if unknown := set(text.config) - settings:
                 raise ValueError(f"{where}: translations for unknown settings {sorted(unknown)}")
+            if unknown := set(text.groups) - groups:
+                raise ValueError(f"{where}: translations for unknown groups {sorted(unknown)}")
             for name, field_text in text.config.items():
                 values = {str(v) for v in self.config_schema["properties"][name].get("enum", [])}
                 if unknown := set(field_text.options) - values:

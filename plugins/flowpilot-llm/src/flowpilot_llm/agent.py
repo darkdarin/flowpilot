@@ -23,6 +23,8 @@ import aiohttp
 
 from flowpilot_sdk import (
     ENUM_TITLES_KEY,
+    GROUP_KEY,
+    GROUPS_KEY,
     NODE_OPTIONS_KEY,
     ConfigOption,
     Memory,
@@ -84,18 +86,30 @@ def _memory_text(home: list[str], own: list[str]) -> str:
     return "\n".join(parts)
 
 
-def _tools_text(speaker_known: bool) -> str:
+def _tools_text(speaker_known: bool, *, auto: bool) -> str:
     """How to use the memory tools. Without it models tend to say they cannot remember anything
     between conversations, which is their default belief, and never call the tools."""
     text = (
         "You have a long-term memory that lasts between conversations and restarts. When the user "
-        "asks you to remember something, or tells a lasting fact worth knowing later, call the "
-        "remember tool for each fact; when asked to forget, call forget. Never say you cannot "
-        "remember things for future conversations: you can. Facts about the family, pets, guests "
-        "and the house are the home's; only the speaker's own preferences and habits are personal."
+        "asks you to remember something, call the remember tool for each fact; when asked to "
+        "forget, call forget. Never say you cannot remember things for future conversations: you "
+        "can. Facts about the family, pets, guests and the house are the home's; only the "
+        "speaker's own preferences and habits are personal."
     )
+    if auto:
+        text += (
+            "\n\nAlso remember on your own, without being asked, lasting facts you learn in "
+            "conversation about the home and the family: names and relations, birthdays, pets, "
+            "routines, habits and preferences (e.g. 'Grigory goes to bed at 9 pm'). Keep each "
+            "short; do not keep what you already know; when a known fact has changed, forget the "
+            "old one and remember the new one. Never keep sensitive things: health and medicine, "
+            "money, passwords and codes, documents, addresses outside the home, intimate or "
+            "private matters, what someone asked to keep to themselves; nor passing things "
+            "(today's plans, moods, one-off requests). When you keep something on your own, say "
+            "so in a few words."
+        )
     if not speaker_known:
-        text += " It is not known who is speaking now, so keep facts as the home's."
+        text += "\n\nIt is not known who is speaking now, so keep facts as the home's."
     return text
 
 
@@ -103,7 +117,7 @@ class LlmAgent:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="llm.agent",
         translations=node_translations(__package__, "llm.agent"),
-        version="1.0.0",
+        version="1.1.0",
         title="LLM agent",
         category="agent",
         inputs={
@@ -130,6 +144,15 @@ class LlmAgent:
         },
         config_schema={
             "type": "object",
+            GROUPS_KEY: {
+                "memory": {
+                    "title": "Memory",
+                    "description": (
+                        "The dialogue, facts from the Memory page and what the agent remembers "
+                        "itself."
+                    ),
+                }
+            },
             "properties": {
                 "base_url": {
                     "title": "API address",
@@ -168,6 +191,7 @@ class LlmAgent:
                     "minimum": 0,
                     "maximum": 50,
                     "default": 10,
+                    GROUP_KEY: "memory",
                 },
                 "history_hours": {
                     "title": "Dialogue kept, hours",
@@ -180,6 +204,7 @@ class LlmAgent:
                     "minimum": 1,
                     "maximum": 720,
                     "default": DEFAULT_HISTORY_HOURS,
+                    GROUP_KEY: "memory",
                 },
                 "memory": {
                     "title": "Memory",
@@ -194,15 +219,24 @@ class LlmAgent:
                         "off": "None",
                     },
                     "default": "personal",
+                    GROUP_KEY: "memory",
                 },
-                "tools": {
-                    "title": "Remember on request",
+                "remember": {
+                    "title": "Remembers facts",
                     "description": (
-                        'The agent may remember and forget facts itself ("remember that…"); '
-                        "needs a model with function calling. On when not set."
+                        "Whether the agent keeps and forgets facts on the Memory page itself; "
+                        "needs a model with function calling. On its own: it also keeps what it "
+                        "learns about the home and the family (names, pets, routines, habits), "
+                        "never health, money, passwords or private matters."
                     ),
-                    "type": "boolean",
-                    "default": True,
+                    "enum": ["asked", "auto", "off"],
+                    ENUM_TITLES_KEY: {
+                        "asked": "When asked",
+                        "auto": "On its own too",
+                        "off": "Never",
+                    },
+                    "default": "asked",
+                    GROUP_KEY: "memory",
                 },
                 "temperature": {
                     "title": "Temperature",
@@ -308,9 +342,15 @@ class LlmAgent:
 
     def _toolbox(self, speaker: str | None) -> Toolbox:
         mode = self._config.get("memory", "personal")
-        if self._memory is None or mode == "off" or not self._config.get("tools", True):
+        if self._memory is None or mode == "off" or self._remember() == "off":
             return Toolbox([])
-        return Toolbox(memory_tools(self._memory, speaker, personal=mode == "personal"))
+        tools = memory_tools(
+            self._memory, speaker, personal=mode == "personal", auto=self._remember() == "auto"
+        )
+        return Toolbox(tools)
+
+    def _remember(self) -> str:
+        return str(self._config.get("remember", "asked"))
 
     async def _complete(
         self,
@@ -363,7 +403,8 @@ class LlmAgent:
         keep = int(self._config.get("history_turns", 10))
         history: list[dict[str, str]] = list(await turn.state.get(history_key) or [])
         personal = self._config.get("memory", "personal") == "personal"
-        guide = _tools_text(speaker is not None or not personal) if toolbox else ""
+        auto = self._remember() == "auto"
+        guide = _tools_text(speaker is not None or not personal, auto=auto) if toolbox else ""
         parts = (self._system(language), _memory_text(home, own))
         system = "\n\n".join(p for p in (*parts, guide) if p)
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}] if system else []

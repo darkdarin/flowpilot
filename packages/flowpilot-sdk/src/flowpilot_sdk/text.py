@@ -12,7 +12,8 @@ JSON files shipped inside the plugin package, one per language, covering all nod
         "inputs": {"audio": "..."},
         "outputs": {"transcript": "..."},
         "config": {"uri": {"title": "...", "description": "..."},
-                   "mode": {"title": "...", "options": {"fast": "..."}}}
+                   "mode": {"title": "...", "options": {"fast": "..."}}},
+        "groups": {"memory": {"title": "...", "description": "..."}}
       }
     }
 
@@ -51,10 +52,12 @@ class NodeText:
     inputs: Mapping[str, str] = field(default_factory=dict)
     outputs: Mapping[str, str] = field(default_factory=dict)
     config: Mapping[str, FieldText] = field(default_factory=dict)
+    # texts of setting groups (GROUPS_KEY): title and description
+    groups: Mapping[str, FieldText] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> NodeText:
-        unknown = set(data) - {"title", "description", "inputs", "outputs", "config"}
+        unknown = set(data) - {"title", "description", "inputs", "outputs", "config", "groups"}
         if unknown:
             raise ValueError(f"unknown keys in node texts: {sorted(unknown)}")
         config = {
@@ -71,6 +74,10 @@ class NodeText:
             inputs=dict(data.get("inputs") or {}),
             outputs=dict(data.get("outputs") or {}),
             config=config,
+            groups={
+                name: FieldText(title=value.get("title"), description=value.get("description"))
+                for name, value in (data.get("groups") or {}).items()
+            },
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -85,6 +92,8 @@ class NodeText:
             data["outputs"] = dict(self.outputs)
         if self.config:
             data["config"] = {name: _field_dict(f) for name, f in self.config.items()}
+        if self.groups:
+            data["groups"] = {name: _field_dict(g) for name, g in self.groups.items()}
         return data
 
 

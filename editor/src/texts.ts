@@ -37,3 +37,11 @@ export function fieldOptionTitles(node: NodeInfo | undefined, field: string): Re
     ...(pick(node)?.config?.[field]?.options ?? {}),
   };
 }
+
+export function groupTitle(node: NodeInfo | undefined, group: string): string {
+  return pick(node)?.groups?.[group]?.title || node?.config_schema["x-flowpilot-groups"]?.[group]?.title || group;
+}
+
+export function groupDescription(node: NodeInfo | undefined, group: string): string {
+  return pick(node)?.groups?.[group]?.description || node?.config_schema["x-flowpilot-groups"]?.[group]?.description || "";
+}

@@ -61,8 +61,11 @@ class Toolbox:
             return f"error: {err}", False
 
 
-def memory_tools(memory: Memory, speaker: str | None, *, personal: bool) -> list[Tool]:
-    """``remember`` and ``forget`` for one turn: ``speaker`` is who speaks (None: unknown)."""
+def memory_tools(
+    memory: Memory, speaker: str | None, *, personal: bool, auto: bool = False
+) -> list[Tool]:
+    """``remember`` and ``forget`` for one turn: ``speaker`` is who speaks (None: unknown);
+    ``auto``: the agent also keeps what it learns without being asked."""
     own = speaker if personal else None
 
     async def remember(args: Mapping[str, Any]) -> str:
@@ -76,10 +79,14 @@ def memory_tools(memory: Memory, speaker: str | None, *, personal: bool) -> list
                     "it is not known who is speaking, so a personal fact cannot be kept; "
                     "say so, or keep it as the home's if it is about the home"
                 )
-            memory.add(text, own, source="llm.agent")
-            return "remembered about the speaker"
-        memory.add(text, None, source="llm.agent")
-        return "remembered for the home"
+            owner = own
+        else:
+            owner = None
+        same = " ".join(text.lower().split())
+        if any(" ".join(f.text.lower().split()) == same for f in memory.facts(owner)):
+            return "already remembered"
+        memory.add(text, owner, source="llm.agent")
+        return "remembered about the speaker" if owner else "remembered for the home"
 
     async def forget(args: Mapping[str, Any]) -> str:
         wanted = " ".join(str(args.get("fact") or "").lower().split())
@@ -96,13 +103,18 @@ def memory_tools(memory: Memory, speaker: str | None, *, personal: bool) -> list
         memory.remove(found[0].id)
         return f"forgotten: {found[0].text}"
 
+    when = (
+        "when the user asks to remember something, or tells a lasting fact about the home or "
+        "the family worth knowing later (names, pets, routines, habits, preferences); never "
+        "for sensitive or passing things"
+        if auto
+        else "when the user asks to remember something"
+    )
     return [
         Tool(
             "remember",
-            "Keep a fact in long-term memory. Use it when the user asks to remember something, "
-            "or tells a lasting fact worth knowing later (preferences, names, habits); not for "
-            "passing remarks. One short sentence in the third person, e.g. 'Masha does not eat "
-            "meat'.",
+            f"Keep a fact in long-term memory. Use it {when}. One short sentence in the third "
+            "person, e.g. 'Masha does not eat meat'.",
             {
                 "type": "object",
                 "properties": {

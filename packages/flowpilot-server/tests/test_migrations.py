@@ -87,3 +87,23 @@ def test_voice_or_text_turn_gets_two_outputs() -> None:
         ("new.typed", "out.delta"),
     ]
     assert migrate_graph(migrated) is migrated
+
+
+def test_agent_remember_on_request_becomes_remembers_facts() -> None:
+    data = {
+        "schema_version": 1,
+        "id": "g",
+        "nodes": [
+            {"id": "off", "type": "llm.agent", "config": {"model": "m", "tools": False}},
+            {"id": "on", "type": "llm.agent", "config": {"model": "m", "tools": True}},
+            {"id": "new", "type": "llm.agent", "config": {"model": "m", "remember": "auto"}},
+        ],
+        "edges": [],
+    }
+    migrated = migrate_graph(data)
+    assert [n["config"] for n in migrated["nodes"]] == [
+        {"model": "m", "remember": "off"},
+        {"model": "m"},
+        {"model": "m", "remember": "auto"},
+    ]
+    assert migrate_graph(migrated) is migrated

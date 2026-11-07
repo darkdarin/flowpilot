@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import type { JsonSchema } from "../api";
 import { t } from "../i18n";
 import { issues, nodeIssues, nodeWarnings, removeNode, renameNode, selectedId, selectedNode, specs } from "../store";
 import { categoryColor, typeColor } from "../types";
@@ -7,14 +8,53 @@ import {
   fieldDescription,
   fieldOptionTitles,
   fieldTitle,
+  groupTitle,
   nodeDescription,
   nodeTitle,
   portDescription,
 } from "../texts";
 import SchemaField from "./SchemaField.vue";
+import SettingsGroupDialog from "./SettingsGroupDialog.vue";
 
 const spec = computed(() => (selectedNode.value ? specs.value.get(selectedNode.value.data!.type) : undefined));
-const props = computed(() => Object.entries(spec.value?.config_schema.properties ?? {}));
+const allProps = computed(() => Object.entries(spec.value?.config_schema.properties ?? {}));
+type Field = [string, JsonSchema];
+// grouped settings live in their group's dialog; the panel shows the group as one entry, where
+// its first setting would be
+const items = computed(() => {
+  const list: ({ key: string; schema: JsonSchema } | { group: string; fields: Field[] })[] = [];
+  const groups = new Map<string, Field[]>();
+  for (const [key, schema] of allProps.value) {
+    const group = schema["x-flowpilot-group"];
+    if (!group) list.push({ key, schema });
+    else if (groups.has(group)) groups.get(group)!.push([key, schema]);
+    else {
+      const fields: Field[] = [[key, schema]];
+      groups.set(group, fields);
+      list.push({ group, fields });
+    }
+  }
+  return list;
+});
+const openFields = computed(() => {
+  for (const item of items.value) if ("group" in item && item.group === openGroup.value) return item.fields;
+  return [];
+});
+const openGroup = ref<string | null>(null);
+watch(selectedId, () => (openGroup.value = null));
+
+/** What a group is set to, in short: the labels of its choices (set or default). */
+function groupSummary(fields: Field[]): string {
+  const config = selectedNode.value?.data?.config ?? {};
+  return fields
+    .filter(([, s]) => s.enum)
+    .map(([key, s]) => {
+      const value = config[key] ?? s.default;
+      return value === undefined ? "" : (fieldOptionTitles(spec.value, key)[String(value)] ?? String(value));
+    })
+    .filter(Boolean)
+    .join(" · ");
+}
 const required = computed(() => new Set(spec.value?.config_schema.required ?? []));
 const problems = computed(() => (selectedId.value ? (nodeIssues.value.get(selectedId.value) ?? []) : []));
 // warnings tied to a setting are shown next to it, in the UI language
@@ -72,22 +112,42 @@ function setConfig(key: string, value: unknown) {
 
       <section v-if="spec">
         <h3>{{ t("inspector.settings") }}</h3>
-        <p v-if="!props.length" class="muted">{{ t("inspector.noSettings") }}</p>
-        <SchemaField
-          v-for="[key, schema] in props"
-          :key="selectedNode.id + key"
-          :name="key"
-          :schema="schema"
-          :required="required.has(key)"
-          :label="fieldTitle(spec, key)"
-          :description="fieldDescription(spec, key)"
-          :node-type="selectedNode.data!.type"
-          :config="selectedNode.data!.config"
-          :option-titles="fieldOptionTitles(spec, key)"
-          :model-value="selectedNode.data!.config[key]"
-          @update:model-value="setConfig(key, $event)"
-        />
+        <p v-if="!allProps.length" class="muted">{{ t("inspector.noSettings") }}</p>
+        <template v-for="item in items" :key="selectedNode.id + ('group' in item ? '#' + item.group : item.key)">
+          <SchemaField
+            v-if="'key' in item"
+            :name="item.key"
+            :schema="item.schema"
+            :required="required.has(item.key)"
+            :label="fieldTitle(spec, item.key)"
+            :description="fieldDescription(spec, item.key)"
+            :node-type="selectedNode.data!.type"
+            :config="selectedNode.data!.config"
+            :option-titles="fieldOptionTitles(spec, item.key)"
+            :model-value="selectedNode.data!.config[item.key]"
+            @update:model-value="setConfig(item.key, $event)"
+          />
+          <button v-else type="button" class="group" @click="openGroup = item.group">
+            <span class="gtext">
+              <span class="gtitle">{{ groupTitle(spec, item.group) }}</span>
+              <span v-if="groupSummary(item.fields)" class="gsummary">{{ groupSummary(item.fields) }}</span>
+            </span>
+            <span class="chev" aria-hidden="true">›</span>
+          </button>
+        </template>
       </section>
+      <SettingsGroupDialog
+        v-if="spec && openGroup"
+        :spec="spec"
+        :group="openGroup"
+        :fields="openFields"
+        :required="required"
+        :node-id="selectedNode.id"
+        :node-type="selectedNode.data!.type"
+        :config="selectedNode.data!.config"
+        @set="setConfig"
+        @close="openGroup = null"
+      />
 
       <section v-if="spec">
         <h3>{{ t("inspector.ports") }}</h3>
@@ -273,6 +333,48 @@ section > h3 {
 .opt {
   margin-left: auto;
   font-size: 11px;
+}
+
+.group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-ctl);
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.group:hover {
+  border-color: color-mix(in srgb, var(--text) 25%, var(--line));
+}
+
+.gtext {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.gtitle {
+  font-weight: 500;
+}
+
+.gsummary {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chev {
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
 }
 
 .btn.danger {

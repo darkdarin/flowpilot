@@ -6,6 +6,8 @@ from .ids import new_ulid
 from .memory import MAX_FACT_CHARS, Fact, Memory
 from .node import (
     ENUM_TITLES_KEY,
+    GROUP_KEY,
+    GROUPS_KEY,
     NODE_OPTIONS_KEY,
     OPTIONS_KEY,
     ConfigOption,
@@ -48,6 +50,8 @@ __all__ = [
     "Fact",
     "Memory",
     "ENUM_TITLES_KEY",
+    "GROUP_KEY",
+    "GROUPS_KEY",
     "ConfigOption",
     "NODE_OPTIONS_KEY",
     "FieldText",

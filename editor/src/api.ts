@@ -16,6 +16,8 @@ export interface NodeTexts {
   inputs?: Record<string, string>;
   outputs?: Record<string, string>;
   config?: Record<string, { title?: string; description?: string; options?: Record<string, string> }>;
+  /** texts of setting groups (x-flowpilot-groups) */
+  groups?: Record<string, { title?: string; description?: string }>;
 }
 
 export interface NodeInfo {
@@ -63,6 +65,10 @@ export type JsonSchema = {
   "x-flowpilot-node-options"?: boolean;
   /** English labels of an enum's values (translations: config.<setting>.options) */
   "x-flowpilot-enum-titles"?: Record<string, string>;
+  /** the group this setting belongs to; editors show a group as one entry opening its settings */
+  "x-flowpilot-group"?: string;
+  /** a node's setting groups with their English texts (on the config schema itself) */
+  "x-flowpilot-groups"?: Record<string, { title?: string; description?: string }>;
   format?: string;
 };
 

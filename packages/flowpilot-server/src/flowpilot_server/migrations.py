@@ -39,7 +39,7 @@ def migrate_graph(data: Any) -> Any:
     """``data`` brought up to date; the same object when there is nothing to change."""
     if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
         return data
-    return _split_turn_filter(_rename_nodes(data))
+    return _agent_remember(_split_turn_filter(_rename_nodes(data)))
 
 
 def _split_turn_filter(data: dict[str, Any]) -> dict[str, Any]:
@@ -84,6 +84,31 @@ def _split_turn_filter(data: dict[str, Any]) -> dict[str, Any]:
         for e in data.get("edges") or []
     ]
     _LOGGER.info("graph %s: Voice or text turn %s now has two outputs", data.get("id"), sorted(old))
+    return data
+
+
+def _agent_remember(data: dict[str, Any]) -> dict[str, Any]:
+    """0.1.9 → 0.1.10: the LLM agent's ``tools`` (on/off) became ``remember`` (asked/auto/off)."""
+    old = [
+        n["id"]
+        for n in data["nodes"]
+        if isinstance(n, dict)
+        and n.get("type") == "llm.agent"
+        and isinstance(n.get("config"), dict)
+        and "tools" in n["config"]
+    ]
+    if not old:
+        return data
+    data = copy.deepcopy(data)
+    for node in data["nodes"]:
+        if isinstance(node, dict) and node.get("id") in old:
+            config = dict(node["config"])
+            if config.pop("tools") is False:
+                config.setdefault("remember", "off")
+            node["config"] = config
+    _LOGGER.info(
+        "graph %s: LLM agent %s: Remember on request is now Remembers facts", data.get("id"), old
+    )
     return data
 
 
