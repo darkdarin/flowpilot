@@ -117,7 +117,7 @@ class LlmAgent:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="llm.agent",
         translations=node_translations(__package__, "llm.agent"),
-        version="1.1.0",
+        version="1.2.0",
         title="LLM agent",
         category="agent",
         inputs={
@@ -174,6 +174,22 @@ class LlmAgent:
                     "type": "string",
                     "minLength": 1,
                     NODE_OPTIONS_KEY: True,
+                },
+                "reasoning": {
+                    "title": "Reasoning",
+                    "description": (
+                        "How much a reasoning model thinks before answering (reasoning_effort). "
+                        "Thinking helps with tricky questions but delays the first word; None "
+                        "suits voice. Not set: the model's own choice, and nothing is sent, for "
+                        "APIs that do not know the setting."
+                    ),
+                    "enum": ["none", "low", "medium", "high"],
+                    ENUM_TITLES_KEY: {
+                        "none": "None",
+                        "low": "Low",
+                        "medium": "Medium",
+                        "high": "High",
+                    },
                 },
                 "system_prompt": {
                     "title": "Instructions",
@@ -406,7 +422,8 @@ class LlmAgent:
             return await self._complete(request, on_text)
         except LlmError as err:
             text = str(err)
-            if "tools" not in request or "reasoning_effort" not in text or self._no_reasoning:
+            effort = request.get("reasoning_effort")
+            if "tools" not in request or "reasoning_effort" not in text or effort == "none":
                 raise
             turn.trace("llm.agent.no_reasoning", reason=text[:200])
             self._no_reasoning = True
@@ -437,6 +454,8 @@ class LlmAgent:
             body["temperature"] = float(self._config["temperature"])
         if "max_tokens" in self._config:
             body["max_tokens"] = int(self._config["max_tokens"])
+        if "reasoning" in self._config:
+            body["reasoning_effort"] = str(self._config["reasoning"])
         if self._no_reasoning and toolbox:
             body["reasoning_effort"] = "none"
 

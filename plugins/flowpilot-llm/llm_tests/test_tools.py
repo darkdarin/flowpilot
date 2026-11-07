@@ -219,3 +219,16 @@ async def test_tools_turn_reasoning_off_when_the_provider_asks(
     assert [f.text for f in memory.all()] == ["Кошку зовут Сиеста."]
     efforts = [r.get("reasoning_effort") for r in fake.requests]
     assert efforts[0] is None and set(efforts[1:]) == {"none"}  # refused once, then off for good
+
+
+async def test_reasoning_is_sent_only_when_set(api: tuple[ToolCallingApi, str]) -> None:
+    fake, url = api
+    await ask(url, MemoryStore(None), "привет", "masha")
+    await ask(url, MemoryStore(None), "привет", "masha", reasoning="high")
+    assert "reasoning_effort" not in fake.requests[0]
+    assert fake.requests[1]["reasoning_effort"] == "high"
+    fake.tools_need_no_reasoning = True
+    fake.requests.clear()
+    run = await ask(url, MemoryStore(None), "привет", "masha", reasoning="none")
+    assert len(fake.requests) == 1 and "tools" in fake.requests[0]  # no refusal, no retry
+    assert all(e.event != "llm.agent.no_reasoning" for e in run.trace.events)
