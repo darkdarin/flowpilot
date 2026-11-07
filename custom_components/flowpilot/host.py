@@ -90,6 +90,11 @@ def build_host_ops(
             "continue_conversation": result.continue_conversation,
             "conversation_id": result.conversation_id,
             "response_type": result.response.response_type.value,
+            # why an "error" answer failed: "no_intent_match" (not understood),
+            # "no_valid_targets", "failed_to_handle", ...
+            "error_code": (
+                result.response.error_code.value if result.response.error_code else None
+            ),
         }
 
     async def stt_process(request: HostRequest) -> Any:

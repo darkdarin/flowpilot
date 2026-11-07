@@ -395,3 +395,52 @@ async def test_the_journal_shows_what_the_agent_did_only_in_live_debug(
     assert tool["tool"] == "remember" and tool["ok"] is True and "ms" in tool
     assert '"fact": "Паша любит рок."' in tool["detail"] and "already remembered" in tool["detail"]
     assert "calls remember" in log[3]["summary"] and log[6]["detail"].startswith("Готово")
+
+
+async def test_the_agent_sees_exchanges_other_nodes_answered(
+    api: tuple[ToolCallingApi, str],
+) -> None:
+    """A quick command answered without the agent is part of the dialogue it continues."""
+    from flowpilot_core.runtime.deployment import SHARED_NAMESPACE
+    from flowpilot_core.runtime.state import MemorySessionStore
+    from flowpilot_sdk import dialogue
+
+    fake, url = api
+    sessions = MemorySessionStore()
+    shared = sessions.view("s1", SHARED_NAMESPACE)
+    await dialogue.add(shared, "выключи свет на кухне", "Выключила свет", by="quick")
+    node = LlmAgent()
+    cfg = {
+        "base_url": url,
+        "model": "m",
+        "api_key": {"secret": "k"},
+        "remember": "off",
+        "home": False,
+    }
+    await node.start(RuntimeNodeContext("brain", cfg, {"k": KEY}, frozenset({"k"})))
+    try:
+        inputs = {
+            "utterance": InputFeed(items=[Utterance("включи обратно", "ru")], meta={}, end="end")
+        }
+        run = await run_node_once(node, inputs, sessions=sessions, session_id="s1")
+    finally:
+        await node.stop()
+    assert run.error is None, run.error
+    said = [m["content"] for m in fake.requests[0]["messages"] if m["role"] != "system"]
+    assert said == ["выключи свет на кухне", "Выключила свет", "включи обратно"]
+    kept = await dialogue.exchanges(shared)
+    assert [(e["user"], e["by"]) for e in kept] == [
+        ("выключи свет на кухне", "quick"),
+        ("включи обратно", "brain"),
+    ]
+
+
+def test_a_long_pause_starts_the_dialogue_afresh() -> None:
+    import time
+
+    from flowpilot_sdk import dialogue
+
+    old = [{"user": "a", "assistant": "b", "by": "x", "at": time.time() - 7200}]
+    assert dialogue.recent(old, turns=10, quiet_s=3600) == []
+    assert dialogue.recent(old, turns=10, quiet_s=10800) == old
+    assert dialogue.recent(old, turns=0, quiet_s=10800) == []

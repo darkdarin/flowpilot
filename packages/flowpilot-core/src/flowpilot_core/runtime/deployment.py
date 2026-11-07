@@ -30,6 +30,9 @@ from .state import MemorySessionStore, SessionStateView
 from .streams import RuntimeInputStream, RuntimeOutputStream
 from .trace import NullTraceSink, TraceEvent, TraceSink
 
+# Session state every node shares (``TurnSession.shared``): node types are "a.b", never this.
+SHARED_NAMESPACE = "~shared"
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -125,9 +128,11 @@ class RuntimeTurnSession:
         host: HostCaller | None = None,
         host_ops: frozenset[str] = frozenset(),
         watched: bool = False,
+        shared: SessionState | None = None,
     ) -> None:
         self.context = context
         self.watched = watched
+        self.shared: SessionState = shared if shared is not None else state
         self.session = session
         self.state: SessionState = state
         self._node_id = node_id
@@ -324,6 +329,7 @@ class Deployment:
                 host=host,
                 host_ops=spec.host_ops | spec.optional_host_ops,
                 watched=watched,
+                shared=self.sessions.view(session.session_id, SHARED_NAMESPACE),
             )
 
         outcomes: dict[str, NodeOutcome] = {}

@@ -58,3 +58,23 @@ async def test_hidden_entities_and_bad_calls_come_back_as_errors(hass: HomeAssis
     assert result["error"] is True and not calls
     unknown = await host["ha.llm.call"](HostRequest(None, {"name": "Nope", "arguments": {}}))
     assert unknown["error"] is True and "Nope" in unknown["data"]["message"]
+
+
+async def test_conversation_tells_a_command_it_did_not_understand(hass: HomeAssistant) -> None:
+    """The built-in agent's error code lets FlowPilot pass what it did not get to an LLM."""
+    host = await ops(hass)
+    calls = async_mock_service(hass, "light", "turn_on")
+    process = host["ha.conversation.process"]
+    done = await process(
+        HostRequest(
+            None, {"text": "turn on kitchen light", "agent_id": "conversation.home_assistant"}
+        )
+    )
+    assert done["response_type"] == "action_done" and done["error_code"] is None
+    assert len(calls) == 1
+    missed = await process(
+        HostRequest(
+            None, {"text": "what rhymes with orange", "agent_id": "conversation.home_assistant"}
+        )
+    )
+    assert missed["response_type"] == "error" and missed["error_code"] == "no_intent_match"

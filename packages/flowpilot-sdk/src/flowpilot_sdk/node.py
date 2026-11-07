@@ -193,6 +193,9 @@ class TurnSession(Protocol):
     context: TurnContext
     session: SessionInfo
     state: SessionState
+    # State every node of the session shares (the dialogue, ``flowpilot_sdk.dialogue``); a
+    # node's own state is ``state``.
+    shared: SessionState
     # Someone watches the graph in live debug: the node may put content (texts, arguments,
     # prompts) into its trace events and journal (``LOG_EVENT``); otherwise it must not.
     watched: bool

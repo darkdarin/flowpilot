@@ -40,6 +40,7 @@ from flowpilot_sdk import (
     TextDelta,
     TurnSession,
     Utterance,
+    dialogue,
     node_translations,
 )
 
@@ -568,6 +569,22 @@ class LlmAgent:
         people = result.get("people") if isinstance(result, Mapping) else None
         return [p for p in people if isinstance(p, Mapping)] if isinstance(people, list) else None
 
+    async def _dialogue(self, turn: TurnSession) -> list[dict[str, Any]]:
+        """The session's shared dialogue; a dialogue this node kept for itself before 0.1.17
+        moves there once."""
+        kept = await dialogue.exchanges(turn.shared)
+        own_key = f"history:{self._node}"
+        own = await turn.state.get(own_key)
+        if not kept and isinstance(own, list) and own:
+            for user, answer in zip(own[::2], own[1::2], strict=False):
+                await dialogue.add(
+                    turn.shared, str(user.get("content")), str(answer.get("content")), by=self._node
+                )
+            kept = await dialogue.exchanges(turn.shared)
+        if own is not None:
+            await turn.state.delete(own_key)
+        return kept
+
     async def _complete_with_tools(
         self,
         turn: TurnSession,
@@ -599,9 +616,17 @@ class LlmAgent:
         home, own = self._known(speaker)
         toolbox = self._toolbox(speaker)
         remembers = bool(toolbox)
-        history_key = f"history:{self._node}"
         keep = int(self._config.get("history_turns", 10))
-        history: list[dict[str, str]] = list(await turn.state.get(history_key) or [])
+        quiet_s = 3600.0 * int(self._config.get("history_hours", DEFAULT_HISTORY_HOURS))
+        earlier = dialogue.recent(await self._dialogue(turn), turns=keep, quiet_s=quiet_s)
+        history: list[dict[str, str]] = [
+            message
+            for e in earlier
+            for message in (
+                {"role": "user", "content": str(e.get("user") or "")},
+                {"role": "assistant", "content": str(e.get("assistant") or "")},
+            )
+        ]
         personal = self._config.get("memory", "personal") == "personal"
         auto = self._remember() == "auto"
         guide = _tools_text(speaker is not None or not personal, auto=auto) if remembers else ""
@@ -761,14 +786,5 @@ class LlmAgent:
         )
         if not answer:
             raise LlmError("the model gave an empty answer")
-        if keep:
-            history += [
-                {"role": "user", "content": said.text},
-                {"role": "assistant", "content": answer},
-            ]
-            await turn.state.set(
-                history_key,
-                history[-2 * keep :],
-                ttl_s=3600.0 * int(self._config.get("history_hours", DEFAULT_HISTORY_HOURS)),
-            )
+        await dialogue.add(turn.shared, said.text, answer, by=self._node)
         await turn.output("response").send(Response(text=answer, language=language))

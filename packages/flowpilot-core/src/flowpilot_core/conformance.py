@@ -43,7 +43,12 @@ from flowpilot_sdk import (
 )
 
 from .runtime.channel import Channel, End, Fail, Item, Message, Open
-from .runtime.deployment import HostCaller, RuntimeNodeContext, RuntimeTurnSession
+from .runtime.deployment import (
+    SHARED_NAMESPACE,
+    HostCaller,
+    RuntimeNodeContext,
+    RuntimeTurnSession,
+)
 from .runtime.state import MemorySessionStore
 from .runtime.streams import RuntimeInputStream, RuntimeOutputStream
 from .runtime.trace import ListTraceSink
@@ -101,9 +106,11 @@ class ConformanceReport:
         return "\n".join(lines)
 
 
-def _turn_context(deadline_s: float) -> tuple[TurnContext, SessionInfo]:
+def _turn_context(
+    deadline_s: float, session_id: str | None = None
+) -> tuple[TurnContext, SessionInfo]:
     now = datetime.now(UTC)
-    session = SessionInfo(session_id=new_ulid(), created_at=now, turn_index=0)
+    session = SessionInfo(session_id=session_id or new_ulid(), created_at=now, turn_index=0)
     ctx = TurnContext(
         turn_id=new_ulid(),
         session_id=session.session_id,
@@ -172,6 +179,8 @@ async def run_node_once(
     cancel_after_s: float | None = None,
     host: HostCaller | None = None,
     watched: bool = False,
+    sessions: MemorySessionStore | None = None,
+    session_id: str | None = None,
 ) -> NodeRun:
     """Run one turn of a started node against fed inputs, capturing outputs.
 
@@ -179,7 +188,7 @@ async def run_node_once(
     that delay and ``error`` holds the resulting ``CancelledError`` if the node propagated it.
     """
     spec = node.spec
-    ctx, session = _turn_context(budget_s)
+    ctx, session = _turn_context(budget_s, session_id)
     if prepare is not None:
         prepared = prepare(node, ctx)
         if prepared is not None:
@@ -204,17 +213,19 @@ async def run_node_once(
         drains.append(asyncio.create_task(_drain(channel, captured[name])))
 
     trace = ListTraceSink()
+    store = sessions if sessions is not None else MemorySessionStore()
     turn = RuntimeTurnSession(
         spec.type,
         ctx,
         session,
-        MemorySessionStore().view(session.session_id, spec.type),
+        store.view(session.session_id, spec.type),
         in_streams,
         out_streams,
         trace,
         host=host,
         host_ops=spec.host_ops | spec.optional_host_ops,
         watched=watched,
+        shared=store.view(session.session_id, SHARED_NAMESPACE),
     )
 
     started = time.monotonic()
