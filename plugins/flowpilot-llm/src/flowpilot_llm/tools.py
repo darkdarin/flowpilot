@@ -41,6 +41,9 @@ class Toolbox:
     def with_tools(self, tools: list[Tool]) -> Toolbox:
         return Toolbox([*self._tools.values(), *tools])
 
+    def __len__(self) -> int:
+        return len(self._tools)
+
     def __bool__(self) -> bool:
         return bool(self._tools)
 

@@ -124,8 +124,10 @@ class RuntimeTurnSession:
         *,
         host: HostCaller | None = None,
         host_ops: frozenset[str] = frozenset(),
+        watched: bool = False,
     ) -> None:
         self.context = context
+        self.watched = watched
         self.session = session
         self.state: SessionState = state
         self._node_id = node_id
@@ -321,6 +323,7 @@ class Deployment:
                 self.trace,
                 host=host,
                 host_ops=spec.host_ops | spec.optional_host_ops,
+                watched=watched,
             )
 
         outcomes: dict[str, NodeOutcome] = {}

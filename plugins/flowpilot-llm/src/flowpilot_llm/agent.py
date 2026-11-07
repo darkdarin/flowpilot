@@ -26,6 +26,7 @@ from flowpilot_sdk import (
     ENUM_TITLES_KEY,
     GROUP_KEY,
     GROUPS_KEY,
+    LOG_EVENT,
     NODE_OPTIONS_KEY,
     ConfigOption,
     HostError,
@@ -56,6 +57,32 @@ HOME_TOOLS_TIMEOUT_S = 3.0
 HOME_CALL_TIMEOUT_S = 20.0
 # Rounds of tool calls in one turn; the last round must answer in words.
 MAX_TOOL_ROUNDS = 4
+
+
+DETAIL_CHARS = 8000  # one journal entry's content in live debug
+
+
+class Journal:
+    """The agent's journal for live debug (``LOG_EVENT``): what went into the model, what came
+    back, which tools ran with what. Written only while someone watches: it holds what people
+    said, the prompt and the facts."""
+
+    def __init__(self, turn: TurnSession) -> None:
+        self._turn = turn
+        self.on = bool(getattr(turn, "watched", False))
+
+    def __call__(self, kind: str, summary: str, detail: str | None = None, **attrs: Any) -> None:
+        if not self.on:
+            return
+        extra = {"detail": detail[:DETAIL_CHARS]} if detail else {}
+        self._turn.trace(LOG_EVENT, kind=kind, summary=summary, **extra, **attrs)
+
+
+def _pretty(arguments: str) -> str:
+    try:
+        return json.dumps(json.loads(arguments or "{}"), ensure_ascii=False, indent=2)
+    except ValueError:
+        return arguments
 
 
 class LlmError(Exception):
@@ -558,6 +585,7 @@ class LlmAgent:
             if "tools" not in request or "reasoning_effort" not in text or effort == "none":
                 raise
             turn.trace("llm.agent.no_reasoning", reason=text[:200])
+            Journal(turn)("llm.no_reasoning", "tools need reasoning off: asking again", text)
             self._no_reasoning = True
             body["reasoning_effort"] = "none"
             return await self._complete(request | {"reasoning_effort": "none"}, on_text)
@@ -582,6 +610,20 @@ class LlmAgent:
         )
         if home_tools:
             toolbox = toolbox.with_tools(home_tools)
+        log = Journal(turn)
+        who = next(
+            (str(p.get("name")) for p in people or [] if speaker and p.get("user_id") == speaker),
+            speaker,
+        )
+        log(
+            "memory",
+            f"{len(home)} facts of the home, {len(own)} of {who or 'nobody known'}; "
+            f"dialogue: {len(history) // 2} earlier exchanges",
+            "\n".join([*(f"home: {t}" for t in home), *(f"{who}: {t}" for t in own)]) or None,
+            home=len(home),
+            own=len(own),
+            history=len(history) // 2,
+        )
         parts = (
             self._system(language),
             _people_text(people, speaker),
@@ -592,6 +634,13 @@ class LlmAgent:
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}] if system else []
         messages += history[-2 * keep :] if keep else []
         messages.append({"role": "user", "content": said.text})
+        log(
+            "context",
+            f"speaker: {who or 'unknown'}; people: {len(people or [])}; tools: {len(toolbox)} "
+            f"({len(home_tools)} from Home Assistant)",
+            system or None,
+            tools=len(toolbox),
+        )
         body: dict[str, Any] = {"model": self._config["model"], "stream": True}
         if "temperature" in self._config:
             body["temperature"] = float(self._config["temperature"])
@@ -625,6 +674,16 @@ class LlmAgent:
             offer = bool(toolbox) and round_ < MAX_TOOL_ROUNDS
             if offer:
                 request["tools"] = toolbox.definitions()
+            log(
+                "llm.request",
+                f"round {round_ + 1}: {len(messages)} messages, "
+                f"{len(request.get('tools') or [])} tools, model {body['model']}"
+                + (f", reasoning {body['reasoning_effort']}" if "reasoning_effort" in body else ""),
+                said.text if round_ == 0 else None,
+                round=round_ + 1,
+            )
+            asked_at = time.monotonic()
+            text_before = len(pieces)
             try:
                 text, calls = await self._complete_with_tools(turn, body, request, on_text)
             except LlmError as err:
@@ -632,6 +691,7 @@ class LlmAgent:
                     raise
                 # a model without function calling: answer without tools from now on
                 turn.trace("llm.agent.no_tools", reason=str(err)[:200])
+                log("llm.no_tools", "the model cannot call tools: answering without them", str(err))
                 toolbox = Toolbox([])
                 body.pop("reasoning_effort", None)
                 if guide or home_tools:  # it cannot use tools after all: do not tell it it can
@@ -640,6 +700,15 @@ class LlmAgent:
                     messages += history[-2 * keep :] if keep else []
                     messages.append({"role": "user", "content": said.text})
                 text, calls = await self._complete(body | {"messages": messages}, on_text)
+            names = [c["name"] for c in calls]
+            log(
+                "llm.response",
+                f"round {round_ + 1}: {len(text)} chars"
+                + (f", calls {', '.join(names)}" if names else ""),
+                "".join(pieces[text_before:]).strip() or None,
+                round=round_ + 1,
+                ms=round(1000 * (time.monotonic() - asked_at)),
+            )
             if not calls:
                 break
             gap = True
@@ -658,9 +727,18 @@ class LlmAgent:
                 }
             )
             for i, call in enumerate(calls):
+                called_at = time.monotonic()
                 result, ok = await toolbox.call(call["name"], call["arguments"])
                 used.append(call["name"] if ok else f"{call['name']}!")
                 turn.trace("llm.agent.tool", tool=call["name"], ok=ok)
+                log(
+                    "tool",
+                    f"{call['name']}: {'ok' if ok else 'failed'}",
+                    f"arguments:\n{_pretty(call['arguments'])}\n\nresult:\n{result}",
+                    tool=call["name"],
+                    ok=ok,
+                    ms=round(1000 * (time.monotonic() - called_at)),
+                )
                 messages.append(
                     {
                         "role": "tool",

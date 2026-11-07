@@ -180,12 +180,22 @@ class NodeContext(Protocol):
         ...
 
 
+# Trace event of a node's journal, shown in live debug as a timeline of what the node did:
+# ``turn.trace(LOG_EVENT, kind="llm.request", summary="...", detail="...", **numbers)``. ``kind``
+# names the entry (editors may show known kinds specially), ``summary`` is one short line,
+# ``detail`` the content (prompts, arguments, results). Content only when ``turn.watched``.
+LOG_EVENT = "log"
+
+
 class TurnSession(Protocol):
     """What a node sees during one turn."""
 
     context: TurnContext
     session: SessionInfo
     state: SessionState
+    # Someone watches the graph in live debug: the node may put content (texts, arguments,
+    # prompts) into its trace events and journal (``LOG_EVENT``); otherwise it must not.
+    watched: bool
 
     def input(self, name: str) -> InputStream[Any]: ...
 

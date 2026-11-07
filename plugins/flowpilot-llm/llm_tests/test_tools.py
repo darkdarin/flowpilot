@@ -80,7 +80,14 @@ async def api() -> AsyncIterator[tuple[ToolCallingApi, str]]:
 
 
 async def ask(
-    url: str, store: MemoryStore, text: str, user: str | None, *, host: Any = None, **config: Any
+    url: str,
+    store: MemoryStore,
+    text: str,
+    user: str | None,
+    *,
+    host: Any = None,
+    watched: bool = False,
+    **config: Any,
 ) -> Any:
     node = LlmAgent()
     cfg = {"base_url": url, "model": "m", "api_key": {"secret": "k"}} | config
@@ -91,7 +98,7 @@ async def ask(
         who = Principal(user, frozenset(), Assurance.MEDIUM)
         inputs["principal"] = InputFeed(items=[who], meta={}, end="end")
     try:
-        run = await run_node_once(node, inputs, host=host)
+        run = await run_node_once(node, inputs, host=host, watched=watched)
     finally:
         await node.stop()
     assert run.error is None, run.error
@@ -351,3 +358,40 @@ async def test_no_home_tools_when_turned_off(api: tuple[ToolCallingApi, str]) ->
     host = HomeHost()
     await ask(url, MemoryStore(None), "привет", "pavel", host=host, home=False, remember="off")
     assert host.calls == [] and "tools" not in fake.requests[0]
+
+
+async def test_the_journal_shows_what_the_agent_did_only_in_live_debug(
+    api: tuple[ToolCallingApi, str],
+) -> None:
+    fake, url = api
+    memory = MemoryStore(None)
+    memory.add("Кошку зовут Сиеста.", None, source="editor")
+    fake.calls = [
+        {"name": "remember", "arguments": {"fact": "Паша любит рок.", "about": "speaker"}}
+    ]
+    quiet = await ask(url, memory, "запомни, я люблю рок", "pavel")
+    assert not [e for e in quiet.trace.events if e.event == "log"]  # nobody watches: no content
+
+    run = await ask(
+        url, memory, "запомни, я люблю рок", "pavel", host=PeopleHost(HOME), watched=True
+    )
+    log = [e.attrs for e in run.trace.events if e.event == "log"]
+    kinds = [e["kind"] for e in log]
+    assert kinds == [
+        "memory",
+        "context",
+        "llm.request",
+        "llm.response",
+        "tool",
+        "llm.request",
+        "llm.response",
+    ]
+    memory_entry, context = log[0], log[1]
+    assert "home: Кошку зовут Сиеста." in memory_entry["detail"]
+    assert memory_entry["summary"].endswith("of Павел; dialogue: 0 earlier exchanges")
+    assert "You are talking to Павел." in context["detail"]  # the whole system prompt
+    assert log[2]["detail"] == "запомни, я люблю рок"
+    tool = log[4]
+    assert tool["tool"] == "remember" and tool["ok"] is True and "ms" in tool
+    assert '"fact": "Паша любит рок."' in tool["detail"] and "already remembered" in tool["detail"]
+    assert "calls remember" in log[3]["summary"] and log[6]["detail"].startswith("Готово")

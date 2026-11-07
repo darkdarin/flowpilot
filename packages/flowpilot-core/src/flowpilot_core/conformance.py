@@ -171,6 +171,7 @@ async def run_node_once(
     prepare: Prepare | None = None,
     cancel_after_s: float | None = None,
     host: HostCaller | None = None,
+    watched: bool = False,
 ) -> NodeRun:
     """Run one turn of a started node against fed inputs, capturing outputs.
 
@@ -213,6 +214,7 @@ async def run_node_once(
         trace,
         host=host,
         host_ops=spec.host_ops | spec.optional_host_ops,
+        watched=watched,
     )
 
     started = time.monotonic()

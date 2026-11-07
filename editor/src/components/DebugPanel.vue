@@ -55,6 +55,23 @@ const span = computed(() => {
 
 const ms = fmtMs;
 
+/** The selected node's journal in this turn; the column shows when any node wrote one. */
+const hasJournal = computed(() => Object.keys(currentTurn.value?.logs ?? {}).length > 0);
+const journal = computed(() =>
+  selectedId.value ? (currentTurn.value?.logs[selectedId.value] ?? []) : null,
+);
+
+function kindLabel(kind: string): string {
+  const key = `log.${kind}` as Parameters<typeof t>[0];
+  const text = t(key);
+  return text === key ? kind : text;
+}
+
+function entryClass(entry: { kind: string; attrs: Record<string, unknown> }): string {
+  if (entry.attrs.ok === false || entry.kind.startsWith("llm.no_")) return "bad";
+  return entry.kind.split(".")[0];
+}
+
 /** The node's solid bar: while its output flowed (first output → end), else its whole run. */
 function barStyle(row: { id: string; category: string; run: { startMs: number; durationMs?: number; status: string } }) {
   const tm = timings.value[row.id] ?? {};
@@ -82,7 +99,7 @@ function status(s: string) {
 </script>
 
 <template>
-  <section class="debug" :aria-label="t('debug.title')">
+  <section class="debug" :class="{ 'with-journal': hasJournal }" :aria-label="t('debug.title')">
     <div class="turns">
       <p v-if="!debug.connected" class="note warn">{{ t("debug.offline") }}</p>
       <p v-if="debug.redeployed" class="note">{{ t("debug.redeployed") }}</p>
@@ -187,6 +204,28 @@ function status(s: string) {
         <span class="dur" :title="t('debug.tailHint')">{{ timings[row.id]?.tail !== undefined ? ms(timings[row.id].tail!) : "" }}</span>
       </button>
     </div>
+
+    <div v-if="hasJournal" class="journal">
+      <h3>
+        {{ t("debug.journal") }}
+        <code v-if="selectedId" class="jnode">{{ selectedId }}</code>
+      </h3>
+      <p v-if="journal === null" class="note">{{ t("debug.journalPick") }}</p>
+      <p v-else-if="!journal.length" class="note">{{ t("debug.journalEmpty") }}</p>
+      <ol v-else class="entries">
+        <li v-for="(entry, i) in journal" :key="i" class="entry" :class="entryClass(entry)">
+          <details :open="entry.kind === 'tool' && entry.attrs.ok === false">
+            <summary>
+              <span class="at">{{ ms(entry.t) }}</span>
+              <span class="kind">{{ kindLabel(entry.kind) }}</span>
+              <span class="text">{{ entry.summary }}</span>
+              <span v-if="entry.attrs.ms !== undefined" class="took">{{ ms(Number(entry.attrs.ms)) }}</span>
+            </summary>
+            <pre v-if="entry.detail">{{ entry.detail }}</pre>
+          </details>
+        </li>
+      </ol>
+    </div>
   </section>
 </template>
 
@@ -198,6 +237,115 @@ function status(s: string) {
   min-height: 0;
   background: var(--panel);
   border-top: 1px solid var(--line);
+}
+
+.debug.with-journal {
+  grid-template-columns: 230px minmax(0, 1fr) minmax(300px, 34%);
+}
+
+.journal {
+  overflow-y: auto;
+  border-left: 1px solid var(--line);
+  padding: 8px 12px 12px;
+  min-width: 0;
+}
+
+.journal h3 {
+  margin: 2px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.jnode {
+  margin-left: 6px;
+  color: var(--text);
+}
+
+.entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.entry summary {
+  display: grid;
+  grid-template-columns: 58px auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  list-style: none;
+}
+
+.entry summary::-webkit-details-marker {
+  display: none;
+}
+
+.entry summary:hover,
+.entry details[open] summary {
+  background: var(--panel-raised);
+}
+
+.entry .at,
+.entry .took {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+.entry .kind {
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--kind, var(--muted)) 18%, transparent);
+  color: var(--kind, var(--muted));
+}
+
+.entry .text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry details[open] .text {
+  white-space: normal;
+}
+
+.entry.llm {
+  --kind: var(--cat-agent, #7c5cff);
+}
+
+.entry.tool {
+  --kind: var(--warn);
+}
+
+.entry.memory {
+  --kind: var(--ok);
+}
+
+.entry.bad {
+  --kind: var(--danger);
+}
+
+.entry pre {
+  margin: 4px 0 6px 66px;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .turns {

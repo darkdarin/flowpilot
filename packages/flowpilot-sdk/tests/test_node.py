@@ -157,6 +157,7 @@ class MemoryState:
 
 class FakeTurn:
     def __init__(self, inputs: dict[str, FakeInput]) -> None:
+        self.watched = False
         now = datetime.now(UTC)
         self.context = TurnContext(
             turn_id=new_ulid(),

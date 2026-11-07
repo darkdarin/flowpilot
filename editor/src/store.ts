@@ -51,8 +51,18 @@ export interface TurnRun {
   recordings: { node: string; file: string; seconds: number }[];
   /** what Show text taps saw, by node and input port */
   texts: Record<string, Record<string, TapText>>;
+  /** nodes' journals (trace event "log", live debug only), by node, in order */
+  logs: Record<string, LogEntry[]>;
   /** what nodes reported about the turn in their own trace events (levels, counts), by node */
   notes: Record<string, { event: string; attrs: TraceMsg["attrs"] }[]>;
+}
+
+export interface LogEntry {
+  t: number;
+  kind: string;
+  summary: string;
+  detail?: string;
+  attrs: TraceMsg["attrs"];
 }
 
 export interface TapText {
@@ -516,7 +526,7 @@ function onTrace(msg: TraceMsg | { type: string; graph?: string }) {
   let turn = debug.turns.find((t) => t.id === ev.turn_id);
   if (!turn) {
     if (ev.event !== "turn.start") return; // backlog tail of a turn we never saw starting
-    turn = { id: ev.turn_id, status: "running", nodes: {}, ports: {}, hostCalls: [], recordings: [], texts: {}, notes: {} };
+    turn = { id: ev.turn_id, status: "running", nodes: {}, ports: {}, hostCalls: [], recordings: [], texts: {}, logs: {}, notes: {} };
     debug.turns.unshift(turn);
     debug.turns.splice(MAX_TURNS);
     turn = debug.turns[0];
@@ -551,6 +561,20 @@ function onTrace(msg: TraceMsg | { type: string; graph?: string }) {
         state: String(ev.attrs.state),
         endMs: ev.t_ms,
       };
+      break;
+    }
+    case "log": {
+      const { kind, summary, detail, ...attrs } = ev.attrs;
+      const entries = (turn.logs[node] ??= []);
+      if (!entries.some((e) => e.t === ev.t_ms && e.kind === kind)) {
+        entries.push({
+          t: ev.t_ms,
+          kind: String(kind ?? ""),
+          summary: String(summary ?? ""),
+          ...(detail ? { detail: String(detail) } : {}),
+          attrs,
+        });
+      }
       break;
     }
     case "host.call":
