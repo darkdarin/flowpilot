@@ -7,6 +7,8 @@ export interface PortInfo {
   required: boolean;
   delivery: "lossless" | "latest";
   description: string;
+  /** a type variable: ports of a node with the same one carry one type */
+  var?: string;
 }
 
 /** Texts of a node in one language; every key is optional and falls back to English. */
@@ -41,7 +43,7 @@ export interface NodeInfo {
 
 export interface Catalog {
   nodes: NodeInfo[];
-  types: { id: string; privileged: boolean }[];
+  types: { id: string; privileged: boolean; kind?: "stream" | "value" }[];
 }
 
 export type JsonSchema = {

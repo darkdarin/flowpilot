@@ -173,6 +173,8 @@ const en = {
   "error.deploy": "Deploy failed: {msg}",
   "error.invalid": "Fix the problems before deploying.",
   "error.connect": "These ports carry different data types.",
+  "error.connectUnresolved": "This output gives the type connected to its node's inputs: connect an input first.",
+  "error.connectGeneric": "This node's inputs must carry the same type as each other.",
 };
 
 type Key = keyof typeof en;
@@ -350,6 +352,8 @@ const ru: Record<Key, string> = {
   "error.deploy": "Не удалось развернуть: {msg}",
   "error.invalid": "Исправьте проблемы перед развёртыванием.",
   "error.connect": "Эти порты передают разные типы данных.",
+  "error.connectUnresolved": "Этот выход передаёт тот тип, что подключён ко входам его ноды: сначала подключите вход.",
+  "error.connectGeneric": "Входы этой ноды должны передавать один и тот же тип.",
 };
 
 export type Locale = "en" | "ru";

@@ -66,6 +66,8 @@ export interface LogEntry {
 }
 
 export interface TapText {
+  /** which kind of text came (a probe's text input takes any) */
+  type?: string;
   text: string;
   items: number;
   partials?: number;
@@ -591,6 +593,7 @@ function onTrace(msg: TraceMsg | { type: string; graph?: string }) {
         items: Number(ev.attrs.items ?? 0),
         ...(ev.attrs.partials != null ? { partials: Number(ev.attrs.partials) } : {}),
         ...(ev.attrs.error ? { error: String(ev.attrs.error) } : {}),
+        ...(ev.attrs.type ? { type: String(ev.attrs.type) } : {}),
       };
       break;
     default: {

@@ -144,7 +144,7 @@ def _one_text_input(data: dict[str, Any]) -> dict[str, Any]:
             data["edges"][i] = {**data["edges"][i], "to": f"{copy_id}.text"}
             if isinstance(ui_nodes.get(node_id), dict) and {"x", "y"} <= set(ui_nodes[node_id]):
                 at = ui_nodes[node_id]
-                ui_nodes[copy_id] = {**at, "y": at["y"] + 120 * n}
+                ui_nodes[copy_id] = {**at, "y": at["y"] + 230 * n}
     data["edges"] = [e for i, e in enumerate(data["edges"]) if i not in dropped]
     _LOGGER.info("graph %s: probes and converters now have one text input", data.get("id"))
     return data

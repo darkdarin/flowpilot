@@ -42,6 +42,7 @@ import {
   secretsOpen,
   memoryOpen,
 } from "./store";
+import { connectProblem, edgeType } from "./porttypes";
 import { typeColor } from "./types";
 
 const nodeTypes = { fp: markRaw(FpNode) };
@@ -123,17 +124,16 @@ function portOf(nodeId: string, port: string | null | undefined, side: "inputs" 
 }
 
 function isValidConnection(c: Connection): boolean {
-  const out = portOf(c.source, c.sourceHandle, "outputs");
-  const inp = portOf(c.target, c.targetHandle, "inputs");
-  if (!out || !inp || c.source === c.target) return false;
-  return out.type === inp.type;
+  return connectProblem(c.source, c.sourceHandle ?? "", c.target, c.targetHandle ?? "") === null;
 }
 
 function onConnect(c: Connection) {
   const out = portOf(c.source, c.sourceHandle, "outputs");
-  const inp = portOf(c.target, c.targetHandle, "inputs");
-  if (!out || !inp) return;
-  if (out.type !== inp.type) return flash(t("error.connect"), "error");
+  if (!out) return;
+  const problem = connectProblem(c.source, c.sourceHandle ?? "", c.target, c.targetHandle ?? "");
+  if (problem === "unresolved") return flash(t("error.connectUnresolved"), "error");
+  if (problem === "generic") return flash(t("error.connectGeneric"), "error");
+  if (problem) return flash(t("error.connect"), "error");
   // an input takes one wire: a new connection replaces the old one
   const kept = edges.value.filter((e) => !(e.target === c.target && e.targetHandle === c.targetHandle));
   edges.value = [...kept, makeEdge(c.source, c.sourceHandle!, c.target, c.targetHandle!, out.type)];
@@ -221,7 +221,7 @@ async function onCreate() {
 }
 
 function legendTypes() {
-  return [...new Set(edges.value.map((e) => e.data?.type ?? ""))].filter(Boolean).sort();
+  return [...new Set(edges.value.map((e) => edgeType(e)))].filter((t) => t && !t.includes("|")).sort();
 }
 </script>
 

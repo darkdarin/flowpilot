@@ -2,6 +2,7 @@
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@vue-flow/core";
 import { computed } from "vue";
 import { brokenEdges, currentTurn, debug, idleTaps } from "../store";
+import { edgeType } from "../porttypes";
 import { typeColor } from "../types";
 
 const props = defineProps<EdgeProps<{ type: string }>>();
@@ -18,7 +19,10 @@ const path = computed(() =>
   }),
 );
 
-const color = computed(() => typeColor(props.data?.type ?? ""));
+// the type it carries in this graph: a generic node's output takes the type of its inputs
+const color = computed(() =>
+  typeColor(edgeType({ id: props.id, source: props.source, target: props.target, sourceHandle: props.sourceHandleId, targetHandle: props.targetHandleId, data: props.data } as never)),
+);
 
 // In live debug a wire is lit once its source port produced data, and shows the item count.
 const flow = computed(() => {

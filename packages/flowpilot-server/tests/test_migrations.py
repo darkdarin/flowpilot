@@ -141,5 +141,5 @@ def test_probes_and_converters_get_one_text_input() -> None:
         ("in.audio", "probe.audio"),
         ("stt.transcript", "conv.text"),  # the converter keeps its first input
     }
-    assert migrated["ui"]["nodes"]["probe_response"] == {"x": 10, "y": 140}
+    assert migrated["ui"]["nodes"]["probe_response"] == {"x": 10, "y": 250}
     assert migrate_graph(migrated) is migrated

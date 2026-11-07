@@ -18,6 +18,8 @@ import {
 } from "../store";
 import { fieldOptionTitles, fieldTitle, nodeDescription, nodeTitle, portDescription } from "../texts";
 import { currentTimings, fmtMs } from "../timing";
+import type { PortInfo } from "../api";
+import { portKind, portType } from "../porttypes";
 import { categoryColor, typeColor, typeShort } from "../types";
 import ClientInput from "./ClientInput.vue";
 
@@ -27,6 +29,11 @@ const spec = computed(() => specs.value.get(props.data.type));
 const problems = computed(() => nodeIssues.value.get(props.id) ?? []);
 const cautions = computed(() => nodeWarnings.value.get(props.id) ?? []);
 const run = computed(() => (debug.enabled ? currentTurn.value?.nodes[props.id] : undefined));
+
+/** A port's type in this graph: a union or generic port shows what is connected to it. */
+function shown(port: PortInfo, side: "inputs" | "outputs"): string {
+  return portType(props.id, port, side);
+}
 // the node's reaction (first input → first output) says more than its run time when audio
 // streams: every node then runs for the whole turn
 const timing = computed(() => (debug.enabled ? currentTimings.value[props.id] : undefined));
@@ -158,31 +165,31 @@ const summary = computed(() => {
 
     <div v-if="spec" class="ports">
       <div class="col in">
-        <div v-for="p in spec.inputs" :key="p.name" class="port" :style="{ '--pin': typeColor(p.type) }">
+        <div v-for="p in spec.inputs" :key="p.name" class="port" :style="{ '--pin': typeColor(shown(p, 'inputs')) }">
           <Handle
             :id="p.name"
             type="target"
             :position="Position.Left"
-            :class="[p.kind, { connected: connected.has(`in:${p.name}`) }]"
-            :title="portTip('inputs', p.name, p.type, p.kind)"
+            :class="[portKind(id, p, 'inputs'), { connected: connected.has(`in:${p.name}`) }]"
+            :title="portTip('inputs', p.name, shown(p, 'inputs'), portKind(id, p, 'inputs'))"
           />
-          <span class="label" :class="{ optional: !p.required }" :title="portTip('inputs', p.name, p.type, p.kind)">{{ p.name }}</span>
-          <span class="type">{{ typeShort(p.type) }}</span>
+          <span class="label" :class="{ optional: !p.required }" :title="portTip('inputs', p.name, shown(p, 'inputs'), portKind(id, p, 'inputs'))">{{ p.name }}</span>
+          <span class="type">{{ typeShort(shown(p, 'inputs')) }}</span>
         </div>
       </div>
       <div class="col out">
-        <div v-for="p in spec.outputs" :key="p.name" class="port" :style="{ '--pin': typeColor(p.type) }">
+        <div v-for="p in spec.outputs" :key="p.name" class="port" :style="{ '--pin': typeColor(shown(p, 'outputs')) }">
           <span v-if="portRun(p.name)" class="count" :class="portRun(p.name)!.state">
             {{ portRun(p.name)!.state === "absent" ? "–" : portRun(p.name)!.items }}
           </span>
-          <span class="type">{{ typeShort(p.type) }}</span>
-          <span class="label" :title="portTip('outputs', p.name, p.type, p.kind)">{{ p.name }}</span>
+          <span class="type">{{ typeShort(shown(p, 'outputs')) }}</span>
+          <span class="label" :title="portTip('outputs', p.name, shown(p, 'outputs'), portKind(id, p, 'outputs'))">{{ p.name }}</span>
           <Handle
             :id="p.name"
             type="source"
             :position="Position.Right"
-            :class="[p.kind, { connected: connected.has(`out:${p.name}`) }]"
-            :title="portTip('outputs', p.name, p.type, p.kind)"
+            :class="[portKind(id, p, 'outputs'), { connected: connected.has(`out:${p.name}`) }]"
+            :title="portTip('outputs', p.name, shown(p, 'outputs'), portKind(id, p, 'outputs'))"
           />
         </div>
       </div>
@@ -213,7 +220,7 @@ const summary = computed(() => {
       </div>
       <div v-for="item in tapView.texts" :key="item.port" class="tap-text">
         <div class="tap-head">
-          <code>{{ item.port }}</code>
+          <code :style="item.type ? { color: typeColor(item.type) } : {}">{{ item.type ? typeShort(item.type) : item.port }}</code>
           <span v-if="item.items > 1">{{ t("node.tapPieces", { n: item.items }) }}</span>
           <span v-if="item.partials">{{ t("node.tapPartials", { n: item.partials }) }}</span>
         </div>

@@ -29,7 +29,7 @@ from flowpilot_core import (
 )
 from flowpilot_core.runtime import Deployment, MemorySessionStore, TraceSink
 from flowpilot_sdk import registered_types
-from flowpilot_sdk.types import PRIVILEGED_TYPES
+from flowpilot_sdk.types import PRIVILEGED_TYPES, type_kind
 
 from .memory_store import MemoryStore
 from .migrations import migrate_graph
@@ -321,6 +321,8 @@ class GraphManager:
                         "required": port.required,
                         "delivery": port.delivery,
                         "description": port.description,
+                        # a union port takes any of "a/1|b/1"; ports with one var carry one type
+                        **({"var": port.var} if port.var else {}),
                     }
                     for name, port in p.items()
                 ]
@@ -347,7 +349,11 @@ class GraphManager:
                 }
             )
         types = [
-            {"id": type_id, "privileged": type_id in PRIVILEGED_TYPES}
+            {
+                "id": type_id,
+                "privileged": type_id in PRIVILEGED_TYPES,
+                "kind": type_kind(type_id),
+            }
             for type_id in sorted(registered_types())
         ]
         return {"nodes": nodes, "types": types}
