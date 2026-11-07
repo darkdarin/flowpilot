@@ -4,6 +4,23 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.15
+
+### App
+
+- No changes, no need to update.
+
+### Integration
+
+- **The LLM agent plays music with Music Assistant.** Home Assistant's own tools for language
+  models can pause or skip, but not find and start music; FlowPilot Assist adds a tool that does.
+  Ask for a song, an artist, an album, a playlist or a radio station, even misspelled: Music
+  Assistant searches every source and your library's playlists, and the best match plays at once
+  (with several close matches the agent asks which). Without a place, it plays on the Music
+  Assistant player in the room of the speaker that heard you; "play some music" plays the
+  library's endless mix, or the music the agent remembers you like. Only players exposed to Assist
+  are used. Restart Home Assistant after updating.
+
 ## 0.1.14
 
 ### App

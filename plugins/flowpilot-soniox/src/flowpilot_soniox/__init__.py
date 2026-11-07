@@ -8,7 +8,7 @@ from .common import SonioxError
 from .stt import SonioxStt
 from .tts import SonioxTts
 
-__version__ = "0.1.14"
+__version__ = "0.1.15"
 
 
 def nodes() -> list[type[Node]]:
