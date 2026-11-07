@@ -4,6 +4,23 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.14
+
+### App
+
+- **The LLM agent controls the home.** It gets Home Assistant's own tools for language models
+  (the same that Home Assistant's OpenAI or Ollama conversation agents get): turning devices on
+  and off, brightness, climate, media, the current state of the home, timers on satellites. Only
+  entities exposed to Assist (Settings → Voice assistants → Expose) can be used, and Home Assistant
+  runs every action as the person who speaks; on a satellite, "here" means its area. The new
+  setting **Controls the home** (under Tools, on by default) turns it off. Needs a model with
+  function calling and the integration of this version.
+
+### Integration
+
+- Gives the app Home Assistant's tools for language models and runs them for the LLM agent.
+  Update it together with the app, then restart Home Assistant.
+
 ## 0.1.13
 
 ### App
