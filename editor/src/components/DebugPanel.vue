@@ -326,6 +326,10 @@ function status(s: string) {
   --kind: var(--warn);
 }
 
+.entry.quick {
+  --kind: var(--cat-io, var(--ok));
+}
+
 .entry.memory {
   --kind: var(--ok);
 }

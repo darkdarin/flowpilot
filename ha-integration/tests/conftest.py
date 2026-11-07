@@ -22,6 +22,7 @@ from flowpilot_sdk import Node
 from flowpilot_server.answer import FixedAnswer
 from flowpilot_server.devnodes import DEV_NODES
 from flowpilot_server.nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
+from flowpilot_server.quick import HaQuickCommands
 from flowpilot_server.server import FlowPilotServer
 
 # The test harness puts its own ``custom_components`` package first on sys.path; add ours to it.
@@ -109,7 +110,8 @@ async def _runtime(
 ) -> AsyncIterator[Runtime]:
     registry = register_builtin(NodeRegistry())
     classes: list[type[Node]] = [
-        ClientSource, ClientSink, HaConversation, HaStt, HaTts, FixedAnswer, *DEV_NODES
+        ClientSource, ClientSink, HaConversation, HaQuickCommands, HaStt, HaTts, FixedAnswer,
+        *DEV_NODES,
     ]  # fmt: skip
     if "llm.agent" in extra:
         from flowpilot_llm import LlmAgent  # noqa: PLC0415 - only the tests that need it
