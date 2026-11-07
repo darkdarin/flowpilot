@@ -4,6 +4,21 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.16
+
+### App
+
+- **The LLM agent's journal in live debug.** Select the agent (on the canvas or in the waterfall)
+  and a journal opens next to the waterfall: the facts and the dialogue it used, the whole prompt
+  sent to the model, every model request and answer, and every tool call with its arguments,
+  result and time (remembering, controlling the home, playing music). Failed calls stand out.
+  The journal is written only while live debug is on; otherwise what people said stays out of the
+  trace, as before.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.15
 
 ### App

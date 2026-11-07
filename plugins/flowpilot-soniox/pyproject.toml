@@ -1,6 +1,6 @@
 [project]
 name = "flowpilot-soniox"
-version = "0.1.15"
+version = "0.1.16"
 description = "FlowPilot Soniox nodes: real-time speech-to-text and text-to-speech"
 readme = "README.md"
 license = "Apache-2.0"
