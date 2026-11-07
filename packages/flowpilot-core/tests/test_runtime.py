@@ -300,3 +300,23 @@ async def test_host_audio_in_and_out() -> None:
         assert audio.format == AudioFormat(16000)
         assert [c async for c in audio] == [b"ab", b"cd"]
         assert await audio.result() == {"done": True}
+
+
+async def test_outputs_report_when_they_end_not_when_the_node_returns() -> None:
+    """Live debug times an output by its own end: a value sent early ends then, not later."""
+    from flowpilot_core.runtime.streams import RuntimeOutputStream
+    from flowpilot_sdk import PortSpec, Utterance
+
+    ended: list[tuple[str, int, str]] = []
+
+    def output(name: str) -> RuntimeOutputStream:
+        spec = PortSpec("text.utterance/1", kind="value")
+        return RuntimeOutputStream("n", name, spec, [], "t", on_end=lambda *a: ended.append(a))
+
+    sent, unused, broken = output("sent"), output("unused"), output("broken")
+    await sent.send(Utterance("hi", "en"))
+    assert ended == [("sent", 1, "end")]  # at once, before the node goes on
+    await sent.end()  # ending twice reports once
+    await unused.end()
+    await broken.fail("boom")
+    assert ended[1:] == [("unused", 0, "absent"), ("broken", 0, "error")]

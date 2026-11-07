@@ -30,6 +30,7 @@ class RuntimeOutputStream:
         channels: list[Channel],
         turn_id: str,
         on_first_item: Callable[[str], None] | None = None,
+        on_end: Callable[[str, int, str], None] | None = None,
     ) -> None:
         self.node_id = node_id
         self.name = name
@@ -40,6 +41,9 @@ class RuntimeOutputStream:
         self.state: State = "pending"
         self.opened = False
         self._on_first_item = on_first_item
+        # called once when the output ends: (port, items, "end" | "error" | "absent"); the time
+        # an output ends is how long the node took with it, not when the node returned
+        self._on_end = on_end
 
     @property
     def items(self) -> int:
@@ -78,13 +82,19 @@ class RuntimeOutputStream:
         if self.state in ("ended", "failed"):
             return
         self.state = "ended"
+        self._ended("end" if self.opened else "absent")
         await self._broadcast(End())
 
     async def fail(self, reason: str) -> None:
         if self.state in ("ended", "failed"):
             return
         self.state = "failed"
+        self._ended("error")
         await self._broadcast(Fail(reason))
+
+    def _ended(self, state: str) -> None:
+        if self._on_end is not None:
+            self._on_end(self.name, self._seq, state)
 
 
 class RuntimeInputStream:

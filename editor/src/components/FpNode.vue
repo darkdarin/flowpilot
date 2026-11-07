@@ -17,6 +17,7 @@ import {
   type FpNodeData,
 } from "../store";
 import { fieldOptionTitles, fieldTitle, nodeDescription, nodeTitle, portDescription } from "../texts";
+import { currentTimings, fmtMs } from "../timing";
 import { categoryColor, typeColor, typeShort } from "../types";
 import ClientInput from "./ClientInput.vue";
 
@@ -26,6 +27,27 @@ const spec = computed(() => specs.value.get(props.data.type));
 const problems = computed(() => nodeIssues.value.get(props.id) ?? []);
 const cautions = computed(() => nodeWarnings.value.get(props.id) ?? []);
 const run = computed(() => (debug.enabled ? currentTurn.value?.nodes[props.id] : undefined));
+// the node's reaction (first input → first output) says more than its run time when audio
+// streams: every node then runs for the whole turn
+const timing = computed(() => (debug.enabled ? currentTimings.value[props.id] : undefined));
+const runBadge = computed(() => {
+  const r = run.value;
+  if (!r) return null;
+  const tm = timing.value;
+  const lines = [
+    tm?.reaction !== undefined ? `${t("debug.reaction")}: ${fmtMs(tm.reaction)}` : "",
+    tm?.tail !== undefined ? `${t("debug.tail")}: ${fmtMs(tm.tail)}` : "",
+    r.durationMs !== undefined ? `${t("node.ran")}: ${fmtMs(r.durationMs)}` : "",
+    r.error ?? "",
+  ].filter(Boolean);
+  const text =
+    r.status === "running"
+      ? t("status.running")
+      : tm?.reaction !== undefined
+        ? `⚡ ${fmtMs(tm.reaction)}`
+        : fmtMs(r.durationMs ?? 0);
+  return { text, title: lines.join("\n") };
+});
 
 // A debug tap idles (greyed out, nothing reaches it) until live debug is on; then it shows what it
 // recorded or saw in the selected turn.
@@ -126,10 +148,7 @@ const summary = computed(() => {
           !
         </span>
         <span v-if="idle" class="badge hint" :title="t('node.tapIdle')" :aria-label="t('node.tapIdle')">?</span>
-        <span v-if="run" class="badge run" :title="run.error ?? ''">
-          <template v-if="run.status === 'running'">{{ t("status.running") }}</template>
-          <template v-else>{{ (run.durationMs ?? 0) < 10 ? (run.durationMs ?? 0).toFixed(1) : Math.round(run.durationMs ?? 0) }} ms</template>
-        </span>
+        <span v-if="runBadge" class="badge run" :title="runBadge.title">{{ runBadge.text }}</span>
       </div>
       <div class="sub">
         <code>{{ id }}</code>

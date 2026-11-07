@@ -3,7 +3,8 @@
 import { computed, onBeforeUnmount } from "vue";
 import { t } from "../i18n";
 import { download, play, playing, removeRecording, stopPlaying } from "../playback";
-import { currentTurn, debug, nodes, selectedId, specs } from "../store";
+import { currentTurn, debug, edges, nodes, selectedId, specs } from "../store";
+import { currentTimings as timings, fmtMs, turnTiming } from "../timing";
 import { categoryColor } from "../types";
 
 const rows = computed(() => {
@@ -17,6 +18,34 @@ const rows = computed(() => {
     .sort((a, b) => a.run.startMs - b.run.startMs);
 });
 
+
+/** The turn's answer delays: from the end of speech (or the typed text) to text and sound. */
+const headline = computed(() => {
+  const turn = currentTurn.value;
+  if (!turn) return null;
+  const tt = turnTiming(turn, nodes.value, edges.value);
+  if (tt.from === undefined || (tt.firstText === undefined && tt.firstSound === undefined)) return null;
+  const after = (v: number | undefined) => (v === undefined ? undefined : fmtMs(Math.max(0, v - tt.from!)));
+  return {
+    label: t(tt.speechEnd !== undefined ? "debug.speechToText" : "debug.textToText"),
+    text: after(tt.firstText),
+    sound: after(tt.firstSound),
+  };
+});
+
+function nodeTitle(id: string, run: { durationMs?: number; error?: string }): string {
+  const tm = timings.value[id] ?? {};
+  const at = (v: number | undefined) => (v === undefined ? "—" : fmtMs(v));
+  const details = t("debug.nodeTiming", {
+    inFirst: at(tm.inFirst),
+    outFirst: at(tm.outFirst),
+    inEnd: at(tm.inEnd),
+    outEnd: at(tm.outEnd),
+    run: at(run.durationMs),
+  });
+  return run.error ? `${run.error}\n${details}` : details;
+}
+
 const span = computed(() => {
   const turn = currentTurn.value;
   if (!turn) return 1;
@@ -24,8 +53,20 @@ const span = computed(() => {
   return Math.max(turn.durationMs ?? 0, ...ends, 1);
 });
 
-function ms(value: number) {
-  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ms`;
+const ms = fmtMs;
+
+/** The node's solid bar: while its output flowed (first output → end), else its whole run. */
+function barStyle(row: { id: string; category: string; run: { startMs: number; durationMs?: number; status: string } }) {
+  const tm = timings.value[row.id] ?? {};
+  const failed = !["ok", "running"].includes(row.run.status);
+  const start = !failed && tm.outFirst !== undefined ? tm.outFirst : row.run.startMs;
+  const runEnd = row.run.durationMs !== undefined ? row.run.startMs + row.run.durationMs : undefined;
+  const end = !failed && tm.outEnd !== undefined ? tm.outEnd : runEnd;
+  return {
+    left: pct(start),
+    width: end !== undefined ? `max(3px, ${pct(Math.max(0, end - start))})` : `calc(100% - ${pct(start)})`,
+    "--cat": categoryColor(row.category),
+  };
 }
 
 function pct(ms: number) {
@@ -84,10 +125,20 @@ function status(s: string) {
           </button>
         </span>
       </div>
-      <div class="axis">
-        <span>0</span>
-        <span>{{ ms(span / 2) }}</span>
-        <span>{{ ms(span) }}</span>
+      <p v-if="headline" class="headline">
+        {{ headline.label }}
+        <b v-if="headline.text">{{ headline.text }}</b>
+        <template v-if="headline.sound"> · {{ t("debug.toSound") }} <b>{{ headline.sound }}</b></template>
+      </p>
+      <div class="head">
+        <span />
+        <div class="axis">
+          <span>0</span>
+          <span>{{ ms(span / 2) }}</span>
+          <span>{{ ms(span) }}</span>
+        </div>
+        <span class="col" :title="t('debug.reactionHint')">{{ t("debug.reaction") }}</span>
+        <span class="col" :title="t('debug.tailHint')">{{ t("debug.tail") }}</span>
       </div>
       <button
         v-for="row in rows"
@@ -97,16 +148,32 @@ function status(s: string) {
         @click="selectedId = row.id"
       >
         <code class="nid">{{ row.id }}</code>
-        <span class="track">
+        <span class="track" :title="nodeTitle(row.id, row.run)">
+          <span
+            class="alive"
+            :style="{
+              left: pct(row.run.startMs),
+              width: row.run.durationMs !== undefined ? `max(2px, ${pct(row.run.durationMs)})` : `calc(100% - ${pct(row.run.startMs)})`,
+            }"
+          />
+          <span
+            v-if="timings[row.id]?.inFirst !== undefined && timings[row.id]?.outFirst !== undefined"
+            class="wait"
+            :style="{
+              left: pct(timings[row.id].inFirst!),
+              width: pct(Math.max(0, timings[row.id].outFirst! - timings[row.id].inFirst!)),
+              '--cat': categoryColor(row.category),
+            }"
+          />
           <span
             class="bar"
             :class="`s-${row.run.status}`"
-            :style="{
-              left: pct(row.run.startMs),
-              width: row.run.durationMs !== undefined ? `max(3px, ${pct(row.run.durationMs)})` : `calc(100% - ${pct(row.run.startMs)})`,
-              '--cat': categoryColor(row.category),
-            }"
-            :title="row.run.error ?? ''"
+            :style="barStyle(row)"
+          />
+          <span
+            v-if="timings[row.id]?.inEnd !== undefined"
+            class="in-end"
+            :style="{ left: pct(timings[row.id].inEnd!) }"
           />
           <span
             v-for="call in currentTurn.hostCalls.filter((c) => c.node === row.id)"
@@ -116,7 +183,8 @@ function status(s: string) {
             :title="call.op"
           />
         </span>
-        <span class="dur">{{ row.run.durationMs !== undefined ? ms(row.run.durationMs) : "…" }}</span>
+        <span class="dur" :title="t('debug.reactionHint')">{{ timings[row.id]?.reaction !== undefined ? ms(timings[row.id].reaction!) : "" }}</span>
+        <span class="dur" :title="t('debug.tailHint')">{{ timings[row.id]?.tail !== undefined ? ms(timings[row.id].tail!) : "" }}</span>
       </button>
     </div>
   </section>
@@ -294,22 +362,44 @@ function status(s: string) {
   font-variant-numeric: tabular-nums;
 }
 
-.axis {
-  display: flex;
-  justify-content: space-between;
-  margin-left: 130px;
-  margin-right: 70px;
-  color: var(--faint);
-  font-size: 11px;
+.headline {
+  margin: 0 0 8px 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.headline b {
+  color: var(--text);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+.head {
+  display: grid;
+  grid-template-columns: 130px 1fr 78px 78px;
+  align-items: end;
   border-bottom: 1px solid var(--line);
   padding-bottom: 3px;
   margin-bottom: 4px;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.axis {
+  display: flex;
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+}
+
+.col {
+  text-align: right;
+  padding-right: 6px;
+  cursor: help;
 }
 
 .row {
   display: grid;
-  grid-template-columns: 130px 1fr 70px;
+  grid-template-columns: 130px 1fr 78px 78px;
   align-items: center;
   width: 100%;
   height: 24px;
@@ -339,6 +429,32 @@ function status(s: string) {
 .track {
   position: relative;
   height: 12px;
+}
+
+.alive {
+  position: absolute;
+  top: 3px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+}
+
+/* from the first input to the first output: the node's reaction */
+.wait {
+  position: absolute;
+  top: 5px;
+  height: 2px;
+  background: var(--cat);
+  opacity: 0.6;
+}
+
+/* the input ended here; the bar after it is what the node still did */
+.in-end {
+  position: absolute;
+  top: -1px;
+  width: 0;
+  height: 14px;
+  border-left: 1.5px dashed var(--muted);
 }
 
 .bar {

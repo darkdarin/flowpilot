@@ -37,6 +37,8 @@ export interface PortRun {
   items: number;
   state: string; // flowing | end | error | absent
   firstMs?: number;
+  /** when the output ended (ms from the turn's start) */
+  endMs?: number;
 }
 
 export interface TurnRun {
@@ -547,6 +549,7 @@ function onTrace(msg: TraceMsg | { type: string; graph?: string }) {
         ...turn.ports[key],
         items: Number(ev.attrs.items),
         state: String(ev.attrs.state),
+        endMs: ev.t_ms,
       };
       break;
     }

@@ -307,6 +307,7 @@ class Deployment:
                     ],
                     turn_id,
                     on_first_item=self._first_item_tracer(turn_id, node_id),
+                    on_end=self._end_tracer(turn_id, node_id),
                 )
                 for name, port in spec.outputs.items()
             }
@@ -351,6 +352,13 @@ class Deployment:
 
         return on_first_item
 
+    def _end_tracer(self, turn_id: str, node_id: str) -> Any:
+        def on_end(port: str, items: int, state: str) -> None:
+            attrs = {"port": port, "items": items, "state": state}
+            self.trace.emit(TraceEvent(turn_id, "port.end", node_id, attrs=attrs))
+
+        return on_end
+
     async def _run_node(
         self, node_id: str, turn: RuntimeTurnSession, outcomes: dict[str, NodeOutcome]
     ) -> None:
@@ -375,16 +383,6 @@ class Deployment:
             await asyncio.shield(self._finish_node(turn, status, error))
             outcome = NodeOutcome(status, (time.monotonic() - started) * 1000, error)
             outcomes[node_id] = outcome
-            for name, out in turn._outputs.items():
-                state = "error" if out.state == "failed" else "end" if out.opened else "absent"
-                self.trace.emit(
-                    TraceEvent(
-                        turn_id,
-                        "port.end",
-                        node_id,
-                        attrs={"port": name, "items": out.items, "state": state},
-                    )
-                )
             self.trace.emit(
                 TraceEvent(
                     turn_id,
