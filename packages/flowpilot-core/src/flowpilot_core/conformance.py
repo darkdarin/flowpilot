@@ -41,6 +41,7 @@ from flowpilot_sdk import (
     TurnContext,
     new_ulid,
 )
+from flowpilot_sdk.types import type_id_of
 
 from .runtime.channel import Channel, End, Fail, Item, Message, Open
 from .runtime.deployment import (
@@ -202,7 +203,9 @@ async def run_node_once(
         channel = Channel(port.buffer, latest=port.delivery == "latest")
         in_streams[name] = RuntimeInputStream(name, port, channel)
         feed = inputs.get(name, InputFeed(end="absent"))
-        feeders.append(asyncio.create_task(_feed(channel, port.type, feed, ctx.turn_id)))
+        # a union input carries the type of what is fed to it
+        fed = type_id_of(type(feed.items[0])) if port.is_union and feed.items else port.types[0]
+        feeders.append(asyncio.create_task(_feed(channel, fed, feed, ctx.turn_id)))
 
     captured: dict[str, CapturedOutput] = {}
     out_streams: dict[str, RuntimeOutputStream] = {}

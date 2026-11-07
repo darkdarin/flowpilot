@@ -80,7 +80,7 @@ class Transcript:
     confidence: float | None = None
 
 
-@payload_type("text.utterance/1")
+@payload_type("text.utterance/1", kind="value")
 @dataclass(frozen=True, slots=True)
 class Utterance:
     """The finished text of a user turn, from speech recognition or a text input."""
@@ -111,7 +111,7 @@ class SpeakerStatus(StrEnum):
     ERROR = "error"
 
 
-@payload_type("identity.speaker/1")
+@payload_type("identity.speaker/1", kind="value")
 @dataclass(frozen=True, slots=True)
 class SpeakerMatch:
     """Raw speaker identification result. Not an authorization source by itself."""
@@ -147,7 +147,7 @@ class Evidence:
     detail: Mapping[str, Any] = field(default_factory=dict)
 
 
-@payload_type("identity.principal/1", privileged_grant=IDENTITY_PROVIDER_GRANT)
+@payload_type("identity.principal/1", privileged_grant=IDENTITY_PROVIDER_GRANT, kind="value")
 @dataclass(frozen=True, slots=True)
 class Principal:
     """Who is acting in this turn and with which roles.
@@ -174,7 +174,7 @@ class Principal:
 # --- agent ---------------------------------------------------------------------------------------
 
 
-@payload_type("agent.response/1")
+@payload_type("agent.response/1", kind="value")
 @dataclass(frozen=True, slots=True)
 class Response:
     """Final agent response. ``speech_text`` overrides what is spoken; ``text`` is what is shown."""

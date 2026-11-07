@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any, Literal
 
 from flowpilot_sdk import Envelope, PortSpec, StreamError, StreamHeader
-from flowpilot_sdk.types import type_id_of
+from flowpilot_sdk.types import type_id_of, type_kind
 
 from .channel import Channel, End, Fail, Item, Open
 
@@ -40,6 +40,7 @@ class RuntimeOutputStream:
         self._seq = 0
         self.state: State = "pending"
         self.opened = False
+        self._type = spec.type
         self._on_first_item = on_first_item
         # called once when the output ends: (port, items, "end" | "error" | "absent"); the time
         # an output ends is how long the node took with it, not when the node returned
@@ -54,20 +55,31 @@ class RuntimeOutputStream:
             await ch.put(msg)
 
     async def open(self, meta: Mapping[str, Any] | None = None) -> None:
+        if self.spec.is_union:
+            # which of its types it carries is known from the first payload
+            raise RuntimeError(
+                f"output {self.node_id}.{self.name} takes several types: send to open it"
+            )
+        await self._open(self.spec.type, meta)
+
+    async def _open(self, type_id: str, meta: Mapping[str, Any] | None = None) -> None:
         if self.state != "pending":
             raise RuntimeError(f"output {self.node_id}.{self.name} is already {self.state}")
         self.state = "open"
         self.opened = True
-        await self._broadcast(Open(StreamHeader(self.spec.type, dict(meta or {}))))
+        self._type = type_id
+        await self._broadcast(Open(StreamHeader(type_id, dict(meta or {}))))
 
     async def send(self, payload: Any) -> None:
-        if type_id_of(type(payload)) != self.spec.type:
+        sent = type_id_of(type(payload))
+        if sent not in self.spec.types or (self.state == "open" and sent != self._type):
             raise TypeError(
-                f"output {self.node_id}.{self.name} expects {self.spec.type}, "
+                f"output {self.node_id}.{self.name} expects "
+                f"{self._type if self.state == 'open' else self.spec.type}, "
                 f"got {type(payload).__name__}"
             )
         if self.state == "pending":
-            await self.open()
+            await self._open(sent)
         elif self.state != "open":
             raise RuntimeError(f"output {self.node_id}.{self.name} is already {self.state}")
         if self._seq == 0 and self._on_first_item is not None:
@@ -75,7 +87,7 @@ class RuntimeOutputStream:
         envelope = Envelope(self._turn_id, self._seq, time.monotonic_ns(), payload)
         self._seq += 1
         await self._broadcast(Item(envelope))
-        if self.spec.kind == "value":
+        if (type_kind(sent) if self.spec.is_union else self.spec.kind) == "value":
             await self.end()
 
     async def end(self) -> None:
@@ -151,7 +163,16 @@ class RuntimeInputStream:
                 self._state = "ended"
 
     async def value(self) -> Any | None:
-        if self.spec.kind != "value":
+        kind = self.spec.kind
+        if self.spec.is_union:  # the kind of what is connected
+            try:
+                header = await self.header()
+            except StreamError:
+                return None
+            if header is None:
+                return None
+            kind = type_kind(header.type)
+        if kind != "value":
             raise TypeError(f"input {self.name!r} is a stream port; iterate it instead")
         if self._value is _UNSET:
             self._value = None

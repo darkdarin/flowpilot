@@ -7,7 +7,7 @@ import logging
 import time
 from collections.abc import AsyncIterable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
@@ -18,9 +18,11 @@ from flowpilot_sdk import (
     HostUnavailable,
     Memory,
     Node,
+    PortSpec,
     SessionInfo,
     SessionState,
     TurnContext,
+    type_kind,
 )
 
 from ..registry import NodeRegistry
@@ -29,6 +31,17 @@ from .channel import Channel
 from .state import MemorySessionStore, SessionStateView
 from .streams import RuntimeInputStream, RuntimeOutputStream
 from .trace import NullTraceSink, TraceEvent, TraceSink
+
+
+def _concrete(
+    port: PortSpec, resolved: Mapping[tuple[str, str, str], str], key: tuple[str, str, str]
+) -> PortSpec:
+    """A union port as the one type it carries in this graph, when validation resolved it."""
+    given = resolved.get(key)
+    if not port.is_union or given is None:
+        return port
+    return replace(port, type=given, kind=type_kind(given), var=None)
+
 
 # Session state every node shares (``TurnSession.shared``): node types are "a.b", never this.
 SHARED_NAMESPACE = "~shared"
@@ -299,14 +312,18 @@ class Deployment:
         for node_id in running:
             spec = g.specs[node_id]
             inputs = {
-                name: RuntimeInputStream(name, port, channels.get((node_id, name)))
+                name: RuntimeInputStream(
+                    name,
+                    _concrete(port, g.port_types, ("in", node_id, name)),
+                    channels.get((node_id, name)),
+                )
                 for name, port in spec.inputs.items()
             }
             outputs = {
                 name: RuntimeOutputStream(
                     node_id,
                     name,
-                    port,
+                    _concrete(port, g.port_types, ("out", node_id, name)),
                     [
                         channels[(e.dst.node, e.dst.port)]
                         for e in g.outgoing.get(node_id, {}).get(name, ())

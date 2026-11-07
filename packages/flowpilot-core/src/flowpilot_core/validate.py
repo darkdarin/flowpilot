@@ -11,7 +11,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
-from flowpilot_sdk import NodeSpec, PortSpec
+from flowpilot_sdk import NodeSpec, PortSpec, type_kind
 
 from .errors import GraphError, GraphIssue
 from .graph import EdgeDecl, Graph
@@ -47,6 +47,10 @@ class ValidatedGraph:
     outgoing: Mapping[str, Mapping[str, tuple[EdgeDecl, ...]]]  # node id -> output -> edges
     secret_refs: Mapping[str, frozenset[str]]  # node id -> referenced secret names
     source: str  # node id of the single input adapter
+    # The one payload type a connected port carries in this graph, where it is known: ports of
+    # one type, and union ports resolved by a type variable or by what is connected. Keys are
+    # ("in" | "out", node id, port).
+    port_types: Mapping[tuple[str, str, str], str] = field(default_factory=dict)
 
 
 def secret_aware_schema(schema: Any) -> Any:
@@ -145,6 +149,7 @@ def validate_graph(
     adjacency: dict[str, set[str]] = {n.id: set() for n in graph.nodes}
     node_ids = set(adjacency)
 
+    wired: list[tuple[str, EdgeDecl, PortSpec, PortSpec]] = []
     for i, edge in enumerate(graph.edges):
         path = f"$.edges[{i}]"
         src_spec, dst_spec = specs.get(edge.src.node), specs.get(edge.dst.node)
@@ -164,18 +169,71 @@ def validate_graph(
             issue("unknown_port", f"{path}.to", f"{dst_spec.type} has no input {edge.dst.port!r}")
         if src_port is None or dst_port is None:
             continue
-        if src_port.type != dst_port.type:
+        wired.append((path, edge, src_port, dst_port))
+
+    # Type variables: a generic node's inputs with the same variable take the type connected to
+    # the first of them, and its outputs with it give that type. Bindings flow along the edges.
+    bindings: dict[tuple[str, str], str] = {}
+
+    def carried(node: str, port: PortSpec) -> str | None:
+        """The one type an output gives in this graph, if known."""
+        if port.var:
+            return bindings.get((node, port.var))
+        return None if port.is_union else port.type
+
+    changed = True
+    while changed:
+        changed = False
+        for _, edge, src_port, dst_port in wired:
+            given = carried(edge.src.node, src_port)
+            key = (edge.dst.node, dst_port.var or "")
+            if given and dst_port.var and key not in bindings and given in dst_port.types:
+                bindings[key] = given
+                changed = True
+
+    def kind_of(port: PortSpec, given: str | None) -> str | None:
+        if not port.is_union:
+            return port.kind
+        try:
+            return type_kind(given) if given else None
+        except LookupError:
+            return None
+
+    port_types: dict[tuple[str, str, str], str] = {}
+    for path, edge, src_port, dst_port in wired:
+        given = carried(edge.src.node, src_port)
+        if src_port.var and given is None:
+            issue(
+                "generic_unresolved",
+                path,
+                f"{edge.src} gives the type connected to the inputs of {edge.src.node}: "
+                "connect one of them",
+            )
+            continue
+        types = (given,) if given else src_port.types
+        if not set(types) <= set(dst_port.types):
             issue(
                 "type_mismatch",
                 path,
-                f"{edge.src} ({src_port.type}) cannot connect to {edge.dst} ({dst_port.type})",
+                f"{edge.src} ({given or src_port.type}) cannot connect to {edge.dst} "
+                f"({dst_port.type})",
             )
             continue
-        if src_port.kind != dst_port.kind:
+        bound = bindings.get((edge.dst.node, dst_port.var)) if dst_port.var else None
+        if bound and given and given != bound:
+            issue(
+                "generic_mismatch",
+                path,
+                f"{edge.dst} must take the same type as the other inputs of {edge.dst.node} "
+                f"({bound}), not {given}",
+            )
+            continue
+        src_kind, dst_kind = kind_of(src_port, given), kind_of(dst_port, given)
+        if src_kind and dst_kind and src_kind != dst_kind:
             issue(
                 "kind_mismatch",
                 path,
-                f"{edge.src} is a {src_port.kind} port, {edge.dst} is a {dst_port.kind} port",
+                f"{edge.src} is a {src_kind} port, {edge.dst} is a {dst_kind} port",
             )
             continue
         if edge.dst.port in incoming[edge.dst.node]:
@@ -184,6 +242,9 @@ def validate_graph(
         incoming[edge.dst.node][edge.dst.port] = edge
         outgoing[edge.src.node][edge.src.port].append(edge)
         adjacency[edge.src.node].add(edge.dst.node)
+        if given:
+            port_types[("out", edge.src.node, edge.src.port)] = given
+            port_types[("in", edge.dst.node, edge.dst.port)] = given
 
     for i, node in enumerate(graph.nodes):
         spec = specs.get(node.id)
@@ -212,6 +273,7 @@ def validate_graph(
         outgoing={k: {p: tuple(es) for p, es in v.items()} for k, v in outgoing.items()},
         secret_refs=secret_refs,
         source=sources[0],
+        port_types=port_types,
     )
 
 

@@ -11,6 +11,7 @@ from .node import (
     LOG_EVENT,
     NODE_OPTIONS_KEY,
     OPTIONS_KEY,
+    TEXT,
     ConfigOption,
     Node,
     NodeContext,
@@ -37,10 +38,14 @@ from .streams import Envelope, InputStream, OutputStream, StreamError, StreamHea
 from .text import FieldText, NodeText, node_translations
 from .types import (
     PRIVILEGED_TYPES,
+    Kind,
     payload_class,
     payload_type,
     registered_types,
     type_id_of,
+    type_kind,
+    union,
+    union_members,
     validate_type_id,
 )
 
@@ -54,6 +59,11 @@ __all__ = [
     "GROUP_KEY",
     "GROUPS_KEY",
     "LOG_EVENT",
+    "TEXT",
+    "Kind",
+    "type_kind",
+    "union",
+    "union_members",
     "ConfigOption",
     "NODE_OPTIONS_KEY",
     "FieldText",

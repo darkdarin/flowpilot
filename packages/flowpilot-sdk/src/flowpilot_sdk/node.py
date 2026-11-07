@@ -16,7 +16,11 @@ from .memory import Memory
 from .payloads import AudioFormat
 from .streams import InputStream, OutputStream
 from .text import LANGUAGE_RE, NodeText
-from .types import PRIVILEGED_TYPES, validate_type_id
+from .types import PRIVILEGED_TYPES, union, union_members, validate_type_id
+
+# Any text: what speech-to-text heard, an utterance, a text stream, an agent's answer. A port of
+# this type takes whichever is connected; with ``var`` the node passes the same type on.
+TEXT = union("text.transcript/1", "text.utterance/1", "text.delta/1", "agent.response/1")
 
 NODE_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
 PORT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -28,7 +32,14 @@ Isolation = Literal["in_process", "subprocess", "any"]
 
 @dataclass(frozen=True, slots=True)
 class PortSpec:
-    """A typed port of a node."""
+    """A typed port of a node.
+
+    ``type`` is one payload type id, or a union of them (``"a/1|b/1"``, e.g. ``TEXT``): such a
+    port takes any of them, and its kind is that of the type connected (``kind`` applies to
+    one-type ports). ``var`` makes the node generic: its ports with the same ``var`` carry the
+    same type in a graph, the one connected to its inputs; an output with ``var`` has the type
+    of the inputs with it.
+    """
 
     type: str
     kind: Literal["stream", "value"] = "stream"
@@ -36,11 +47,27 @@ class PortSpec:
     delivery: Literal["lossless", "latest"] = "lossless"
     buffer: int = 32
     description: str = ""  # English; translations in NodeSpec.translations
+    var: str | None = None
 
     def __post_init__(self) -> None:
-        validate_type_id(self.type)
+        members = union_members(self.type)
+        for member in members:
+            validate_type_id(member)
+        if len(set(members)) != len(members):
+            raise ValueError(f"port type {self.type!r} repeats a type")
+        if self.var is not None and not self.var.isidentifier():
+            raise ValueError(f"invalid type variable {self.var!r}")
         if self.buffer < 1:
             raise ValueError("port buffer must be at least 1")
+
+    @property
+    def types(self) -> tuple[str, ...]:
+        """The payload types this port takes or gives."""
+        return union_members(self.type)
+
+    @property
+    def is_union(self) -> bool:
+        return len(self.types) > 1
 
 
 # JSON Schema keyword for a config property that names something a host provides, e.g.
@@ -127,12 +154,17 @@ class NodeSpec:
             if not PORT_NAME_RE.match(name):
                 raise ValueError(f"invalid port name {name!r} in {self.type}")
         for name, port in self.outputs.items():
-            grant = PRIVILEGED_TYPES.get(port.type)
-            if grant is not None and grant not in self.grants:
-                raise ValueError(
-                    f"{self.type}: output {name!r} of privileged type {port.type!r} "
-                    f"requires grant {grant!r}"
-                )
+            for member in port.types:
+                grant = PRIVILEGED_TYPES.get(member)
+                if grant is not None and grant not in self.grants:
+                    raise ValueError(
+                        f"{self.type}: output {name!r} of privileged type {member!r} "
+                        f"requires grant {grant!r}"
+                    )
+        inputs_vars = {p.var for p in self.inputs.values() if p.var}
+        for name, port in self.outputs.items():
+            if port.var and port.var not in inputs_vars:
+                raise ValueError(f"{self.type}: output {name!r} uses {port.var!r}, no input does")
         if self.turn_timeout_s is not None and self.turn_timeout_s <= 0:
             raise ValueError("turn_timeout_s must be positive")
         if self.debug_tap and (self.outputs or self.category != "debug"):

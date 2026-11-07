@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
+
+Kind = Literal["stream", "value"]
 
 TYPE_ID_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+/[1-9][0-9]*$")
 
@@ -16,6 +18,10 @@ _REGISTRY: dict[str, type[Any]] = {}
 
 # Payload types that grant rights. Only nodes holding the mapped grant may produce them.
 PRIVILEGED_TYPES: dict[str, str] = {}
+
+# How each type travels: a stream of items, or one value. Ports of one type declare their kind;
+# a port that takes several types (a union) gets the kind of the type connected to it.
+_KINDS: dict[str, Kind] = {}
 
 
 def validate_type_id(type_id: str) -> str:
@@ -28,9 +34,10 @@ def validate_type_id(type_id: str) -> str:
 
 
 def payload_type[C: type[Any]](
-    type_id: str, *, privileged_grant: str | None = None
+    type_id: str, *, privileged_grant: str | None = None, kind: Kind = "stream"
 ) -> Callable[[C], C]:
-    """Class decorator: register a payload dataclass under ``type_id``."""
+    """Class decorator: register a payload dataclass under ``type_id`` (``kind``: how it
+    travels when a port that takes several types carries it)."""
     validate_type_id(type_id)
 
     def register(cls: C) -> C:
@@ -38,6 +45,7 @@ def payload_type[C: type[Any]](
         if existing is not None and existing is not cls:
             raise ValueError(f"payload type id {type_id!r} is already registered by {existing!r}")
         _REGISTRY[type_id] = cls
+        _KINDS[type_id] = kind
         cls.TYPE_ID = type_id
         if privileged_grant is not None:
             PRIVILEGED_TYPES[type_id] = privileged_grant
@@ -65,3 +73,25 @@ def payload_class(type_id: str) -> type[Any]:
 def registered_types() -> dict[str, type[Any]]:
     """Return a snapshot of all registered payload types."""
     return dict(_REGISTRY)
+
+
+def type_kind(type_id: str) -> Kind:
+    """How a registered type travels on a port that takes several types."""
+    try:
+        return _KINDS[type_id]
+    except KeyError:
+        raise LookupError(f"unknown payload type id {type_id!r}") from None
+
+
+def union(*type_ids: str) -> str:
+    """A port type that takes any of ``type_ids``: ``"a/1|b/1"``."""
+    for type_id in type_ids:
+        validate_type_id(type_id)
+    if len(set(type_ids)) < 2:
+        raise ValueError("a union needs at least two different types")
+    return "|".join(type_ids)
+
+
+def union_members(port_type: str) -> tuple[str, ...]:
+    """The types a port type stands for: one, or the members of a union."""
+    return tuple(port_type.split("|"))
