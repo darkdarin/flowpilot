@@ -516,3 +516,29 @@ async def test_only_home_tools_and_known_people_teach() -> None:
     assert done and "люстра" in result and len(commands.all()) == 1
     result, done = await known.call("forget_quick_command", json.dumps({"phrase": "люстра"}))
     assert done and commands.all() == []
+
+
+async def test_changing_a_quick_command_never_makes_a_copy() -> None:
+    from flowpilot_llm.tools import Toolbox, command_tools
+    from flowpilot_server.commands_store import CommandStore
+
+    commands = CommandStore(None)
+    tools = Toolbox(command_tools(commands, "pavel", {"intent__HassTurnOn", "intent__HassTurnOff"}))
+    on = {"tool": "intent__HassTurnOn", "arguments": {"name": "ТВ"}}
+    off = {"tool": "intent__HassTurnOff", "arguments": {"area": "Гостиная"}}
+    await tools.call("save_quick_command", json.dumps({"phrases": ["режим кино"], "actions": [on]}))
+    # saved again with one of its phrases (and more): the same command changes
+    again = {"phrases": ["Режим кино!", "кино"], "actions": [off, on], "reply": "Приятного"}
+    result, ok = await tools.call("save_quick_command", json.dumps(again))
+    assert ok and result.startswith("updated")
+    [command] = commands.all()
+    assert command.phrases == ("Режим кино!", "кино") and len(command.actions) == 2
+
+    change = {"phrase": "кино", "add_phrases": ["фильм"], "remove_phrases": ["кино"], "reply": "Ок"}
+    result, ok = await tools.call("update_quick_command", json.dumps(change))
+    assert ok, result
+    [command] = commands.all()
+    assert command.phrases == ("Режим кино!", "фильм") and command.reply == "Ок"
+    assert len(command.actions) == 2  # kept: not asked to change them
+    _, ok = await tools.call("update_quick_command", json.dumps({"phrase": "нет такой"}))
+    assert not ok

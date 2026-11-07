@@ -79,11 +79,20 @@ class CommandStore:
         self._save()
         return command
 
-    def update(self, command_id: str, *, phrases: list[str], reply: str) -> QuickCommand:
+    def update(
+        self,
+        command_id: str,
+        *,
+        phrases: list[str],
+        reply: str,
+        actions: list[Action] | None = None,
+    ) -> QuickCommand:
+        old = self._commands[command_id]
         command = replace(
-            self._commands[command_id],
+            old,
             phrases=_phrases(phrases),
             reply=" ".join(str(reply).split())[:MAX_PHRASE_CHARS],
+            actions=_actions(actions) if actions is not None else old.actions,
         )
         self._commands[command_id] = command
         self._save()

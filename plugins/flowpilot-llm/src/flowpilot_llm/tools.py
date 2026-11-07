@@ -9,11 +9,12 @@ speaker, and nobody can see or forget another person's facts.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from flowpilot_sdk import MAX_FACT_CHARS, Action, Memory, QuickCommands
+from flowpilot_sdk import MAX_FACT_CHARS, Action, Memory, QuickCommand, QuickCommands
 from flowpilot_sdk.commands import MAX_PHRASE_CHARS
 
 
@@ -158,17 +159,29 @@ def command_tools(commands: QuickCommands, speaker: str | None, home: set[str]) 
     ``home`` are the Home Assistant tools of this turn: a command may only replay those.
     """
 
-    async def save(args: Mapping[str, Any]) -> str:
+    def norm(phrase: str) -> str:
+        return " ".join(re.sub(r"[^\w\s]", " ", phrase.casefold().replace("ё", "е")).split())
+
+    def known() -> None:
         if speaker is None:
             raise ValueError("it is not known who is speaking: only a known person may teach")
-        phrases = args.get("phrases")
-        if isinstance(phrases, str):
-            phrases = [phrases]
-        actions_in = args.get("actions")
-        if not isinstance(phrases, list) or not isinstance(actions_in, list):
-            raise ValueError("give phrases (a list) and actions (a list)")
+
+    def phrase_list(value: Any) -> list[str] | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return [value]
+        if not isinstance(value, list):
+            raise ValueError("phrases must be a list of strings")
+        return [str(p) for p in value]
+
+    def action_list(value: Any) -> list[Action] | None:
+        if value is None:
+            return None
+        if not isinstance(value, list):
+            raise ValueError("actions must be a list")
         actions = []
-        for item in actions_in:
+        for item in value:
             if not isinstance(item, Mapping) or str(item.get("tool")) not in home:
                 raise ValueError(
                     f"{item!r}: an action must be one of the Home Assistant tools you have"
@@ -177,14 +190,58 @@ def command_tools(commands: QuickCommands, speaker: str | None, home: set[str]) 
             if isinstance(arguments, str):
                 arguments = json.loads(arguments or "{}")
             actions.append(Action(str(item["tool"]), dict(arguments)))
-        command = commands.add(
-            [str(p) for p in phrases],
-            actions,
-            str(args.get("reply") or ""),
-            created_by=speaker,
-            source="llm.agent",
-        )
+        return actions
+
+    def having(phrases: list[str]) -> list[QuickCommand]:
+        """The commands that already have any of these phrases."""
+        wanted = {norm(p) for p in phrases}
+        return [c for c in commands.all() if wanted & {norm(p) for p in c.phrases}]
+
+    def find(phrase: str) -> QuickCommand:
+        wanted = norm(phrase)
+        if not wanted:
+            raise ValueError("say which command")
+        exact = [c for c in commands.all() if wanted in {norm(p) for p in c.phrases}]
+        found = exact or [c for c in commands.all() if any(wanted in norm(p) for p in c.phrases)]
+        if not found:
+            raise ValueError("no such quick command")
+        if len(found) > 1:
+            listed = "; ".join(c.phrases[0] for c in found[:5])
+            raise ValueError(f"several commands match, be more precise: {listed}")
+        return found[0]
+
+    async def save(args: Mapping[str, Any]) -> str:
+        known()
+        phrases = phrase_list(args.get("phrases"))
+        actions = action_list(args.get("actions"))
+        if not phrases or not actions:
+            raise ValueError("give phrases (a list) and actions (a list)")
+        reply = str(args.get("reply") or "")
+        same = having(phrases)
+        if len(same) > 1:
+            listed = "; ".join(c.phrases[0] for c in same)
+            raise ValueError(f"these phrases belong to several commands: {listed}")
+        if same:  # saving it again changes it, never makes a copy
+            command = commands.update(same[0].id, phrases=phrases, reply=reply, actions=actions)
+            return f"updated: «{'», «'.join(command.phrases)}»"
+        command = commands.add(phrases, actions, reply, created_by=speaker, source="llm.agent")
         return f"saved: «{'», «'.join(command.phrases)}» now runs at once, without you"
+
+    async def update(args: Mapping[str, Any]) -> str:
+        known()
+        command = find(str(args.get("phrase") or ""))
+        phrases = list(command.phrases)
+        phrases += phrase_list(args.get("add_phrases")) or []
+        drop = {norm(p) for p in phrase_list(args.get("remove_phrases")) or []}
+        phrases = [p for p in phrases if norm(p) not in drop]
+        reply = command.reply if args.get("reply") is None else str(args.get("reply"))
+        changed = commands.update(
+            command.id, phrases=phrases, reply=reply, actions=action_list(args.get("actions"))
+        )
+        return (
+            f"updated: «{'», «'.join(changed.phrases)}»; "
+            f"{len(changed.actions)} actions; reply «{changed.reply}»"
+        )
 
     async def forget(args: Mapping[str, Any]) -> str:
         if speaker is None:
@@ -237,6 +294,30 @@ def command_tools(commands: QuickCommands, speaker: str | None, home: set[str]) 
                 "required": ["phrases", "actions"],
             },
             save,
+        ),
+        Tool(
+            "update_quick_command",
+            "Change a quick command the home was taught: add or remove phrases, replace its "
+            "actions or its reply. Never save a changed command again as a new one.",
+            {
+                "type": "object",
+                "properties": {
+                    "phrase": {
+                        "type": "string",
+                        "description": "One of its phrases now, to find it.",
+                    },
+                    "add_phrases": {"type": "array", "items": {"type": "string"}},
+                    "remove_phrases": {"type": "array", "items": {"type": "string"}},
+                    "actions": {
+                        "type": "array",
+                        "items": action,
+                        "description": "All its actions, replacing the old ones (only if asked).",
+                    },
+                    "reply": {"type": "string"},
+                },
+                "required": ["phrase"],
+            },
+            update,
         ),
         Tool(
             "forget_quick_command",

@@ -17,7 +17,9 @@ MAX_PHRASES = 10
 MAX_ACTIONS = 10
 MAX_PHRASE_CHARS = 200
 # tools that are not about the home: a learned command never replays them
-NOT_REPLAYED = frozenset({"remember", "forget", "save_quick_command", "forget_quick_command"})
+NOT_REPLAYED = frozenset(
+    {"remember", "forget", "save_quick_command", "update_quick_command", "forget_quick_command"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +54,17 @@ class QuickCommands(Protocol):
         created_by: str | None,
         source: str,
     ) -> QuickCommand: ...
+
+    def update(
+        self,
+        command_id: str,
+        *,
+        phrases: list[str],
+        reply: str,
+        actions: list[Action] | None = None,
+    ) -> QuickCommand:
+        """Change a command; ``actions`` None keeps its actions."""
+        ...
 
     def remove(self, command_id: str) -> bool: ...
 

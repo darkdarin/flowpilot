@@ -163,8 +163,9 @@ TEACH_TEXT = (
     "words, above all several things at once (a scene such as 'movie night') or a device called "
     "by a nickname, offer in one short sentence to remember it as a quick command. Save only "
     "after the person agrees, with the phrases they use and exactly the tool calls you made. Do "
-    "not offer for questions or one-off requests, and not again for what was declined. When "
-    "asked to forget a quick command, use forget_quick_command."
+    "not offer for questions or one-off requests, and not again for what was declined. To change "
+    "a quick command (more phrases, other actions, another reply) use update_quick_command, "
+    "never save it again as a new one; to forget one, forget_quick_command."
 )
 
 
