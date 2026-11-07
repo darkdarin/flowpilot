@@ -4,6 +4,22 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.13
+
+### App
+
+- **Live debug shows where time goes in a streaming turn.** Every node used to show about the same
+  time, because with streamed audio all of them run for the whole turn. Now each node shows its
+  **reaction** (first input to first output: how quickly it starts answering) and the time **after
+  its input** (end of input to end of output: what it still did once it had everything). The
+  waterfall draws when each node's output flowed and where its input ended, the canvas shows the
+  reaction on the node, and the turn's headline shows the time from the end of speech to the first
+  text and the first sound.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.12
 
 ### App
