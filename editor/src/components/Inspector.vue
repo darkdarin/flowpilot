@@ -3,7 +3,7 @@ import { computed, ref, watch } from "vue";
 import type { JsonSchema } from "../api";
 import { t } from "../i18n";
 import { issues, nodeIssues, nodeWarnings, removeNode, renameNode, selectedId, selectedNode, specs } from "../store";
-import { categoryColor, typeColor } from "../types";
+import { categoryColor, typeColor, typeShort } from "../types";
 import {
   fieldDescription,
   fieldOptionTitles,
@@ -158,7 +158,7 @@ function setConfig(key: string, value: unknown) {
               <div class="phead">
                 <i :class="p.kind" />
                 <span class="pname">{{ p.name }}</span>
-                <code>{{ p.type }}</code>
+                <code :title="p.type">{{ p.type.includes("|") ? `${typeShort(p.type)}${p.var ? ` (${p.var})` : ""}` : p.type }}</code>
                 <span v-if="side === 'inputs' && !p.required" class="muted opt">{{ t("inspector.optional") }}</span>
               </div>
               <p v-if="portDescription(spec, side, p.name)" class="pdesc">{{ portDescription(spec, side, p.name) }}</p>

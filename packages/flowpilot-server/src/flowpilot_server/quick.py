@@ -16,6 +16,7 @@ import time
 from typing import Any, ClassVar
 
 from flowpilot_sdk import (
+    ENUM_TITLES_KEY,
     LOG_EVENT,
     OPTIONS_KEY,
     HostError,
@@ -95,6 +96,14 @@ class HaQuickCommands:
             "delta": PortSpec(
                 "text.delta/1", description="The same answer as text for speech synthesis."
             ),
+            "ack": PortSpec(
+                "agent.response/1",
+                kind="value",
+                description=(
+                    "The answer, when it is confirmed with a sound instead of words: connect "
+                    "Sound signal. Then nothing comes on delta."
+                ),
+            ),
             "unhandled": PortSpec(
                 UTTERANCE,
                 kind="value",
@@ -113,6 +122,22 @@ class HaQuickCommands:
                     "type": "string",
                     "minLength": 1,
                     OPTIONS_KEY: "ha.conversation",
+                },
+                "acknowledge": {
+                    "title": "Confirm with a sound",
+                    "description": (
+                        "Instead of speaking the answer, send it to ack for a Sound signal: when "
+                        "every device the command touched is in the room of the speaker that "
+                        "heard it (as Home Assistant does), always, or never. Needs ack "
+                        "connected; in the same room when not set."
+                    ),
+                    "enum": ["area", "always", "never"],
+                    ENUM_TITLES_KEY: {
+                        "area": "In the same room",
+                        "always": "Always",
+                        "never": "Never",
+                    },
+                    "default": "area",
                 },
                 "retry_cleaned": {
                     "title": "Second try without extra words",
@@ -150,12 +175,14 @@ class HaQuickCommands:
         self._agent = BUILT_IN_AGENT
         self._node = ""
         self._retry = True
+        self._acknowledge = "area"
         self._extra: list[str] = []
 
     async def start(self, ctx: NodeContext) -> None:
         self._agent = str(ctx.config.get("agent_id") or BUILT_IN_AGENT)
         self._node = ctx.node_id
         self._retry = bool(ctx.config.get("retry_cleaned", True))
+        self._acknowledge = str(ctx.config.get("acknowledge", "area"))
         self._extra = [str(w) for w in ctx.config.get("extra_words") or []]
         self._names: tuple[float, list[str]] | None = None
         if self._retry:
@@ -236,12 +263,19 @@ class HaQuickCommands:
             return
         language = args["language"]
         await dialogue.add(turn.shared, said.text, speech, by=self._node)
-        if speech:
-            await turn.output("delta").send(TextDelta(speech))
-        await turn.output("response").send(
-            Response(
-                text=speech,
-                language=language,
-                continue_conversation=bool(result.get("continue_conversation", False)),
-            )
+        answer = Response(
+            text=speech,
+            language=language,
+            continue_conversation=bool(result.get("continue_conversation", False)),
         )
+        here = bool(result.get("targets_in_area"))
+        sound = (
+            kind == "action_done"
+            and turn.output("ack").connected
+            and (self._acknowledge == "always" or (self._acknowledge == "area" and here))
+        )
+        if sound:  # a sound instead of words, as Home Assistant's own pipeline does
+            await turn.output("ack").send(answer)
+        elif speech:
+            await turn.output("delta").send(TextDelta(speech))
+        await turn.output("response").send(answer)

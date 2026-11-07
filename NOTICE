@@ -2,3 +2,8 @@ FlowPilot
 Copyright 2026 Pavel Babushkin
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The default confirmation sound of the Sound signal node
+(packages/flowpilot-server/src/flowpilot_server/sounds/acknowledge.wav) is Home Assistant's
+acknowledge sound (homeassistant/components/assist_pipeline/acknowledge.mp3), converted to WAV.
+Home Assistant: Copyright Home Assistant Core Developers, Apache License 2.0.

@@ -15,9 +15,10 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import floor_registry as fr
-from homeassistant.helpers import llm
+from homeassistant.helpers import intent, llm
 from homeassistant.helpers.json import JSONEncoder
 
 from . import music
@@ -41,6 +42,40 @@ from .const import (
     OPTION_USER,
 )
 from .wav import open_wav
+
+
+def targets_in_area(
+    hass: HomeAssistant, response: Any, satellite_id: str | None, device_id: str | None
+) -> bool:
+    """Whether a done command touched only devices in the area of the satellite that heard it
+    (as assist_pipeline decides to play its acknowledge sound)."""
+    states = getattr(response, "matched_states", None)
+    if getattr(response, "response_type", None) is not intent.IntentResponseType.ACTION_DONE:
+        return False
+    if not states:
+        return False
+    entities, devices = er.async_get(hass), dr.async_get(hass)
+    area_id: str | None = None
+    if satellite_id and (satellite := entities.async_get(satellite_id)) is not None:
+        area_id, device_id = satellite.area_id, satellite.device_id
+    if area_id is None:
+        device = devices.async_get(device_id) if device_id else None
+        area_id = dr.async_get_effective_area_id(hass, device) if device else None
+    if area_id is None:
+        return False
+    for state in states:
+        entry = entities.async_get(state.entity_id)
+        if entry is None:
+            return False
+        target_area = entry.area_id
+        if target_area is None and entry.device_id:
+            target_device = devices.async_get(entry.device_id)
+            target_area = (
+                dr.async_get_effective_area_id(hass, target_device) if target_device else None
+            )
+        if target_area != area_id:
+            return False
+    return True
 
 
 class LoopError(Exception):
@@ -89,7 +124,12 @@ def build_host_ops(
             or (user_input.satellite_id if user_input else None),
         )
         speech = result.response.speech.get("plain", {}).get("speech", "")
+        satellite_id = args.get("satellite_id") or (user_input.satellite_id if user_input else None)
+        device_id = args.get("device_id") or (user_input.device_id if user_input else None)
         return {
+            # every device the command touched is in the speaker's room: Home Assistant's own
+            # pipeline confirms such commands with a sound instead of words
+            "targets_in_area": targets_in_area(hass, result.response, satellite_id, device_id),
             "speech": speech,
             "continue_conversation": result.continue_conversation,
             "conversation_id": result.conversation_id,

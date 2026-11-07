@@ -16,3 +16,5 @@ packages/flowpilot-server/src/flowpilot_server/editor
 .env*
 *.wav
 *.raw
+# ...but the sounds that ship with FlowPilot (not recordings)
+!packages/flowpilot-server/src/flowpilot_server/sounds/*.wav

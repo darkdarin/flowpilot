@@ -51,6 +51,7 @@ from .quick import HaQuickCommands
 from .secret_store import SecretStore
 from .server import FlowPilotServer
 from .session_file import SessionFile
+from .signal import SoundSignal
 
 _LOGGER = logging.getLogger("flowpilot_server")
 
@@ -64,6 +65,7 @@ def build_registry(*, dev: bool = False) -> NodeRegistry:
         ClientSink,
         HaConversation,
         HaQuickCommands,
+        SoundSignal,
         HaStt,
         HaTts,
         DebugProbe,

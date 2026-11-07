@@ -131,7 +131,13 @@ class FakeOutput:
         self.items: list[Any] = []
         self.ended = False
 
-    async def open(self, meta: Mapping[str, Any] | None = None) -> None:
+    @property
+    def connected(self) -> bool:
+        return True
+
+    async def open(
+        self, meta: Mapping[str, Any] | None = None, *, type_id: str | None = None
+    ) -> None:
         return None
 
     async def send(self, payload: Any) -> None:

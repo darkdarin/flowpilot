@@ -3,8 +3,10 @@
 
 const RATE = 16000;
 
-/** Decode any audio the browser can play (WAV, MP3, OGG, WebM) and make it a 16 kHz mono WAV. */
-export async function toWav(data: Blob): Promise<Blob> {
+/** Decode any audio the browser can play (WAV, MP3, OGG, WebM) and make it a mono WAV
+ * (16 kHz unless `RATE` is given). */
+export async function toWav(data: Blob, rate = RATE): Promise<Blob> {
+  const RATE = rate;
   const ctx = new AudioContext();
   let decoded: AudioBuffer;
   try {
@@ -59,4 +61,19 @@ export async function startRecording(): Promise<{ stop: () => Promise<Blob> }> {
         recorder.stop();
       }),
   };
+}
+
+/** A short sound of one's own for a node setting: a mono 22 kHz WAV data URL and its length;
+ * longer than `maxSeconds` is refused. */
+export async function soundDataUrl(file: Blob, maxSeconds: number): Promise<{ url: string; seconds: number }> {
+  const wav = await toWav(file, 22050);
+  const seconds = (wav.size - 44) / (22050 * 2);
+  if (seconds > maxSeconds) throw new Error(`longer than ${maxSeconds} s`);
+  const url = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).replace(/^data:[^;]*;/, "data:audio/wav;"));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(wav);
+  });
+  return { url, seconds };
 }

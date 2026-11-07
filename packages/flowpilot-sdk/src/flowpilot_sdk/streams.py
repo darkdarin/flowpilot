@@ -62,7 +62,17 @@ class InputStream[T](Protocol):
 class OutputStream[T](Protocol):
     """Write side of a port. Unended outputs are ended by the runtime when ``run_turn`` returns."""
 
-    async def open(self, meta: Mapping[str, Any] | None = None) -> None: ...
+    @property
+    def connected(self) -> bool:
+        """Something in the graph takes this output (else what is sent goes nowhere)."""
+        ...
+
+    async def open(
+        self, meta: Mapping[str, Any] | None = None, *, type_id: str | None = None
+    ) -> None:
+        """Open with header ``meta``; a port of several types needs ``type_id``, which one
+        (e.g. passing on a stream with its header). ``send`` opens implicitly otherwise."""
+        ...
 
     async def send(self, payload: T) -> None:
         """Send an item; opens the stream implicitly and blocks on lossless backpressure."""

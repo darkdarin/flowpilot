@@ -94,3 +94,43 @@ async def test_names_assist_knows(hass: HomeAssistant) -> None:
     names = set(result["names"])
     assert {"Гостиная", "Зал", "Настольная лампа", "Торшер", "Kitchen light"} <= names
     assert "Hidden light" not in names  # not exposed to Assist
+
+
+async def test_conversation_tells_if_the_command_stayed_in_the_speakers_room(
+    hass: HomeAssistant,
+) -> None:
+    from homeassistant.helpers import area_registry as ar
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers import entity_registry as er
+    from pytest_homeassistant_custom_component.common import MockConfigEntry as Entry
+
+    host = await ops(hass)
+    async_mock_service(hass, "light", "turn_on")
+    living = ar.async_get(hass).async_create("Living room")
+    kitchen = ar.async_get(hass).async_create("Kitchen")
+    owner = Entry(domain="test")
+    owner.add_to_hass(hass)
+    station = dr.async_get(hass).async_get_or_create(
+        config_entry_id=owner.entry_id, identifiers={("test", "station")}, name="Station"
+    )
+    dr.async_get(hass).async_update_device(station.id, area_id=living.id)
+    for key, name, area in (
+        ("ceiling", "Ceiling light", living.id),
+        ("stove", "Stove light", kitchen.id),
+    ):
+        entry = er.async_get(hass).async_get_or_create("light", "test", key)
+        er.async_get(hass).async_update_entity(entry.entity_id, area_id=area)
+        hass.states.async_set(entry.entity_id, "off", {"friendly_name": name})
+        async_expose_entity(hass, "conversation", entry.entity_id, True)
+    process = host["ha.conversation.process"]
+
+    async def ask(text: str) -> dict[str, Any]:
+        args = {"text": text, "agent_id": "conversation.home_assistant", "device_id": station.id}
+        result: dict[str, Any] = await process(HostRequest(None, args))
+        return result
+
+    here = await ask("turn on ceiling light")
+    assert here["response_type"] == "action_done", here
+    assert here["targets_in_area"] is True
+    there = await ask("turn on the lights in the kitchen")
+    assert there["response_type"] == "action_done" and there["targets_in_area"] is False

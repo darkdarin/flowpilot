@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 
 from flowpilot_sdk import (
     TEXT,
+    TEXT_OR_AUDIO,
     InputStream,
     NodeContext,
     NodeSpec,
@@ -36,18 +37,18 @@ class TextFirst:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="text.first",
         translations=node_translations(__package__, "text.first"),
-        version="1.1.0",
+        version="1.2.0",
         title="First present",
         category="logic",
         inputs={
             "primary": PortSpec(
-                TEXT,
+                TEXT_OR_AUDIO,
                 required=False,
                 var="T",
                 description="Preferred source, e.g. the speech-to-text result.",
             ),
             "fallback": PortSpec(
-                TEXT,
+                TEXT_OR_AUDIO,
                 required=False,
                 var="T",
                 description="Used when the primary input is absent, e.g. the typed text.",
@@ -55,13 +56,16 @@ class TextFirst:
         },
         outputs={
             "value": PortSpec(
-                TEXT, var="T", description="What was present, of the type connected to the inputs."
+                TEXT_OR_AUDIO,
+                var="T",
+                description="What was present, of the type connected to the inputs.",
             )
         },
         description=(
             "Joins two branches of a graph, such as voice and typed turns or a quick command "
             "and an agent: one wire per input, any kind of text (the output has the type of the "
-            "inputs); the primary one wins when it is present, a stream passes on as it comes."
+            "inputs); the primary one wins when it is present, a stream passes on as it comes. "
+            "Audio too, e.g. a confirmation sound or the speech of text-to-speech."
         ),
     )
 
@@ -88,6 +92,7 @@ class TextFirst:
             if value is not None:
                 await out.send(value)
             return
+        await out.open(header.meta, type_id=header.type)  # e.g. the audio format
         async for item in source:
             await out.send(item)
         await out.end()

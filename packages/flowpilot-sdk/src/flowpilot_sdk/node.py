@@ -21,6 +21,8 @@ from .types import PRIVILEGED_TYPES, union, union_members, validate_type_id
 # Any text: what speech-to-text heard, an utterance, a text stream, an agent's answer. A port of
 # this type takes whichever is connected; with ``var`` the node passes the same type on.
 TEXT = union("text.transcript/1", "text.utterance/1", "text.delta/1", "agent.response/1")
+# Any text or audio: for nodes that join branches whatever they carry.
+TEXT_OR_AUDIO = union(*TEXT.split("|"), "audio.pcm/1")
 
 NODE_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
 PORT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")

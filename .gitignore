@@ -18,6 +18,8 @@ node_modules/
 # Local audio recordings
 *.wav
 *.raw
+# ...but the sounds that ship with FlowPilot (not recordings)
+!packages/flowpilot-server/src/flowpilot_server/sounds/*.wav
 
 # Local Claude Code settings
 .claude/settings.local.json

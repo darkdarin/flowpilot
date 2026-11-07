@@ -50,17 +50,25 @@ class RuntimeOutputStream:
     def items(self) -> int:
         return self._seq
 
+    @property
+    def connected(self) -> bool:
+        return bool(self._channels)
+
     async def _broadcast(self, msg: Open | Item | End | Fail) -> None:
         for ch in self._channels:
             await ch.put(msg)
 
-    async def open(self, meta: Mapping[str, Any] | None = None) -> None:
-        if self.spec.is_union:
-            # which of its types it carries is known from the first payload
+    async def open(
+        self, meta: Mapping[str, Any] | None = None, *, type_id: str | None = None
+    ) -> None:
+        if type_id is not None and type_id not in self.spec.types:
+            raise TypeError(f"output {self.node_id}.{self.name} does not carry {type_id}")
+        if self.spec.is_union and type_id is None:
+            # which of its types it carries: given, or known from the first payload
             raise RuntimeError(
-                f"output {self.node_id}.{self.name} takes several types: send to open it"
+                f"output {self.node_id}.{self.name} takes several types: give type_id or send"
             )
-        await self._open(self.spec.type, meta)
+        await self._open(type_id or self.spec.type, meta)
 
     async def _open(self, type_id: str, meta: Mapping[str, Any] | None = None) -> None:
         if self.state != "pending":

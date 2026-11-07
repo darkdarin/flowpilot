@@ -4,7 +4,8 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import type { HostOption, JsonSchema } from "../api";
 import { languageName, t } from "../i18n";
-import { hostOptions, nodeOptions, refreshOptions, secrets, secretsOpen } from "../store";
+import { soundDataUrl } from "../audio";
+import { flash, hostOptions, nodeOptions, refreshOptions, secrets, secretsOpen } from "../store";
 import NumberSlider from "./NumberSlider.vue";
 import OptionPicker, { type PickerOption } from "./OptionPicker.vue";
 
@@ -49,6 +50,32 @@ const invalidPattern = computed(() => {
   const p = props.schema.pattern;
   return kind.value === "string" && p && stringValue.value !== "" && !new RegExp(p).test(stringValue.value);
 });
+
+// A short sound stored in the setting as a WAV data URL (format "audio"); none: the node's own.
+const SOUND_SECONDS = 5;
+const soundInput = ref<HTMLInputElement | null>(null);
+const soundSeconds = computed(() => {
+  const value = typeof props.modelValue === "string" ? props.modelValue : "";
+  const comma = value.indexOf(",");
+  return comma < 0 ? 0 : Math.max(0, (Math.floor(((value.length - comma - 1) * 3) / 4) - 44) / (22050 * 2));
+});
+
+async function loadSound(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  try {
+    const { url } = await soundDataUrl(file, SOUND_SECONDS);
+    emit("update:modelValue", url);
+  } catch (err) {
+    flash(t("form.soundBad", { error: (err as Error).message }), "error");
+  }
+}
+
+function playSound() {
+  if (typeof props.modelValue === "string") void new Audio(props.modelValue).play();
+}
 
 function setString(value: string) {
   emit("update:modelValue", value === "" ? undefined : value);
@@ -273,6 +300,14 @@ const hint = computed(() => {
     </template>
 
 
+    <div v-else-if="kind === 'string' && schema.format === 'audio'" class="sound">
+      <span class="muted">{{ modelValue ? t("form.soundOwn", { s: soundSeconds.toFixed(1) }) : t("form.soundDefault") }}</span>
+      <button v-if="modelValue" type="button" class="refresh" @click="playSound">{{ t("form.soundPlay") }}</button>
+      <button type="button" class="refresh" @click="soundInput?.click()">{{ t("form.soundUpload") }}</button>
+      <button v-if="modelValue" type="button" class="refresh" @click="emit('update:modelValue', undefined)">{{ t("form.soundReset") }}</button>
+      <input ref="soundInput" type="file" accept="audio/*" hidden @change="loadSound" />
+    </div>
+
     <textarea
       v-else-if="kind === 'string' && schema.format === 'multiline'"
       :id="inputId"
@@ -421,5 +456,12 @@ small.chosen {
   gap: 8px;
   align-items: center;
   color: var(--muted);
+}
+.sound {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-size: 12.5px;
 }
 </style>

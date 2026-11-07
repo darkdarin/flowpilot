@@ -145,3 +145,20 @@ async def test_names_are_put_back_in_their_own_form() -> None:
     garage = FakeHa(no_target, DONE, names=["Гостиная"])
     await run(None, "включи свет в гараже", host=garage)
     assert len(garage.calls) == 1
+
+
+async def test_a_sound_instead_of_words_in_the_speakers_room() -> None:
+    here = {**DONE, "targets_in_area": True}
+    result, _ = await run(here)
+    assert [a.text for a in result.outputs["ack"].items] == ["Включила свет"]
+    assert result.outputs["delta"].items == []  # nothing to speak
+    assert [r.text for r in result.outputs["response"].items] == ["Включила свет"]  # for chats
+    elsewhere = {**DONE, "targets_in_area": False}
+    away, _ = await run(elsewhere)
+    assert away.outputs["ack"].items == [] and [d.text for d in away.outputs["delta"].items] == [
+        "Включила свет"
+    ]
+    always, _ = await run(elsewhere, config={"acknowledge": "always"})
+    assert always.outputs["ack"].items and not always.outputs["delta"].items
+    never, _ = await run(here, config={"acknowledge": "never"})
+    assert not never.outputs["ack"].items and never.outputs["delta"].items
