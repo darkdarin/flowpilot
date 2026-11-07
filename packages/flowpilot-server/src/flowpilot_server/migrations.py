@@ -39,7 +39,7 @@ def migrate_graph(data: Any) -> Any:
     """``data`` brought up to date; the same object when there is nothing to change."""
     if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
         return data
-    return _agent_remember(_split_turn_filter(_rename_nodes(data)))
+    return _one_text_input(_agent_remember(_split_turn_filter(_rename_nodes(data))))
 
 
 def _split_turn_filter(data: dict[str, Any]) -> dict[str, Any]:
@@ -84,6 +84,69 @@ def _split_turn_filter(data: dict[str, Any]) -> dict[str, Any]:
         for e in data.get("edges") or []
     ]
     _LOGGER.info("graph %s: Voice or text turn %s now has two outputs", data.get("id"), sorted(old))
+    return data
+
+
+# 0.1.16 → 0.1.17: a port may take any text, so Debug probe and Text converter have one text
+# input instead of one per text type.
+_OLD_TEXT_INPUTS = ("transcript", "utterance", "delta", "response")
+_ONE_TEXT_INPUT = {"debug.probe", "text.convert"}
+
+
+def _one_text_input(data: dict[str, Any]) -> dict[str, Any]:
+    """Wires to the old per-type inputs go to ``text``. A probe with several gets a copy per
+    extra one (each probe shows one text now); a converter keeps the first, as it used it."""
+    types = {
+        n["id"]: n["type"]
+        for n in data["nodes"]
+        if isinstance(n, dict) and n.get("type") in _ONE_TEXT_INPUT and isinstance(n.get("id"), str)
+    }
+
+    def old_input(edge: Any) -> tuple[str, str] | None:
+        if not isinstance(edge, dict) or not isinstance(edge.get("to"), str):
+            return None
+        node, _, port = edge["to"].rpartition(".")
+        return (node, port) if node in types and port in _OLD_TEXT_INPUTS else None
+
+    if not any(old_input(e) for e in data.get("edges") or []):
+        return data
+    data = copy.deepcopy(data)
+    taken = {n["id"] for n in data["nodes"] if isinstance(n, dict) and isinstance(n.get("id"), str)}
+    wired: dict[str, list[tuple[int, str]]] = {}
+    for i, edge in enumerate(data["edges"]):
+        if (found := old_input(edge)) is not None:
+            wired.setdefault(found[0], []).append((i, found[1]))
+    dropped: set[int] = set()
+    by_id = {n["id"]: n for n in data["nodes"] if isinstance(n, dict) and n.get("id") in types}
+    ui_nodes = (data.get("ui") or {}).get("nodes") or {}
+    for node_id, edges in wired.items():
+        node = by_id[node_id]
+        node.pop("version", None)
+        edges.sort(key=lambda pair: _OLD_TEXT_INPUTS.index(pair[1]))
+        first, *rest = edges
+        data["edges"][first[0]] = {**data["edges"][first[0]], "to": f"{node_id}.text"}
+        for n, (i, port) in enumerate(rest, start=1):
+            if types[node_id] != "debug.probe":
+                dropped.add(i)
+                _LOGGER.warning(
+                    "graph %s: Text converter %s had several inputs; kept %s, removed %s",
+                    data.get("id"),
+                    node_id,
+                    first[1],
+                    port,
+                )
+                continue
+            copy_id = f"{node_id}_{port}"
+            while copy_id in taken:
+                copy_id += "_"
+            taken.add(copy_id)
+            data["nodes"].append({k: v for k, v in node.items() if k != "id"} | {"id": copy_id})
+            data["edges"][i] = {**data["edges"][i], "to": f"{copy_id}.text"}
+            if isinstance(ui_nodes.get(node_id), dict) and {"x", "y"} <= set(ui_nodes[node_id]):
+                at = ui_nodes[node_id]
+                ui_nodes[copy_id] = {**at, "y": at["y"] + 120 * n}
+    data["edges"] = [e for i, e in enumerate(data["edges"]) if i not in dropped]
+    _LOGGER.info("graph %s: probes and converters now have one text input", data.get("id"))
     return data
 
 

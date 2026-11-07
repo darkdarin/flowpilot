@@ -107,3 +107,39 @@ def test_agent_remember_on_request_becomes_remembers_facts() -> None:
         {"model": "m", "remember": "auto"},
     ]
     assert migrate_graph(migrated) is migrated
+
+
+def test_probes_and_converters_get_one_text_input() -> None:
+    data = {
+        "schema_version": 1,
+        "id": "g",
+        "nodes": [
+            {"id": "probe", "type": "debug.probe", "version": "1.0.0", "config": {"keep": 3}},
+            {"id": "conv", "type": "text.convert"},
+        ],
+        "edges": [
+            {"from": "a.response", "to": "probe.response"},
+            {"from": "a.delta", "to": "probe.delta"},
+            {"from": "in.audio", "to": "probe.audio"},
+            {"from": "stt.transcript", "to": "conv.transcript"},
+            {"from": "in.utterance", "to": "conv.utterance"},
+        ],
+        "ui": {"nodes": {"probe": {"x": 10, "y": 20}}},
+    }
+    migrated = migrate_graph(data)
+    nodes = {n["id"]: n for n in migrated["nodes"]}
+    # the delta stays on the probe (first in the old order), the answer moves to a copy
+    assert nodes["probe_response"] == {
+        "type": "debug.probe",
+        "config": {"keep": 3},
+        "id": "probe_response",
+    }
+    assert "version" not in nodes["probe"]
+    assert {(e["from"], e["to"]) for e in migrated["edges"]} == {
+        ("a.delta", "probe.text"),
+        ("a.response", "probe_response.text"),
+        ("in.audio", "probe.audio"),
+        ("stt.transcript", "conv.text"),  # the converter keeps its first input
+    }
+    assert migrated["ui"]["nodes"]["probe_response"] == {"x": 10, "y": 140}
+    assert migrate_graph(migrated) is migrated

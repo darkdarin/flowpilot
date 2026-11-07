@@ -2,20 +2,22 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any, ClassVar
 
 from flowpilot_sdk import (
+    TEXT,
     InputStream,
     NodeContext,
     NodeSpec,
     PortSpec,
     Response,
+    StreamError,
     TextDelta,
     Transcript,
     TurnSession,
     Utterance,
     node_translations,
+    type_kind,
 )
 
 from .registry import NodeRegistry
@@ -27,35 +29,39 @@ RESPONSE = "agent.response/1"
 
 
 class TextFirst:
-    """Forward the first present utterance: ``primary`` (e.g. speech) else ``fallback`` (text)."""
+    """Pass on the first present text: ``primary`` (e.g. speech, a quick command's answer) else
+    ``fallback`` (typed text, an agent's answer). Any kind of text, the same on both inputs and
+    the output; a stream passes through as it comes."""
 
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="text.first",
         translations=node_translations(__package__, "text.first"),
-        version="1.0.0",
-        title="First utterance",
+        version="1.1.0",
+        title="First present",
         category="logic",
         inputs={
             "primary": PortSpec(
-                UTTERANCE,
-                kind="value",
+                TEXT,
                 required=False,
-                description="Preferred source, usually the speech-to-text result.",
+                var="T",
+                description="Preferred source, e.g. the speech-to-text result.",
             ),
             "fallback": PortSpec(
-                UTTERANCE,
-                kind="value",
+                TEXT,
                 required=False,
-                description="Used when the primary input is absent, usually the typed text.",
+                var="T",
+                description="Used when the primary input is absent, e.g. the typed text.",
             ),
         },
         outputs={
             "value": PortSpec(
-                UTTERANCE, kind="value", description="The utterance that was present."
+                TEXT, var="T", description="What was present, of the type connected to the inputs."
             )
         },
         description=(
-            "Joins voice and text turns: one wire per input, the first value that is present wins."
+            "Joins two branches of a graph, such as voice and typed turns or a quick command "
+            "and an agent: one wire per input, any kind of text (the output has the type of the "
+            "inputs); the primary one wins when it is present, a stream passes on as it comes."
         ),
     )
 
@@ -63,21 +69,45 @@ class TextFirst:
         return None
 
     async def run_turn(self, turn: TurnSession) -> None:
-        value = await turn.input("primary").value()
-        if value is None:
-            value = await turn.input("fallback").value()
-        if value is not None:
-            await turn.output("value").send(value)
+        source = turn.input("primary")
+        try:
+            header = await source.header()
+        except StreamError:
+            header = None
+        if header is None:
+            source = turn.input("fallback")
+            try:
+                header = await source.header()
+            except StreamError:
+                return
+        if header is None:
+            return
+        out = turn.output("value")
+        if type_kind(header.type) == "value":
+            value = await source.value()
+            if value is not None:
+                await out.send(value)
+            return
+        async for item in source:
+            await out.send(item)
+        await out.end()
 
     async def stop(self) -> None:
         return None
 
 
-class TextConvert:
-    """The same text as any other text type: connect an input, use the outputs you need.
+# the output of each text type: the input passes through on it
+_OUTPUT_OF = {
+    TRANSCRIPT: "transcript",
+    UTTERANCE: "utterance",
+    DELTA: "delta",
+    RESPONSE: "response",
+}
 
-    Several inputs may be connected when only one carries text in a turn (voice or typed text);
-    if two do, the first in input order is used and the trace says which were ignored.
+
+class TextConvert:
+    """The same text as any other text type: connect any text to the input, use the outputs
+    you need (the one of the input's own type passes it through).
 
     Streams pass through as they come (a text stream stays a stream, partial results stay
     partial); the whole text goes out on the other outputs once it is complete. Empty text gives
@@ -87,23 +117,16 @@ class TextConvert:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="text.convert",
         translations=node_translations(__package__, "text.convert"),
-        version="1.0.0",
+        version="2.0.0",
         title="Text converter",
         category="logic",
         inputs={
-            "transcript": PortSpec(
-                TRANSCRIPT,
-                required=False,
-                description="Recognized speech: partials pass through, the final text counts.",
-            ),
-            "utterance": PortSpec(
-                UTTERANCE, kind="value", required=False, description="An utterance."
-            ),
-            "delta": PortSpec(
-                DELTA, required=False, description="A text stream, e.g. an agent's answer."
-            ),
-            "response": PortSpec(
-                RESPONSE, kind="value", required=False, description="An agent's answer."
+            "text": PortSpec(
+                TEXT,
+                description=(
+                    "Any text: recognized speech (partials pass through, the final text counts), "
+                    "an utterance, a text stream or an agent's answer."
+                ),
             ),
         },
         outputs={
@@ -134,8 +157,7 @@ class TextConvert:
         turn_timeout_s=120.0,
         description=(
             "Turns one kind of text into the others: recognized speech, an utterance, a text "
-            "stream or an agent's answer. Every output carries the text of the input that has "
-            "it in the turn."
+            "stream or an agent's answer. Connect any of them; every output carries its text."
         ),
     )
 
@@ -149,15 +171,11 @@ class TextConvert:
         return None
 
     async def run_turn(self, turn: TurnSession) -> None:
-        names = [name for name in self.spec.inputs if turn.input(name).connected]
-        headers = await asyncio.gather(*(turn.input(name).header() for name in names))
-        present = [name for name, header in zip(names, headers, strict=True) if header]
-        if not present:
+        source: InputStream[Any] = turn.input("text")
+        header = await source.header()
+        if header is None:
             return  # no text in this turn: the outputs are absent too
-        name = present[0]  # inputs in their order: recognized speech first
-        if len(present) > 1:
-            turn.trace("text.convert.ignored", used=name, ignored=",".join(present[1:]))
-        source: InputStream[Any] = turn.input(name)
+        name = _OUTPUT_OF[header.type]
         language = turn.context.language
         answer: Response | None = None
         said: Utterance | None = None

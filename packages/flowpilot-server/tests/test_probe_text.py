@@ -32,15 +32,17 @@ def graph(text: str) -> dict[str, Any]:
         "nodes": [
             {"id": "in", "type": "client.source"},
             {"id": "say", "type": "debug.answer", "config": {"text": text, "mode": "words"}},
-            {"id": "tap", "type": "debug.probe"},
+            {"id": "delta", "type": "debug.probe"},
+            {"id": "utterance", "type": "debug.probe"},
+            {"id": "response", "type": "debug.probe"},
             {"id": "out", "type": "client.sink"},
         ],
         "edges": [
             {"from": "say.response", "to": "out.response"},
             {"from": "say.delta", "to": "out.delta"},
-            {"from": "say.delta", "to": "tap.delta"},
-            {"from": "in.utterance", "to": "tap.utterance"},
-            {"from": "say.response", "to": "tap.response"},
+            {"from": "say.delta", "to": "delta.text"},
+            {"from": "in.utterance", "to": "utterance.text"},
+            {"from": "say.response", "to": "response.text"},
         ],
     }
 
@@ -64,7 +66,7 @@ async def runtime(tmp_path: Path, data: dict[str, Any]) -> AsyncIterator[tuple[A
 
 
 async def tapped(session: Any, url: Any, debug: bool) -> tuple[Any, dict[str, Any]]:
-    """One text turn; returns the HTTP result and the tap's texts by port."""
+    """One text turn; returns the HTTP result and the probes' texts by node."""
     async with session.ws_connect(url("/api/editor/ws")) as ws:
         await ws.send_json({"type": "hello", "token": TOKEN})
         await ws.receive_json()
@@ -76,7 +78,7 @@ async def tapped(session: Any, url: Any, debug: bool) -> tuple[Any, dict[str, An
         while True:
             event = await asyncio.wait_for(ws.receive_json(), 5)
             if event.get("event") == "tap.text":
-                texts[event["attrs"]["port"]] = event["attrs"]
+                texts[event["node"]] = event["attrs"]
             if event.get("event") == "turn.end":
                 return result, texts
 
@@ -84,8 +86,9 @@ async def tapped(session: Any, url: Any, debug: bool) -> tuple[Any, dict[str, An
 async def test_shows_texts_in_live_debug(tmp_path: Path) -> None:
     async for session, url in runtime(tmp_path, graph("one two three")):
         result, texts = await tapped(session, url, debug=True)
-        assert result["status"] == "ok" and result["nodes"]["tap"] == "ok"
+        assert result["status"] == "ok" and result["nodes"]["delta"] == "ok"
         assert texts["delta"]["text"] == "one two three" and texts["delta"]["items"] == 3
+        assert texts["delta"]["type"] == "text.delta/1"  # which kind of text it was
         assert texts["utterance"]["text"] == "x"  # what the client typed
         assert texts["response"]["text"] == "one two three"
 
@@ -94,7 +97,7 @@ async def test_idle_without_live_debug(tmp_path: Path) -> None:
     async for session, url in runtime(tmp_path, graph("one two three")):
         result, texts = await tapped(session, url, debug=False)
         assert result["status"] == "ok" and result["response"]["text"] == "one two three"
-        assert "tap" not in result["nodes"] and texts == {}
+        assert "delta" not in result["nodes"] and texts == {}
 
 
 async def test_long_text_is_cut(tmp_path: Path) -> None:

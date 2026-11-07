@@ -38,7 +38,7 @@ def texts(run: Any) -> dict[str, Any]:
 
 async def test_a_text_stream_becomes_everything_else() -> None:
     run = await run_node_once(
-        await converter(), {"delta": stream(TextDelta("Сейчас "), TextDelta("три часа"))}
+        await converter(), {"text": stream(TextDelta("Сейчас "), TextDelta("три часа"))}
     )
     assert run.error is None, run.error
     assert texts(run) == {
@@ -51,7 +51,7 @@ async def test_a_text_stream_becomes_everything_else() -> None:
 
 async def test_recognized_speech_keeps_its_partials() -> None:
     items = (Transcript("сколько", final=False), Transcript("сколько времени", True, "ru"))
-    run = await run_node_once(await converter(), {"transcript": stream(*items)})
+    run = await run_node_once(await converter(), {"text": stream(*items)})
     assert run.error is None, run.error
     got = texts(run)
     assert got["transcript"] == [("сколько", False), ("сколько времени", True)]
@@ -61,24 +61,24 @@ async def test_recognized_speech_keeps_its_partials() -> None:
 
 async def test_an_answer_speaks_its_speech_text() -> None:
     answer = Response(text="Сейчас 22 °C", speech_text="Сейчас двадцать два градуса", language="ru")
-    run = await run_node_once(await converter(), {"response": value(answer)})
+    run = await run_node_once(await converter(), {"text": value(answer)})
     assert run.error is None, run.error
     assert texts(run)["delta"] == ["Сейчас двадцать два градуса"]
     assert texts(run)["utterance"] == ["Сейчас 22 °C"]
     assert run.outputs["response"].items == [answer]  # passes through unchanged
-    plain = await run_node_once(await converter({"spoken": False}), {"response": value(answer)})
+    plain = await run_node_once(await converter({"spoken": False}), {"text": value(answer)})
     assert texts(plain)["delta"] == ["Сейчас 22 °C"]
 
 
 async def test_an_utterance_becomes_an_answer() -> None:
-    run = await run_node_once(await converter(), {"utterance": value(Utterance("привет", "ru"))})
+    run = await run_node_once(await converter(), {"text": value(Utterance("привет", "ru"))})
     assert run.error is None, run.error
     assert run.outputs["response"].items == [Response(text="привет", language="ru")]
     assert texts(run)["delta"] == ["привет"]
 
 
 async def test_empty_text_gives_only_the_transcript() -> None:
-    run = await run_node_once(await converter(), {"utterance": value(Utterance("  "))})
+    run = await run_node_once(await converter(), {"text": value(Utterance("  "))})
     assert run.error is None, run.error
     assert texts(run) == {
         "transcript": [("", True)],
@@ -88,24 +88,8 @@ async def test_empty_text_gives_only_the_transcript() -> None:
     }
 
 
-async def test_the_input_with_text_wins() -> None:
-    """Voice and typed text on two inputs: only one carries text in a turn."""
-    run = await run_node_once(
-        await converter(),
-        {"utterance": value(Utterance("набрано")), "transcript": InputFeed(items=[], end="absent")},
-    )
-    assert run.error is None and texts(run)["response"] == ["набрано"]
-    both = await run_node_once(
-        await converter(),
-        {"utterance": value(Utterance("a")), "response": value(Response(text="b"))},
-    )
-    assert both.error is None and texts(both)["response"] == ["a"]  # input order: utterance first
-    (ignored,) = [e for e in both.trace.events if e.event == "text.convert.ignored"]
-    assert ignored.attrs == {"used": "utterance", "ignored": "response"}
-
-
 async def test_absent_input_absent_outputs() -> None:
-    run = await run_node_once(await converter(), {"delta": InputFeed(items=[], end="absent")})
+    run = await run_node_once(await converter(), {"text": InputFeed(items=[], end="absent")})
     assert run.error is None
     assert all(not o.items for o in run.outputs.values())
 
@@ -113,8 +97,8 @@ async def test_absent_input_absent_outputs() -> None:
 @pytest.mark.parametrize(
     "sample",
     [
-        {"delta": stream(TextDelta("hi"))},
-        {"response": value(Response(text="hi"))},
+        {"text": stream(TextDelta("hi"))},
+        {"text": value(Response(text="hi"))},
     ],
 )
 async def test_conforms(sample: dict[str, InputFeed]) -> None:

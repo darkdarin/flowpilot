@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from flowpilot_sdk import (
+    TEXT,
     AudioFormat,
     NodeContext,
     NodeSpec,
@@ -33,6 +34,7 @@ from flowpilot_sdk import (
     StreamError,
     TurnSession,
     node_translations,
+    type_kind,
 )
 
 TYPE = "debug.probe"
@@ -55,7 +57,7 @@ class DebugProbe:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type=TYPE,
         translations=node_translations(__package__, TYPE),
-        version="1.0.0",
+        version="2.0.0",
         title="Debug probe",
         category="debug",
         debug_tap=True,
@@ -65,21 +67,14 @@ class DebugProbe:
                 required=False,
                 description="Audio, saved to play back: one recording per turn.",
             ),
-            "transcript": PortSpec(
-                "text.transcript/1",
+            "text": PortSpec(
+                TEXT,
                 required=False,
-                description="Recognized speech: the final text and how many partial ones came.",
-            ),
-            "utterance": PortSpec(
-                "text.utterance/1", kind="value", required=False, description="An utterance."
-            ),
-            "delta": PortSpec(
-                "text.delta/1",
-                required=False,
-                description="A text stream, joined into one text, with the number of pieces.",
-            ),
-            "response": PortSpec(
-                "agent.response/1", kind="value", required=False, description="An agent's answer."
+                description=(
+                    "Any text: recognized speech (the final text and how many partial ones came), "
+                    "an utterance, a text stream (joined, with the number of pieces) or an "
+                    "agent's answer."
+                ),
             ),
         },
         config_schema={
@@ -143,16 +138,22 @@ class DebugProbe:
 
     async def _show(self, turn: TurnSession, name: str) -> None:
         stream = turn.input(name)
-        if await stream.header() is None:
-            return
-        attrs: dict[str, Any] = {"port": name}
         try:
-            if self.spec.inputs[name].kind == "value":
+            header = await stream.header()
+        except StreamError as err:
+            turn.trace("tap.text", port=name, error=err.reason)
+            return
+        if header is None:
+            return
+        # which kind of text came: the editor shows it next to the text
+        attrs: dict[str, Any] = {"port": name, "type": header.type}
+        try:
+            if type_kind(header.type) == "value":
                 value = await stream.value()
                 if value is None:
                     return
                 attrs |= {"text": _cut(value.text), "items": 1}
-            elif name == "transcript":
+            elif header.type == "text.transcript/1":
                 final, last, partials, items = "", "", 0, 0
                 async for item in stream:
                     items += 1
