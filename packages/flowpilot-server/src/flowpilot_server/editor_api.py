@@ -18,6 +18,9 @@ All routes need ``Authorization: Bearer <token>``.
 - ``GET  /api/editor/commands``               quick commands people taught (and the people);
                                               ``PUT /api/editor/commands/{id}`` ``{phrases,
                                               reply}``, ``DELETE`` removes one
+- ``GET  /api/editor/skills``                 skills described for the LLM agent; ``POST``
+                                              creates one, ``PUT``/``DELETE
+                                              /api/editor/skills/{id}``
 - ``GET  /api/editor/recordings``             debug recordings (``?graph=``), newest first
 - ``GET  /api/editor/recordings/{file}``      one recording as audio/wav; ``DELETE`` removes it
 - ``PUT  /api/editor/default``                ``{graph}``: the graph turns go to when a client
@@ -362,7 +365,35 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
             return _error(404, "no such command")
         return web.json_response({"removed": True})
 
+    async def list_skills(request: web.Request) -> web.Response:
+        return web.json_response({"skills": [asdict(s) for s in manager.skills.all()]})
+
+    async def add_skill(request: web.Request) -> web.Response:
+        try:
+            skill = manager.skills.add(await request.json())
+        except ValueError as err:
+            return _error(400, str(err))
+        return web.json_response(asdict(skill))
+
+    async def update_skill(request: web.Request) -> web.Response:
+        try:
+            skill = manager.skills.update(request.match_info["skill_id"], await request.json())
+        except KeyError:
+            return _error(404, "no such skill")
+        except ValueError as err:
+            return _error(400, str(err))
+        return web.json_response(asdict(skill))
+
+    async def delete_skill(request: web.Request) -> web.Response:
+        if not manager.skills.remove(request.match_info["skill_id"]):
+            return _error(404, "no such skill")
+        return web.json_response({"removed": True})
+
     routes = [
+        ("GET", f"{PREFIX}/skills", list_skills),
+        ("POST", f"{PREFIX}/skills", add_skill),
+        ("PUT", f"{PREFIX}/skills/{{skill_id}}", update_skill),
+        ("DELETE", f"{PREFIX}/skills/{{skill_id}}", delete_skill),
         ("GET", f"{PREFIX}/commands", list_commands),
         ("PUT", f"{PREFIX}/commands/{{command_id}}", update_command),
         ("DELETE", f"{PREFIX}/commands/{{command_id}}", delete_command),

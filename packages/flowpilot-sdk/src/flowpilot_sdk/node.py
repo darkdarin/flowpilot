@@ -15,6 +15,7 @@ from .context import SessionInfo, SessionState, TurnContext
 from .host import HostAudio
 from .memory import Memory
 from .payloads import AudioFormat
+from .skills import Skills
 from .streams import InputStream, OutputStream
 from .text import LANGUAGE_RE, NodeText
 from .types import PRIVILEGED_TYPES, union, union_members, validate_type_id
@@ -212,6 +213,8 @@ class NodeContext(Protocol):
     # Quick commands people taught the assistant (flowpilot_sdk.commands); ``None`` when the
     # runtime keeps none. Read them per turn: people add and remove them while graphs run.
     commands: QuickCommands | None
+    # Skills people described for the agent (flowpilot_sdk.skills); ``None`` when none are kept.
+    skills: Skills | None
 
     def secret(self, name: str) -> str:
         """Value of a secret referenced in the node config; ``KeyError`` if not granted."""

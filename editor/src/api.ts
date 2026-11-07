@@ -126,6 +126,30 @@ export interface SecretInfo {
   graphs: string[];
 }
 
+/** A skill: a tool for the LLM agent, described by the owner on top of Home Assistant's actions. */
+export interface SkillField {
+  name: string;
+  title: string;
+  type: "text" | "number" | "choice";
+  options: string[];
+  required: boolean;
+}
+
+export interface SkillAction {
+  action: string;
+  data: Record<string, unknown>;
+  target: Record<string, unknown>;
+}
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  fields: SkillField[];
+  actions: SkillAction[];
+  enabled: boolean;
+}
+
 /** A quick command people taught: phrases and the Home Assistant tool calls they replay. */
 export interface QuickCommand {
   id: string;
@@ -275,6 +299,17 @@ export class Api {
   }
   deleteSecret(name: string) {
     return this.call<{ redeployed: Record<string, string | null> }>("DELETE", `/secrets/${encodeURIComponent(name)}`);
+  }
+  skills() {
+    return this.call<{ skills: Skill[] }>("GET", "/skills");
+  }
+  saveSkill(skill: Omit<Skill, "id"> & { id?: string }) {
+    return skill.id
+      ? this.call<Skill>("PUT", `/skills/${encodeURIComponent(skill.id)}`, skill)
+      : this.call<Skill>("POST", "/skills", skill);
+  }
+  deleteSkill(id: string) {
+    return this.call<{ removed: boolean }>("DELETE", `/skills/${encodeURIComponent(id)}`);
   }
   commands() {
     return this.call<CommandList>("GET", "/commands");

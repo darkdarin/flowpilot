@@ -12,7 +12,7 @@ from homeassistant.components.conversation import async_converse
 from homeassistant.components.homeassistant.exposed_entities import async_should_expose
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
-from homeassistant.core import Context, HomeAssistant
+from homeassistant.core import Context, HomeAssistant, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
@@ -33,6 +33,7 @@ from .const import (
     HOST_OP_LLM_TOOLS,
     HOST_OP_NAMES,
     HOST_OP_PEOPLE,
+    HOST_OP_SERVICE_CALL,
     HOST_OP_STT,
     HOST_OP_TTS,
     INNER_CONVERSATION_PREFIX,
@@ -322,6 +323,36 @@ def build_host_ops(
         )
         return {"error": result.error, "data": data, "targets_in_area": here}
 
+    async def service_call(request: HostRequest) -> Any:
+        """Run a Home Assistant action of a skill, as the person who spoke; failures come back as
+        text for the model."""
+        args = request.args
+        domain, _, service = str(args.get("action") or "").partition(".")
+        if not domain or not service or not hass.services.has_service(domain, service):
+            return {"error": True, "data": {"message": f"no action {args.get('action')!r}"}}
+        user_input = await turn_input(request)
+        user_id = args.get("user_id")
+        context = (
+            user_input.context
+            if user_input is not None
+            else Context(user_id=str(user_id) if user_id else None)
+        )
+        respond = hass.services.supports_response(domain, service) != SupportsResponse.NONE
+        try:
+            response = await hass.services.async_call(
+                domain,
+                service,
+                dict(args.get("data") or {}),
+                target=dict(args.get("target") or {}) or None,
+                blocking=True,
+                context=context,
+                return_response=respond,
+            )
+        except (HomeAssistantError, ValueError, probatio.Invalid) as err:  # bad data, no entity
+            return {"error": True, "data": {"error": type(err).__name__, "message": str(err)}}
+        data = json.loads(json.dumps(response or {"done": True}, cls=JSONEncoder))
+        return {"error": False, "data": data}
+
     async def names_list(request: HostRequest) -> Any:
         """Every name Assist matches: areas, floors and entities exposed to it, with aliases."""
         registry = er.async_get(hass)
@@ -373,6 +404,7 @@ def build_host_ops(
         HOST_OP_ENTITIES: entities_list,
         HOST_OP_PEOPLE: people_list,
         HOST_OP_NAMES: names_list,
+        HOST_OP_SERVICE_CALL: service_call,
         HOST_OP_LLM_TOOLS: llm_tools,
         HOST_OP_LLM_CALL: llm_call,
         HOST_OP_CONVERSATION: conversation_process,

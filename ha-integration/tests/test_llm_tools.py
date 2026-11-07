@@ -134,3 +134,39 @@ async def test_conversation_tells_if_the_command_stayed_in_the_speakers_room(
     assert here["targets_in_area"] is True
     there = await ask("turn on the lights in the kitchen")
     assert there["response_type"] == "action_done" and there["targets_in_area"] is False
+
+
+async def test_a_skill_action_runs_as_the_person(hass: HomeAssistant) -> None:
+    from homeassistant.core import ServiceCall, SupportsResponse
+
+    host = await ops(hass)
+    seen: list[ServiceCall] = []
+
+    async def adb(call: ServiceCall) -> None:
+        seen.append(call)
+
+    async def lookup(call: ServiceCall) -> dict[str, Any]:
+        return {"found": call.data["q"]}
+
+    hass.services.async_register("androidtv", "adb_command", adb)
+    hass.services.async_register("test", "lookup", lookup, supports_response=SupportsResponse.ONLY)
+    user = await hass.auth.async_create_user("Pavel")
+    call = host["ha.service.call"]
+    done = await call(
+        HostRequest(
+            None,
+            {
+                "action": "androidtv.adb_command",
+                "data": {"command": "monkey -p youtube 1"},
+                "target": {"entity_id": "media_player.tv"},
+                "user_id": user.id,
+            },
+        )
+    )
+    assert done == {"error": False, "data": {"done": True}}
+    [one] = seen
+    assert one.data["command"] == "monkey -p youtube 1" and one.context.user_id == user.id
+    answer = await call(HostRequest(None, {"action": "test.lookup", "data": {"q": "кот"}}))
+    assert answer == {"error": False, "data": {"found": "кот"}}
+    missing = await call(HostRequest(None, {"action": "nope.nope"}))
+    assert missing["error"] is True

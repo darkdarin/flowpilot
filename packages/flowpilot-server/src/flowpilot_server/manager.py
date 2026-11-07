@@ -35,6 +35,7 @@ from .commands_store import CommandStore
 from .memory_store import MemoryStore
 from .migrations import migrate_graph
 from .secret_store import secret_fields
+from .skills_store import SkillStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -128,10 +129,13 @@ class GraphManager:
         data_dir: Path | None = None,
         memory: MemoryStore | None = None,
         commands: CommandStore | None = None,
+        skills: SkillStore | None = None,
     ) -> None:
         self.data_dir = data_dir
         # quick commands people taught the assistant (flowpilot_sdk.QuickCommands)
         self.commands = commands if commands is not None else CommandStore(None)
+        # skills people described for the agent (flowpilot_sdk.Skills)
+        self.skills = skills if skills is not None else SkillStore(None)
         # long-term facts for every graph (flowpilot_sdk.Memory); in memory only when not given
         self.memory = (
             memory if memory is not None else MemoryStore(None)
@@ -225,6 +229,7 @@ class GraphManager:
             sessions=self.sessions,
             memory=self.memory,
             commands=self.commands,
+            skills=self.skills,
             taps_active=(lambda: watching(graph_id)) if watching else None,
         )
         try:

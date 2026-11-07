@@ -542,3 +542,56 @@ async def test_changing_a_quick_command_never_makes_a_copy() -> None:
     assert len(command.actions) == 2  # kept: not asked to change them
     _, ok = await tools.call("update_quick_command", json.dumps({"phrase": "нет такой"}))
     assert not ok
+
+
+async def test_the_agent_uses_a_skill_and_home_assistant_runs_it(
+    api: tuple[ToolCallingApi, str],
+) -> None:
+    from flowpilot_server.skills_store import SkillStore
+
+    fake, url = api
+    skills = SkillStore(None)
+    skills.add(
+        {
+            "name": "tv_open_app",
+            "description": "Open an app on the living room TV",
+            "fields": [{"name": "app", "type": "choice", "options": ["youtube", "kinopoisk"]}],
+            "actions": [
+                {
+                    "action": "androidtv.adb_command",
+                    "target": {"entity_id": "media_player.tv"},
+                    "data": {"command": "monkey -p {app} 1"},
+                }
+            ],
+        }
+    )
+
+    class SkillHost(HomeHost):
+        def offers(self, op: str) -> bool:
+            return op in {"ha.llm.tools", "ha.llm.call", "ha.service.call"}
+
+        async def call(self, turn_id: str, op: str, args: Any, **kwargs: Any) -> Any:
+            if op == "ha.service.call":
+                self.calls.append((op, dict(args)))
+                return {"error": False, "data": {"done": True}}
+            return await super().call(turn_id, op, args, **kwargs)
+
+    host = SkillHost()
+    node = LlmAgent()
+    cfg = {"base_url": url, "model": "m", "api_key": {"secret": "k"}, "remember": "off"}
+    ctx = RuntimeNodeContext("brain", cfg, {"k": KEY}, frozenset({"k"}))
+    ctx.skills = skills
+    await node.start(ctx)
+    fake.calls = [{"name": "skill__tv_open_app", "arguments": {"app": "youtube"}}]
+    try:
+        said = InputFeed(items=[Utterance("включи ютуб на телевизоре", "ru")], end="end")
+        run = await run_node_once(node, {"utterance": said}, host=host)
+    finally:
+        await node.stop()
+    assert run.error is None, run.error
+    offered = {t["function"]["name"] for t in fake.requests[0]["tools"]}
+    assert "skill__tv_open_app" in offered
+    [(_, call)] = [c for c in host.calls if c[0] == "ha.service.call"]
+    assert call["action"] == "androidtv.adb_command"
+    assert call["data"] == {"command": "monkey -p youtube 1"}
+    assert call["target"] == {"entity_id": "media_player.tv"}

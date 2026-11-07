@@ -14,8 +14,18 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from flowpilot_sdk import MAX_FACT_CHARS, Action, Memory, QuickCommand, QuickCommands
+from flowpilot_sdk import (
+    MAX_FACT_CHARS,
+    Action,
+    HostError,
+    HostUnavailable,
+    Memory,
+    QuickCommand,
+    QuickCommands,
+    Skill,
+)
 from flowpilot_sdk.commands import MAX_PHRASE_CHARS
+from flowpilot_sdk.skills import render
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,3 +340,31 @@ def command_tools(commands: QuickCommands, speaker: str | None, home: set[str]) 
             forget,
         ),
     ]
+
+
+SERVICE_CALL_OP = "ha.service.call"
+
+
+async def run_skill(
+    turn: Any, skill: Skill, args: Mapping[str, Any], who: Mapping[str, Any]
+) -> list[Any]:
+    """Run a skill's actions in order with the fields filled in; what Home Assistant answered
+    for each. ``ValueError`` (shown to the model) for bad values or a failed action."""
+    results: list[Any] = []
+    for action in render(skill, args):
+        call = {
+            **who,
+            "action": action.action,
+            "data": dict(action.data),
+            "target": dict(action.target),
+        }
+        try:
+            answer = await turn.call_host(SERVICE_CALL_OP, call)
+        except (HostError, HostUnavailable) as err:
+            raise ValueError(f"Home Assistant did not run {action.action}: {err}") from err
+        data = answer.get("data") if isinstance(answer, Mapping) else None
+        if not isinstance(answer, Mapping) or answer.get("error"):
+            message = data.get("message") if isinstance(data, Mapping) else None
+            raise ValueError(f"{action.action} failed: {message or answer}")
+        results.append(data)
+    return results

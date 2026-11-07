@@ -38,14 +38,17 @@ from flowpilot_sdk import (
     Principal,
     QuickCommands,
     Response,
+    Skill,
+    Skills,
     TextDelta,
     TurnSession,
     Utterance,
     dialogue,
     node_translations,
 )
+from flowpilot_sdk.skills import definition as skill_definition
 
-from .tools import Tool, Toolbox, command_tools, memory_tools
+from .tools import Tool, Toolbox, command_tools, memory_tools, run_skill
 
 DEFAULT_URL = "https://api.openai.com/v1"
 DEFAULT_HISTORY_HOURS = 24
@@ -60,6 +63,8 @@ HOME_TOOLS_OP = "ha.llm.tools"
 HOME_CALL_OP = "ha.llm.call"
 HOME_TOOLS_TIMEOUT_S = 3.0
 HOME_CALL_TIMEOUT_S = 20.0
+# a Home Assistant action of a skill the owner described (flowpilot_sdk.skills)
+SERVICE_CALL_OP = "ha.service.call"
 # Rounds of tool calls in one turn; the last round must answer in words.
 MAX_TOOL_ROUNDS = 4
 
@@ -404,7 +409,7 @@ class LlmAgent:
             "required": ["model"],
             "additionalProperties": False,
         },
-        optional_host_ops=frozenset({PEOPLE_OP, HOME_TOOLS_OP, HOME_CALL_OP}),
+        optional_host_ops=frozenset({PEOPLE_OP, HOME_TOOLS_OP, HOME_CALL_OP, SERVICE_CALL_OP}),
         turn_timeout_s=310.0,
         description=(
             "Answers with a language model of any OpenAI-compatible API (OpenAI, OpenRouter, "
@@ -420,6 +425,7 @@ class LlmAgent:
         self._http: aiohttp.ClientSession | None = None
         self._memory: Memory | None = None
         self._commands: QuickCommands | None = None
+        self._skills: Skills | None = None
         # the provider refused tools with reasoning on (see _complete_with_tools)
         self._no_reasoning = False
 
@@ -440,6 +446,7 @@ class LlmAgent:
 
     async def start(self, ctx: NodeContext) -> None:
         self._commands = getattr(ctx, "commands", None)
+        self._skills = getattr(ctx, "skills", None)
         self._config = dict(ctx.config)
         self._node = ctx.node_id
         self._memory = getattr(ctx, "memory", None)
@@ -585,7 +592,21 @@ class LlmAgent:
 
         specs = [t for t in result.get("tools") or [] if isinstance(t, Mapping) and t.get("name")]
         tools = [tool(t) for t in specs]
+        tools += [self._skill_tool(turn, s, who) for s in self._enabled_skills()]
         return str(result.get("prompt") or ""), tools
+
+    def _enabled_skills(self) -> list[Skill]:
+        return [s for s in self._skills.all() if s.enabled] if self._skills is not None else []
+
+    def _skill_tool(self, turn: TurnSession, skill: Skill, who: dict[str, Any]) -> Tool:
+        """A skill as a tool: the model fills its fields, Home Assistant runs its actions."""
+
+        async def run(args: Mapping[str, Any]) -> str:
+            results = await run_skill(turn, skill, args, who)
+            return json.dumps(results, ensure_ascii=False)
+
+        spec = skill_definition(skill)["function"]
+        return Tool(spec["name"], spec["description"], spec["parameters"], run)
 
     async def _people(self, turn: TurnSession) -> list[Mapping[str, Any]] | None:
         """The home's people from the turn's client, or None without one (or when turned off)."""

@@ -27,12 +27,15 @@ from flowpilot_sdk import (
     QuickCommand,
     QuickCommands,
     Response,
+    Skill,
+    Skills,
     TextDelta,
     TurnSession,
     Utterance,
     dialogue,
     node_translations,
 )
+from flowpilot_sdk.skills import TOOL_PREFIX, render
 
 from .names import NameMatcher, phrase_key, same_phrase, warm_up, words
 from .nodes import HA_CONVERSATION_OP
@@ -40,6 +43,7 @@ from .nodes import HA_CONVERSATION_OP
 NAMES_OP = "ha.names.list"
 # Home Assistant's tools, as the LLM agent calls them: learned commands replay their calls
 TOOL_CALL_OP = "ha.llm.call"
+SERVICE_CALL_OP = "ha.service.call"
 # what a learned command answers when it has no reply of its own, and when it failed
 DONE = {"ru": ("Готово", "Не получилось"), "en": ("Done", "That did not work")}
 
@@ -174,7 +178,7 @@ class HaQuickCommands:
             "additionalProperties": False,
         },
         host_ops=frozenset({HA_CONVERSATION_OP}),
-        optional_host_ops=frozenset({NAMES_OP, TOOL_CALL_OP}),
+        optional_host_ops=frozenset({NAMES_OP, TOOL_CALL_OP, SERVICE_CALL_OP}),
         turn_timeout_s=20.0,
         description=(
             "Runs commands Home Assistant understands by itself (turn on the light, set the "
@@ -190,6 +194,7 @@ class HaQuickCommands:
         self._acknowledge = "area"
         self._extra: list[str] = []
         self._commands: QuickCommands | None = None
+        self._skills: Skills | None = None
 
     async def start(self, ctx: NodeContext) -> None:
         self._agent = str(ctx.config.get("agent_id") or BUILT_IN_AGENT)
@@ -199,6 +204,7 @@ class HaQuickCommands:
         self._extra = [str(w) for w in ctx.config.get("extra_words") or []]
         self._names: tuple[float, list[str]] | None = None
         self._commands = getattr(ctx, "commands", None)
+        self._skills = getattr(ctx, "skills", None)
         if self._retry or self._commands is not None:
             await asyncio.to_thread(warm_up)
 
@@ -251,12 +257,20 @@ class HaQuickCommands:
             "language": args["language"],
         }
         here = True
+        skills = {s.tool: s for s in self._skills.all()} if self._skills is not None else {}
         for action in command.actions:
             try:
-                result = await turn.call_host(
-                    TOOL_CALL_OP, {**who, "name": action.tool, "arguments": dict(action.arguments)}
-                )
-            except (HostError, HostUnavailable) as err:
+                if action.tool.startswith(TOOL_PREFIX):  # a skill: its own actions
+                    skill = skills.get(action.tool)
+                    if skill is None:
+                        raise ValueError(f"there is no skill {action.tool} any more")
+                    result = await self._run_skill(turn, skill, dict(action.arguments), who)
+                else:
+                    result = await turn.call_host(
+                        TOOL_CALL_OP,
+                        {**who, "name": action.tool, "arguments": dict(action.arguments)},
+                    )
+            except (HostError, HostUnavailable, ValueError) as err:
                 result = {"error": True, "data": {"message": str(err)}}
             if not isinstance(result, dict) or result.get("error"):
                 data = result.get("data") if isinstance(result, dict) else None
@@ -266,6 +280,24 @@ class HaQuickCommands:
             here = here and bool(result.get("targets_in_area"))
         done = command.reply or DONE.get(_base(args["language"]), DONE["en"])[0]
         return {"response_type": "action_done", "speech": done, "targets_in_area": here}
+
+    async def _run_skill(
+        self, turn: TurnSession, skill: Skill, args: dict[str, Any], who: dict[str, Any]
+    ) -> dict[str, Any]:
+        """A skill's actions in order; the first failure stops it."""
+        for action in render(skill, args):
+            result = await turn.call_host(
+                SERVICE_CALL_OP,
+                {
+                    **who,
+                    "action": action.action,
+                    "data": dict(action.data),
+                    "target": dict(action.target),
+                },
+            )
+            if not isinstance(result, dict) or result.get("error"):
+                return result if isinstance(result, dict) else {"error": True}
+        return {"error": False, "targets_in_area": False}
 
     async def run_turn(self, turn: TurnSession) -> None:
         said: Utterance | None = await turn.input("utterance").value()

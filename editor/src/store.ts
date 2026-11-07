@@ -99,6 +99,7 @@ export const secrets = ref<SecretInfo[]>([]);
 export const secretsOpen = ref(false);
 export const memoryOpen = ref(false);
 export const commandsOpen = ref(false);
+export const skillsOpen = ref(false);
 export const notice = ref<{ text: string; kind: "info" | "error" } | null>(null);
 
 export const debug = reactive({

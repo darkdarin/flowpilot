@@ -24,6 +24,8 @@ HOST_OP_NAMES: Final = "ha.names.list"
 # Home Assistant's LLM tools (the Assist API: entities exposed to Assist) for FlowPilot's agents
 HOST_OP_LLM_TOOLS: Final = "ha.llm.tools"
 HOST_OP_LLM_CALL: Final = "ha.llm.call"
+# One Home Assistant action of a skill the owner described (the agent only fills its fields)
+HOST_OP_SERVICE_CALL: Final = "ha.service.call"
 # Kinds of graph references to Home Assistant (``x-flowpilot-options`` in node config schemas).
 OPTION_STT: Final = "ha.stt"
 OPTION_TTS: Final = "ha.tts"

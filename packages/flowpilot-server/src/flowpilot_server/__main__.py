@@ -53,6 +53,7 @@ from .secret_store import SecretStore
 from .server import FlowPilotServer
 from .session_file import SessionFile
 from .signal import SoundSignal
+from .skills_store import SkillStore
 
 _LOGGER = logging.getLogger("flowpilot_server")
 
@@ -101,6 +102,7 @@ async def serve(config_path: Path, *, dev: bool = False, announce: bool = False)
         data_dir=base,
         memory=MemoryStore(base / config.get("memory_file", "memory.json")),
         commands=CommandStore(base / config.get("commands_file", "quick_commands.json")),
+        skills=SkillStore(base / config.get("skills_file", "skills.json")),
     )
 
     def remember_default(graph_id: str) -> None:

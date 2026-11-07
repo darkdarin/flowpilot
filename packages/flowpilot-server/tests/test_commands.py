@@ -90,3 +90,41 @@ async def test_the_editor_manages_commands(api: Any) -> None:
     assert bad.status == 400
     assert (await http.delete(url(f"/api/editor/commands/{movie.id}"))).status == 200
     assert (await http.delete(url(f"/api/editor/commands/{movie.id}"))).status == 404
+
+
+async def test_the_editor_manages_skills(tmp_path: Path) -> None:
+    from flowpilot_server.skills_store import SkillStore
+
+    store = GraphStore(tmp_path)
+    store.save("main", GRAPH)
+    skills = SkillStore(tmp_path / "skills.json")
+    manager = GraphManager(build_registry(dev=True), store=store, skills=skills)
+    assert await manager.load_all() == {}
+    server = TestServer(FlowPilotServer(token="t", default_graph="main", manager=manager).app())
+    await server.start_server()
+    tv = {
+        "name": "tv_open_app",
+        "description": "Open an app on the TV",
+        "fields": [{"name": "app", "type": "choice", "options": ["youtube"]}],
+        "actions": [{"action": "androidtv.adb_command", "data": {"command": "monkey -p {app} 1"}}],
+    }
+    try:
+        async with aiohttp.ClientSession(headers={"Authorization": "Bearer t"}) as http:
+            url = server.make_url
+            made = await (await http.post(url("/api/editor/skills"), json=tv)).json()
+            assert made["name"] == "tv_open_app" and made["enabled"] is True
+            unsafe = tv | {"name": "raw", "fields": [{"name": "app"}]}  # text, unescaped
+            assert (await http.post(url("/api/editor/skills"), json=unsafe)).status == 400
+            twin = await http.post(url("/api/editor/skills"), json=tv)
+            assert twin.status == 400  # the name is taken
+            off = await http.put(
+                url(f"/api/editor/skills/{made['id']}"), json=tv | {"enabled": False}
+            )
+            assert off.status == 200
+            assert [s.enabled for s in SkillStore(tmp_path / "skills.json").all()] == [False]
+            assert (await http.delete(url(f"/api/editor/skills/{made['id']}"))).status == 200
+            listed = await (await http.get(url("/api/editor/skills"))).json()
+            assert listed == {"skills": []}
+    finally:
+        await server.close()
+        await manager.stop()

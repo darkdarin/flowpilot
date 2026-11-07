@@ -36,6 +36,7 @@ from .payloads import (
     Utterance,
     Word,
 )
+from .skills import Skill, SkillAction, SkillField, Skills
 from .streams import Envelope, InputStream, OutputStream, StreamError, StreamHeader
 from .text import FieldText, NodeText, node_translations
 from .types import (
@@ -55,6 +56,10 @@ __version__ = "0.1.20"
 
 __all__ = [
     "Action",
+    "Skill",
+    "SkillAction",
+    "SkillField",
+    "Skills",
     "QuickCommand",
     "QuickCommands",
     "MAX_FACT_CHARS",
