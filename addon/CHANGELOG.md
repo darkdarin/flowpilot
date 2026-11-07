@@ -4,6 +4,18 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.22
+
+### App
+
+- No changes, no need to update.
+
+### Integration
+
+- **Music goes on after the song you asked for.** Asked to play a song, an artist or an album,
+  the speaker keeps playing similar music afterwards (Music Assistant's radio mode) instead of
+  falling silent; say "only this song" to hear just the one.
+
 ## 0.1.21
 
 ### App

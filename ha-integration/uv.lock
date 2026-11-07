@@ -1046,7 +1046,7 @@ wheels = [
 
 [[package]]
 name = "flowpilot-core"
-version = "0.1.21"
+version = "0.1.22"
 source = { editable = "../packages/flowpilot-core" }
 dependencies = [
     { name = "flowpilot-sdk" },
@@ -1102,7 +1102,7 @@ dev = [
 
 [[package]]
 name = "flowpilot-llm"
-version = "0.1.21"
+version = "0.1.22"
 source = { editable = "../plugins/flowpilot-llm" }
 dependencies = [
     { name = "aiohttp" },
@@ -1117,12 +1117,12 @@ requires-dist = [
 
 [[package]]
 name = "flowpilot-sdk"
-version = "0.1.21"
+version = "0.1.22"
 source = { editable = "../packages/flowpilot-sdk" }
 
 [[package]]
 name = "flowpilot-server"
-version = "0.1.21"
+version = "0.1.22"
 source = { editable = "../packages/flowpilot-server" }
 dependencies = [
     { name = "aiohttp" },
