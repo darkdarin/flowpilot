@@ -38,6 +38,9 @@ class Toolbox:
     def __init__(self, tools: list[Tool]) -> None:
         self._tools = {t.name: t for t in tools}
 
+    def with_tools(self, tools: list[Tool]) -> Toolbox:
+        return Toolbox([*self._tools.values(), *tools])
+
     def __bool__(self) -> bool:
         return bool(self._tools)
 

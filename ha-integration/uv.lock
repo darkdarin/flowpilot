@@ -1058,6 +1058,7 @@ source = { virtual = "." }
 [package.dev-dependencies]
 dev = [
     { name = "flowpilot-core" },
+    { name = "flowpilot-llm" },
     { name = "flowpilot-sdk" },
     { name = "flowpilot-server" },
     { name = "gazetteer-matcher" },
@@ -1076,6 +1077,7 @@ dev = [
 [package.metadata.requires-dev]
 dev = [
     { name = "flowpilot-core", editable = "../packages/flowpilot-core" },
+    { name = "flowpilot-llm", editable = "../plugins/flowpilot-llm" },
     { name = "flowpilot-sdk", editable = "../packages/flowpilot-sdk" },
     { name = "flowpilot-server", editable = "../packages/flowpilot-server" },
     { name = "gazetteer-matcher", specifier = "==1.1.0" },
@@ -1087,6 +1089,21 @@ dev = [
     { name = "pymicro-vad", specifier = "==1.0.1" },
     { name = "pyspeex-noise", specifier = "==1.0.2" },
     { name = "pytest-homeassistant-custom-component", specifier = "==0.13.375" },
+]
+
+[[package]]
+name = "flowpilot-llm"
+version = "0.1.13"
+source = { editable = "../plugins/flowpilot-llm" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "flowpilot-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.10" },
+    { name = "flowpilot-sdk", editable = "../packages/flowpilot-sdk" },
 ]
 
 [[package]]

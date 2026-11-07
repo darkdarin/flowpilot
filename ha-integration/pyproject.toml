@@ -23,6 +23,7 @@ dev = [
     "flowpilot-server",
     "flowpilot-core",
     "flowpilot-sdk",
+    "flowpilot-llm",
     "mypy>=1.18",
 ]
 
@@ -30,6 +31,7 @@ dev = [
 flowpilot-server = { path = "../packages/flowpilot-server", editable = true }
 flowpilot-core = { path = "../packages/flowpilot-core", editable = true }
 flowpilot-sdk = { path = "../packages/flowpilot-sdk", editable = true }
+flowpilot-llm = { path = "../plugins/flowpilot-llm", editable = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -18,6 +18,9 @@ HOST_OP_STT: Final = "ha.stt.process"
 HOST_OP_TTS: Final = "ha.tts.synthesize"
 HOST_OP_ENTITIES: Final = "ha.entities.list"
 HOST_OP_PEOPLE: Final = "ha.people.list"
+# Home Assistant's LLM tools (the Assist API: entities exposed to Assist) for FlowPilot's agents
+HOST_OP_LLM_TOOLS: Final = "ha.llm.tools"
+HOST_OP_LLM_CALL: Final = "ha.llm.call"
 # Kinds of graph references to Home Assistant (``x-flowpilot-options`` in node config schemas).
 OPTION_STT: Final = "ha.stt"
 OPTION_TTS: Final = "ha.tts"

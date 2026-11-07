@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
+import probatio
 from homeassistant.components import conversation, stt, tts
 from homeassistant.components.conversation import async_converse
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import Context, HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import llm
+from homeassistant.helpers.json import JSONEncoder
 
 from .client import FlowPilotClient, HostHandler, HostRequest
 from .const import (
@@ -19,6 +24,8 @@ from .const import (
     DOMAIN,
     HOST_OP_CONVERSATION,
     HOST_OP_ENTITIES,
+    HOST_OP_LLM_CALL,
+    HOST_OP_LLM_TOOLS,
     HOST_OP_PEOPLE,
     HOST_OP_STT,
     HOST_OP_TTS,
@@ -169,6 +176,67 @@ def build_host_ops(
             "strict": [OPTION_STT, OPTION_TTS, OPTION_CONVERSATION],
         }
 
+    async def turn_input(request: HostRequest) -> conversation.ConversationInput | None:
+        """The Assist request behind the turn, when Home Assistant started it."""
+        if request.handle is None:
+            return None
+        try:
+            async with asyncio.timeout(ATTACH_TIMEOUT_S):
+                return await asyncio.shield(request.handle.attached)
+        except TimeoutError:
+            return None
+
+    async def llm_api(request: HostRequest) -> llm.APIInstance:
+        """Home Assistant's Assist LLM API for the turn's person, device and language: only
+        entities exposed to Assist, tools run with the person's context."""
+        args = request.args
+        user_input = await turn_input(request)
+        user_id = args.get("user_id")
+        context = (
+            user_input.context
+            if user_input is not None
+            else Context(user_id=str(user_id) if user_id else None)
+        )
+        llm_context = llm.LLMContext(
+            platform=DOMAIN,
+            context=context,
+            language=args.get("language") or (user_input.language if user_input else None),
+            assistant=conversation.DOMAIN,
+            device_id=args.get("device_id") or (user_input.device_id if user_input else None),
+        )
+        return await llm.async_get_api(hass, llm.LLM_API_ASSIST, llm_context)
+
+    async def llm_tools(request: HostRequest) -> Any:
+        """The Assist API's instructions and tools, with JSON Schema parameters."""
+        api = await llm_api(request)
+        tools = []
+        for tool in api.tools:
+            schema = probatio.to_openapi(
+                tool.parameters, custom_serializer=api.custom_serializer, openapi_version="3.1.0"
+            )
+            # like Home Assistant's OpenAI integration: providers reject these at the top level
+            schema = {
+                k: v
+                for k, v in schema.items()
+                if k not in {"oneOf", "anyOf", "allOf", "enum", "not"}
+            }
+            tools.append(
+                {"name": tool.name, "description": tool.description or "", "parameters": schema}
+            )
+        return {"prompt": api.api_prompt, "tools": tools}
+
+    async def llm_call(request: HostRequest) -> Any:
+        """Run one tool of the Assist API; failures come back as text for the model."""
+        api = await llm_api(request)
+        arguments = request.args.get("arguments") or {}
+        tool_input = llm.ToolInput(tool_name=str(request.args["name"]), tool_args=dict(arguments))
+        try:
+            result = await api.async_call_tool(tool_input)
+        except (HomeAssistantError, ValueError) as err:  # bad arguments, unknown entity, ...
+            return {"error": True, "data": {"error": type(err).__name__, "message": str(err)}}
+        data = json.loads(json.dumps(result.data, cls=JSONEncoder))
+        return {"error": result.error, "data": data}
+
     async def people_list(request: HostRequest) -> Any:
         """Who lives in the home: Home Assistant people with where they are, and users without a
         person, so an agent knows who it talks to and who is home."""
@@ -202,6 +270,8 @@ def build_host_ops(
     return {
         HOST_OP_ENTITIES: entities_list,
         HOST_OP_PEOPLE: people_list,
+        HOST_OP_LLM_TOOLS: llm_tools,
+        HOST_OP_LLM_CALL: llm_call,
         HOST_OP_CONVERSATION: conversation_process,
         HOST_OP_STT: stt_process,
         HOST_OP_TTS: tts_synthesize,

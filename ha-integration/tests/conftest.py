@@ -103,12 +103,18 @@ def auto_enable_custom_integrations(enable_custom_integrations: None) -> Iterato
 
 
 async def _runtime(
-    agent: dict[str, Any], graph_data: dict[str, Any] | None = None
+    agent: dict[str, Any],
+    graph_data: dict[str, Any] | None = None,
+    extra: tuple[str, ...] = (),
 ) -> AsyncIterator[Runtime]:
     registry = register_builtin(NodeRegistry())
     classes: list[type[Node]] = [
         ClientSource, ClientSink, HaConversation, HaStt, HaTts, FixedAnswer, *DEV_NODES
     ]  # fmt: skip
+    if "llm.agent" in extra:
+        from flowpilot_llm import LlmAgent  # noqa: PLC0415 - only the tests that need it
+
+        classes.append(LlmAgent)
     for cls in classes:
         registry.register(cls)
     trace = ListTraceSink()

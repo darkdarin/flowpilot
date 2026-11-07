@@ -285,3 +285,69 @@ async def test_no_people_without_home_assistant_or_when_off(
     await ask(url, MemoryStore(None), "привет", "pavel", host=PeopleHost(None))  # old integration
     assert off.calls == 0
     assert all("People of the home" not in r["messages"][0]["content"] for r in fake.requests)
+
+
+class HomeHost:
+    """Home Assistant's Assist LLM API (``ha.llm.tools``, ``ha.llm.call``)."""
+
+    def __init__(self, fail: bool = False) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.fail = fail
+
+    def offers(self, op: str) -> bool:
+        return op in {"ha.llm.tools", "ha.llm.call"}
+
+    async def call(self, turn_id: str, op: str, args: Any, **kwargs: Any) -> Any:
+        self.calls.append((op, dict(args)))
+        if op == "ha.llm.tools":
+            schema = {"type": "object", "properties": {"name": {"type": "string"}}}
+            tool = {"name": "intent__HassTurnOn", "description": "Turn on", "parameters": schema}
+            return {"prompt": "Use the tools to control the home.", "tools": [tool]}
+        if self.fail:
+            return {"error": True, "data": {"message": "no device named Kitchen"}}
+        return {"error": False, "data": {"success": True, "name": args["arguments"]["name"]}}
+
+    def stream(self, turn_id: str, op: str, args: Any) -> Any:
+        raise NotImplementedError
+
+
+async def test_the_agent_controls_the_home_as_the_speaker(api: tuple[ToolCallingApi, str]) -> None:
+    fake, url = api
+    host = HomeHost()
+    fake.calls = [{"name": "intent__HassTurnOn", "arguments": {"name": "Kitchen"}}]
+    run = await ask(url, MemoryStore(None), "включи свет на кухне", "pavel", host=host)
+    first = fake.requests[0]
+    assert "Use the tools to control the home." in first["messages"][0]["content"]
+    assert {t["function"]["name"] for t in first["tools"]} == {
+        "remember",
+        "forget",
+        "intent__HassTurnOn",
+    }
+    [(_, listed), (_, called)] = host.calls
+    assert listed["user_id"] == "pavel"
+    assert called == {
+        "user_id": "pavel",
+        "device_id": None,
+        "language": "ru",
+        "name": "intent__HassTurnOn",
+        "arguments": {"name": "Kitchen"},
+    }
+    assert '"success": true' in fake.requests[1]["messages"][-1]["content"]
+    tools = [e for e in run.trace.events if e.event == "llm.agent.tool"]
+    assert [(e.attrs["tool"], e.attrs["ok"]) for e in tools] == [("intent__HassTurnOn", True)]
+
+
+async def test_home_errors_reach_the_model(api: tuple[ToolCallingApi, str]) -> None:
+    fake, url = api
+    fake.calls = [{"name": "intent__HassTurnOn", "arguments": {"name": "Kitchen"}}]
+    run = await ask(url, MemoryStore(None), "включи свет", None, host=HomeHost(fail=True))
+    assert "no device named Kitchen" in fake.requests[1]["messages"][-1]["content"]
+    tools = [e for e in run.trace.events if e.event == "llm.agent.tool"]
+    assert [e.attrs["ok"] for e in tools] == [False]
+
+
+async def test_no_home_tools_when_turned_off(api: tuple[ToolCallingApi, str]) -> None:
+    fake, url = api
+    host = HomeHost()
+    await ask(url, MemoryStore(None), "привет", "pavel", host=host, home=False, remember="off")
+    assert host.calls == [] and "tools" not in fake.requests[0]

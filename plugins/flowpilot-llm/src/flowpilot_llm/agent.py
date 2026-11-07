@@ -42,13 +42,18 @@ from flowpilot_sdk import (
     node_translations,
 )
 
-from .tools import Toolbox, memory_tools
+from .tools import Tool, Toolbox, memory_tools
 
 DEFAULT_URL = "https://api.openai.com/v1"
 DEFAULT_HISTORY_HOURS = 24
 # Who lives in the home, from the turn's client (Home Assistant: people and users)
 PEOPLE_OP = "ha.people.list"
 PEOPLE_TIMEOUT_S = 2.0
+# Home Assistant's Assist LLM API: instructions and tools for the entities exposed to Assist
+HOME_TOOLS_OP = "ha.llm.tools"
+HOME_CALL_OP = "ha.llm.call"
+HOME_TOOLS_TIMEOUT_S = 3.0
+HOME_CALL_TIMEOUT_S = 20.0
 # Rounds of tool calls in one turn; the last round must answer in words.
 MAX_TOOL_ROUNDS = 4
 
@@ -150,7 +155,7 @@ class LlmAgent:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="llm.agent",
         translations=node_translations(__package__, "llm.agent"),
-        version="1.3.0",
+        version="1.4.0",
         title="LLM agent",
         category="agent",
         inputs={
@@ -178,13 +183,17 @@ class LlmAgent:
         config_schema={
             "type": "object",
             GROUPS_KEY: {
+                "tools": {
+                    "title": "Tools",
+                    "description": "What the agent may do itself: control the home.",
+                },
                 "memory": {
                     "title": "Memory",
                     "description": (
                         "The dialogue, the home's people, facts from the Memory page and what the "
                         "agent remembers itself."
                     ),
-                }
+                },
             },
             "properties": {
                 "base_url": {
@@ -270,6 +279,18 @@ class LlmAgent:
                     "default": "personal",
                     GROUP_KEY: "memory",
                 },
+                "home": {
+                    "title": "Controls the home",
+                    "description": (
+                        "The agent may control and ask about the devices exposed to Assist in "
+                        "Home Assistant (Settings → Voice assistants → Expose), with Home "
+                        "Assistant's own tools, as the person who speaks; needs a model with "
+                        "function calling and FlowPilot Assist 0.1.14 or newer. On when not set."
+                    ),
+                    "type": "boolean",
+                    "default": True,
+                    GROUP_KEY: "tools",
+                },
                 "people": {
                     "title": "Knows the household",
                     "description": (
@@ -324,7 +345,7 @@ class LlmAgent:
             "required": ["model"],
             "additionalProperties": False,
         },
-        optional_host_ops=frozenset({PEOPLE_OP}),
+        optional_host_ops=frozenset({PEOPLE_OP, HOME_TOOLS_OP, HOME_CALL_OP}),
         turn_timeout_s=310.0,
         description=(
             "Answers with a language model of any OpenAI-compatible API (OpenAI, OpenRouter, "
@@ -454,6 +475,57 @@ class LlmAgent:
                         call["arguments"] += function.get("arguments") or ""
         return "".join(pieces), [calls[i] for i in sorted(calls)]
 
+    async def _home(
+        self, turn: TurnSession, speaker: str | None, language: str | None
+    ) -> tuple[str, list[Tool]]:
+        """Home Assistant's instructions and tools for this turn, or nothing without them."""
+        if not self._config.get("home", True):
+            return "", []
+        device = turn.context.device
+        who: dict[str, Any] = {
+            "user_id": speaker,
+            "device_id": device.device_id if device else None,
+            "language": language,
+        }
+        try:
+            async with asyncio.timeout(HOME_TOOLS_TIMEOUT_S):
+                result = await turn.call_host(HOME_TOOLS_OP, who)
+        except HostUnavailable:
+            return "", []
+        except (HostError, TimeoutError) as err:
+            turn.trace("llm.agent.home_failed", reason=str(err)[:200])
+            return "", []
+        if not isinstance(result, Mapping):
+            return "", []
+
+        def tool(spec: Mapping[str, Any]) -> Tool:
+            name = str(spec["name"])
+
+            async def run(args: Mapping[str, Any]) -> str:
+                try:
+                    async with asyncio.timeout(HOME_CALL_TIMEOUT_S):
+                        answer = await turn.call_host(
+                            HOME_CALL_OP, {**who, "name": name, "arguments": dict(args)}
+                        )
+                except (HostError, HostUnavailable, TimeoutError) as err:
+                    raise ValueError(f"Home Assistant did not run it: {err}") from err
+                data = json.dumps(answer.get("data"), ensure_ascii=False)
+                if answer.get("error"):
+                    raise ValueError(data)
+                return data
+
+            parameters = spec.get("parameters")
+            return Tool(
+                name,
+                str(spec.get("description") or ""),
+                parameters if isinstance(parameters, Mapping) else {"type": "object"},
+                run,
+            )
+
+        specs = [t for t in result.get("tools") or [] if isinstance(t, Mapping) and t.get("name")]
+        tools = [tool(t) for t in specs]
+        return str(result.get("prompt") or ""), tools
+
     async def _people(self, turn: TurnSession) -> list[Mapping[str, Any]] | None:
         """The home's people from the turn's client, or None without one (or when turned off)."""
         if not self._config.get("people", True):
@@ -498,14 +570,24 @@ class LlmAgent:
         speaker = await self._speaker(turn)
         home, own = self._known(speaker)
         toolbox = self._toolbox(speaker)
+        remembers = bool(toolbox)
         history_key = f"history:{self._node}"
         keep = int(self._config.get("history_turns", 10))
         history: list[dict[str, str]] = list(await turn.state.get(history_key) or [])
         personal = self._config.get("memory", "personal") == "personal"
         auto = self._remember() == "auto"
-        guide = _tools_text(speaker is not None or not personal, auto=auto) if toolbox else ""
-        people = await self._people(turn)
-        parts = (self._system(language), _people_text(people, speaker), _memory_text(home, own))
+        guide = _tools_text(speaker is not None or not personal, auto=auto) if remembers else ""
+        people, (home_prompt, home_tools) = await asyncio.gather(
+            self._people(turn), self._home(turn, speaker, language)
+        )
+        if home_tools:
+            toolbox = toolbox.with_tools(home_tools)
+        parts = (
+            self._system(language),
+            _people_text(people, speaker),
+            _memory_text(home, own),
+            home_prompt if home_tools else "",
+        )
         system = "\n\n".join(p for p in (*parts, guide) if p)
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}] if system else []
         messages += history[-2 * keep :] if keep else []
@@ -552,8 +634,8 @@ class LlmAgent:
                 turn.trace("llm.agent.no_tools", reason=str(err)[:200])
                 toolbox = Toolbox([])
                 body.pop("reasoning_effort", None)
-                if guide:  # the model cannot keep facts after all: do not tell it it can
-                    plain = "\n\n".join(p for p in parts if p)
+                if guide or home_tools:  # it cannot use tools after all: do not tell it it can
+                    plain = "\n\n".join(p for p in parts[:3] if p)
                     messages = [{"role": "system", "content": plain}] if plain else []
                     messages += history[-2 * keep :] if keep else []
                     messages.append({"role": "user", "content": said.text})
