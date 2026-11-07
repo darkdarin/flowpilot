@@ -146,3 +146,17 @@ async def test_a_model_without_function_calling_still_answers(
     run = await ask(url, MemoryStore(None), "привет", "masha")
     assert run.outputs["response"].items[0].text == "Ответ"
     assert any(e.event == "llm.agent.no_tools" for e in run.trace.events)
+    retry = fake.requests[-1]["messages"]
+    assert all("long-term memory" not in m["content"] for m in retry if m["role"] == "system")
+
+
+async def test_the_agent_is_told_it_can_remember(api: tuple[ToolCallingApi, str]) -> None:
+    """Models believe they cannot remember between conversations unless told otherwise."""
+    fake, url = api
+    await ask(url, MemoryStore(None), "привет", "masha")
+    await ask(url, MemoryStore(None), "привет", None)
+    await ask(url, MemoryStore(None), "привет", "masha", tools=False)
+    known, unknown, off = (r["messages"][0]["content"] for r in fake.requests)
+    assert "call the remember tool" in known and "not known who is speaking" not in known
+    assert "keep facts as the home's" in unknown
+    assert "remember tool" not in off

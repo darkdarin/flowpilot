@@ -159,7 +159,9 @@ async def test_remembers_the_dialogue(fake: tuple[FakeOpenAI, str], tmp_path: Pa
     finally:
         await server.close()
         await manager.stop()
-    contents = [[m["content"] for m in r["messages"]] for r in api.requests]
+    contents = [
+        [m["content"] for m in r["messages"] if m["role"] != "system"] for r in api.requests
+    ]
     assert contents[0] == ["первый"]
     assert contents[1] == ["первый", "Ответ на «первый»", "второй"]
     assert contents[2] == ["второй", "Ответ на «второй»", "третий"]  # only the last exchange

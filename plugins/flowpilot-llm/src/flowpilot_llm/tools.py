@@ -110,8 +110,9 @@ def memory_tools(memory: Memory, speaker: str | None, *, personal: bool) -> list
                     "about": {
                         "type": "string",
                         "enum": ["speaker", "home"],
-                        "description": "'speaker': only about the person talking, private to "
-                        "them; 'home': for everyone in the home.",
+                        "description": "'home': for everyone in the home: the family, pets, "
+                        "guests, the house and its routines; 'speaker': the speaker's own "
+                        "preferences and habits, private to them.",
                     },
                 },
                 "required": ["fact", "about"],

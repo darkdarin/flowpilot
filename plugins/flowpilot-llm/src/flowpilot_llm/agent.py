@@ -84,6 +84,21 @@ def _memory_text(home: list[str], own: list[str]) -> str:
     return "\n".join(parts)
 
 
+def _tools_text(speaker_known: bool) -> str:
+    """How to use the memory tools. Without it models tend to say they cannot remember anything
+    between conversations, which is their default belief, and never call the tools."""
+    text = (
+        "You have a long-term memory that lasts between conversations and restarts. When the user "
+        "asks you to remember something, or tells a lasting fact worth knowing later, call the "
+        "remember tool for each fact; when asked to forget, call forget. Never say you cannot "
+        "remember things for future conversations: you can. Facts about the family, pets, guests "
+        "and the house are the home's; only the speaker's own preferences and habits are personal."
+    )
+    if not speaker_known:
+        text += " It is not known who is speaking now, so keep facts as the home's."
+    return text
+
+
 class LlmAgent:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="llm.agent",
@@ -347,7 +362,10 @@ class LlmAgent:
         history_key = f"history:{self._node}"
         keep = int(self._config.get("history_turns", 10))
         history: list[dict[str, str]] = list(await turn.state.get(history_key) or [])
-        system = "\n\n".join(p for p in (self._system(language), _memory_text(home, own)) if p)
+        personal = self._config.get("memory", "personal") == "personal"
+        guide = _tools_text(speaker is not None or not personal) if toolbox else ""
+        parts = (self._system(language), _memory_text(home, own))
+        system = "\n\n".join(p for p in (*parts, guide) if p)
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}] if system else []
         messages += history[-2 * keep :] if keep else []
         messages.append({"role": "user", "content": said.text})
@@ -388,6 +406,11 @@ class LlmAgent:
                 # a model without function calling: answer without tools from now on
                 turn.trace("llm.agent.no_tools", reason=str(err)[:200])
                 toolbox = Toolbox([])
+                if guide:  # the model cannot keep facts after all: do not tell it it can
+                    plain = "\n\n".join(p for p in parts if p)
+                    messages = [{"role": "system", "content": plain}] if plain else []
+                    messages += history[-2 * keep :] if keep else []
+                    messages.append({"role": "user", "content": said.text})
                 text, calls = await self._complete(body | {"messages": messages}, on_text)
             if not calls:
                 break
