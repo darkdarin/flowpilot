@@ -4,6 +4,22 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.21
+
+### App
+
+- **Skills: your own tools for the LLM agent.** On the new Skills page of the editor, describe a
+  tool on top of Home Assistant's actions: a name and when to use it, the fields the agent fills
+  in (text, a number, a choice from a list) and the actions to run with them, for example open an
+  app on an Android TV over ADB or search YouTube on it. The agent only fills the fields; the
+  actions are yours, and text goes into a command only escaped (`{query|url}`, `{query|shell}`).
+  Home Assistant runs them as the person who speaks. Quick commands can replay skills too. A
+  skill can be turned off without removing it.
+
+### Integration
+
+- Runs the Home Assistant actions of skills for the app. Update it together with the app.
+
 ## 0.1.20
 
 ### App
