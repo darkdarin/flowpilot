@@ -145,6 +145,7 @@ async def test_plays_the_best_match_where_it_was_asked(hass: HomeAssistant) -> N
     # the station's own player, not the TV in the same room
     assert played["entity_id"] == ids["station"]
     assert played["media_id"] == "spotify://track/splin" and played["media_type"] == "track"
+    assert played["radio_mode"] is True  # similar music goes on after the song
     assert played["context_user"] == user.id
 
 
@@ -175,3 +176,10 @@ async def test_a_weak_match_comes_back_as_choices(hass: HomeAssistant) -> None:
     result = await call(host, {"query": "что-то совсем другое"}, device_id=ids["satellite"])
     assert result["error"] is True and result["data"]["choices"]
     assert not ma.played
+
+
+async def test_only_this_song_when_asked(hass: HomeAssistant) -> None:
+    host, ma, ids = await setup(hass)
+    await call(host, {"query": "сплин выхода нет", "radio_mode": False}, device_id=ids["satellite"])
+    await call(host, {}, device_id=ids["satellite"])  # the library mix goes on by itself
+    assert [p["radio_mode"] for p in ma.played] == [False, False]

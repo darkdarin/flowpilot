@@ -62,7 +62,10 @@ PARAMETERS: dict[str, Any] = {
         },
         "radio_mode": {
             "type": "boolean",
-            "description": "Keep playing similar music after it ends (for 'music like ...').",
+            "description": (
+                "Keep playing similar music after it (on by default for a song, an artist or an "
+                "album); false only when asked for just this one."
+            ),
         },
     },
 }
@@ -257,9 +260,7 @@ async def play_music(
             for _, k, i in ranked[:4]
         ]
         return {"error": "no good match, ask which one", "choices": choices}
-    await _play(
-        hass, player, str(best["uri"]), kind, radio=bool(args.get("radio_mode")), context=context
-    )
+    await _play(hass, player, str(best["uri"]), kind, radio=radio_for(kind, args), context=context)
     return {
         "playing": best.get("name"),
         "artist": _artists(best) or None,
@@ -280,6 +281,16 @@ async def _library(
     )
     found = response.get("items") if isinstance(response, dict) else None
     return [i for i in found if isinstance(i, dict)] if isinstance(found, list) else []
+
+
+# after these, music goes on with similar tracks unless asked otherwise; a playlist and a radio
+# station go on by themselves
+RADIO_BY_DEFAULT = {"track", "artist", "album"}
+
+
+def radio_for(kind: str, args: dict[str, Any]) -> bool:
+    asked = args.get("radio_mode")
+    return bool(asked) if asked is not None else kind in RADIO_BY_DEFAULT
 
 
 async def _library_mix(hass: HomeAssistant, entry_id: str) -> dict[str, Any] | None:
