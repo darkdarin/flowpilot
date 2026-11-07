@@ -4,6 +4,26 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.19
+
+### App
+
+- **The LLM agent teaches quick commands.** After it did something with Home Assistant that
+  people will ask for again (several devices at once, such as "movie night", or a device called
+  by a nickname), the agent offers to remember it and, when you agree, saves the phrases and
+  exactly what it did. Quick commands then run it at once, without an LLM, as the person who
+  speaks, and match the phrase in any form of its words. Ask "remember it as a quick command" or
+  "forget the quick command…" yourself too. Only people Home Assistant knows can teach. The new
+  setting **Teaches quick commands** (under Tools, on by default) turns it off.
+- **Quick commands page** in the editor (the lightning button): every learned command with its
+  phrases, what it does step by step, its answer, who taught it and how often it was used; edit
+  the phrases and the answer, or remove it.
+
+### Integration
+
+- Tells the app whether the devices a Home Assistant tool touched are in the speaker's room, so
+  learned commands can be confirmed with a sound too. Update it together with the app.
+
 ## 0.1.18
 
 ### App

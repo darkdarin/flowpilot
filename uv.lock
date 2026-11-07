@@ -233,7 +233,7 @@ wheels = [
 
 [[package]]
 name = "flowpilot-audio"
-version = "0.1.18"
+version = "0.1.19"
 source = { editable = "plugins/flowpilot-audio" }
 dependencies = [
     { name = "flowpilot-sdk" },
@@ -244,7 +244,7 @@ requires-dist = [{ name = "flowpilot-sdk", editable = "packages/flowpilot-sdk" }
 
 [[package]]
 name = "flowpilot-core"
-version = "0.1.18"
+version = "0.1.19"
 source = { editable = "packages/flowpilot-core" }
 dependencies = [
     { name = "flowpilot-sdk" },
@@ -259,7 +259,7 @@ requires-dist = [
 
 [[package]]
 name = "flowpilot-llm"
-version = "0.1.18"
+version = "0.1.19"
 source = { editable = "plugins/flowpilot-llm" }
 dependencies = [
     { name = "aiohttp" },
@@ -274,12 +274,12 @@ requires-dist = [
 
 [[package]]
 name = "flowpilot-sdk"
-version = "0.1.18"
+version = "0.1.19"
 source = { editable = "packages/flowpilot-sdk" }
 
 [[package]]
 name = "flowpilot-server"
-version = "0.1.18"
+version = "0.1.19"
 source = { editable = "packages/flowpilot-server" }
 dependencies = [
     { name = "aiohttp" },
@@ -300,7 +300,7 @@ requires-dist = [
 
 [[package]]
 name = "flowpilot-soniox"
-version = "0.1.18"
+version = "0.1.19"
 source = { editable = "plugins/flowpilot-soniox" }
 dependencies = [
     { name = "aiohttp" },
@@ -315,7 +315,7 @@ requires-dist = [
 
 [[package]]
 name = "flowpilot-vad"
-version = "0.1.18"
+version = "0.1.19"
 source = { editable = "plugins/flowpilot-vad" }
 dependencies = [
     { name = "flowpilot-sdk" },
@@ -375,7 +375,7 @@ dev = [
 
 [[package]]
 name = "flowpilot-wyoming"
-version = "0.1.18"
+version = "0.1.19"
 source = { editable = "plugins/flowpilot-wyoming" }
 dependencies = [
     { name = "flowpilot-sdk" },
