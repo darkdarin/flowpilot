@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Literal, Protocol
 
+from .commands import QuickCommands
 from .context import SessionInfo, SessionState, TurnContext
 from .host import HostAudio
 from .memory import Memory
@@ -208,6 +209,9 @@ class NodeContext(Protocol):
     # The runtime's long-term memory (facts about the home and its people); ``None`` when the
     # runtime keeps none. Read it per turn: people edit it while graphs run.
     memory: Memory | None
+    # Quick commands people taught the assistant (flowpilot_sdk.commands); ``None`` when the
+    # runtime keeps none. Read them per turn: people add and remove them while graphs run.
+    commands: QuickCommands | None
 
     def secret(self, name: str) -> str:
         """Value of a secret referenced in the node config; ``KeyError`` if not granted."""

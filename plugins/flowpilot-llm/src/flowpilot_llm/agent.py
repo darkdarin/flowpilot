@@ -36,6 +36,7 @@ from flowpilot_sdk import (
     NodeSpec,
     PortSpec,
     Principal,
+    QuickCommands,
     Response,
     TextDelta,
     TurnSession,
@@ -44,10 +45,13 @@ from flowpilot_sdk import (
     node_translations,
 )
 
-from .tools import Tool, Toolbox, memory_tools
+from .tools import Tool, Toolbox, command_tools, memory_tools
 
 DEFAULT_URL = "https://api.openai.com/v1"
 DEFAULT_HISTORY_HOURS = 24
+# the Home Assistant calls of the last answer, kept for "yes, remember it" in the next turn
+LAST_CALLS_KEY = "home_calls"
+LAST_CALLS_S = 600.0
 # Who lives in the home, from the turn's client (Home Assistant: people and users)
 PEOPLE_OP = "ha.people.list"
 PEOPLE_TIMEOUT_S = 2.0
@@ -152,6 +156,18 @@ def _people_text(people: list[Mapping[str, Any]] | None, speaker: str | None) ->
     return "\n".join([*lines, who])
 
 
+TEACH_TEXT = (
+    "You can teach the home quick commands (save_quick_command): Home Assistant's quick "
+    "commands then do them at once, without you, when someone says the phrase. After you did "
+    "something with Home Assistant's tools that people are likely to ask for again in the same "
+    "words, above all several things at once (a scene such as 'movie night') or a device called "
+    "by a nickname, offer in one short sentence to remember it as a quick command. Save only "
+    "after the person agrees, with the phrases they use and exactly the tool calls you made. Do "
+    "not offer for questions or one-off requests, and not again for what was declined. When "
+    "asked to forget a quick command, use forget_quick_command."
+)
+
+
 def _tools_text(speaker_known: bool, *, auto: bool) -> str:
     """How to use the memory tools. Without it models tend to say they cannot remember anything
     between conversations, which is their default belief, and never call the tools."""
@@ -213,7 +229,9 @@ class LlmAgent:
             GROUPS_KEY: {
                 "tools": {
                     "title": "Tools",
-                    "description": "What the agent may do itself: control the home.",
+                    "description": (
+                        "What the agent may do itself: control the home, teach quick commands."
+                    ),
                 },
                 "memory": {
                     "title": "Memory",
@@ -319,6 +337,18 @@ class LlmAgent:
                     "default": True,
                     GROUP_KEY: "tools",
                 },
+                "teach": {
+                    "title": "Teaches quick commands",
+                    "description": (
+                        "After doing something with Home Assistant's tools that people will ask "
+                        "for again (several devices at once, a nickname), the agent offers to "
+                        "remember it as a quick command and saves it when the person agrees; "
+                        "Quick commands then do it at once, without an LLM. On when not set."
+                    ),
+                    "type": "boolean",
+                    "default": True,
+                    GROUP_KEY: "tools",
+                },
                 "people": {
                     "title": "Knows the household",
                     "description": (
@@ -388,6 +418,7 @@ class LlmAgent:
         self._node = ""
         self._http: aiohttp.ClientSession | None = None
         self._memory: Memory | None = None
+        self._commands: QuickCommands | None = None
         # the provider refused tools with reasoning on (see _complete_with_tools)
         self._no_reasoning = False
 
@@ -407,6 +438,7 @@ class LlmAgent:
         return [ConfigOption(m) for m in models]
 
     async def start(self, ctx: NodeContext) -> None:
+        self._commands = getattr(ctx, "commands", None)
         self._config = dict(ctx.config)
         self._node = ctx.node_id
         self._memory = getattr(ctx, "memory", None)
@@ -635,6 +667,20 @@ class LlmAgent:
         )
         if home_tools:
             toolbox = toolbox.with_tools(home_tools)
+        home_names = {t.name for t in home_tools}
+        teaching = (
+            bool(home_tools) and self._commands is not None and self._config.get("teach", True)
+        )
+        earlier_calls: list[Any] = list(await turn.state.get(LAST_CALLS_KEY) or [])
+        teach_text = ""
+        if teaching and self._commands is not None:
+            toolbox = toolbox.with_tools(command_tools(self._commands, speaker, home_names))
+            teach_text = TEACH_TEXT
+            if earlier_calls:
+                teach_text += (
+                    "\n\nThe Home Assistant tool calls of your previous answer (to save them): "
+                    + json.dumps(earlier_calls, ensure_ascii=False)
+                )
         log = Journal(turn)
         who = next(
             (str(p.get("name")) for p in people or [] if speaker and p.get("user_id") == speaker),
@@ -654,6 +700,7 @@ class LlmAgent:
             _people_text(people, speaker),
             _memory_text(home, own),
             home_prompt if home_tools else "",
+            teach_text,
         )
         system = "\n\n".join(p for p in (*parts, guide) if p)
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}] if system else []
@@ -694,6 +741,7 @@ class LlmAgent:
             await delta.send(TextDelta(text))
 
         used: list[str] = []
+        home_calls: list[dict[str, Any]] = []
         for round_ in range(MAX_TOOL_ROUNDS + 1):
             request = body | {"messages": messages}
             offer = bool(toolbox) and round_ < MAX_TOOL_ROUNDS
@@ -754,6 +802,12 @@ class LlmAgent:
             for i, call in enumerate(calls):
                 called_at = time.monotonic()
                 result, ok = await toolbox.call(call["name"], call["arguments"])
+                if ok and call["name"] in home_names:
+                    try:
+                        arguments = json.loads(call["arguments"] or "{}")
+                    except ValueError:
+                        arguments = {}
+                    home_calls.append({"tool": call["name"], "arguments": arguments})
                 used.append(call["name"] if ok else f"{call['name']}!")
                 turn.trace("llm.agent.tool", tool=call["name"], ok=ok)
                 log(
@@ -787,4 +841,6 @@ class LlmAgent:
         if not answer:
             raise LlmError("the model gave an empty answer")
         await dialogue.add(turn.shared, said.text, answer, by=self._node)
+        # what this answer did with Home Assistant, for "yes, remember it" in the next turn
+        await turn.state.set(LAST_CALLS_KEY, home_calls, ttl_s=LAST_CALLS_S)
         await turn.output("response").send(Response(text=answer, language=language))

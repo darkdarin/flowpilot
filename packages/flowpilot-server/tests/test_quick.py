@@ -162,3 +162,64 @@ async def test_a_sound_instead_of_words_in_the_speakers_room() -> None:
     assert always.outputs["ack"].items and not always.outputs["delta"].items
     never, _ = await run(here, config={"acknowledge": "never"})
     assert not never.outputs["ack"].items and never.outputs["delta"].items
+
+
+async def test_a_learned_command_runs_its_actions_without_asking_home_assistant() -> None:
+    from flowpilot_sdk import Action
+    from flowpilot_server.commands_store import CommandStore
+
+    commands = CommandStore(None)
+    movie = commands.add(
+        ["режим кино"],
+        [
+            Action("intent__HassTurnOff", {"area": "Гостиная", "domain": ["light"]}),
+            Action("intent__HassTurnOn", {"name": "Телевизор"}),
+        ],
+        "Приятного просмотра",
+        created_by="pavel",
+        source="llm.agent",
+    )
+    done = {"error": False, "data": {"response_type": "action_done"}, "targets_in_area": True}
+    host = FakeHa(done)
+    node = HaQuickCommands()
+    ctx = RuntimeNodeContext("quick", {}, {}, frozenset())
+    ctx.commands = commands
+    await node.start(ctx)
+    result = await run_node_once(
+        node,
+        {"utterance": InputFeed(items=[Utterance("режим кина, пожалуйста", "ru")], end="end")},
+        host=(host := FakeHa(done)),
+    )
+    assert [(c["name"], c["arguments"]) for c in host.calls] == [
+        ("intent__HassTurnOff", {"area": "Гостиная", "domain": ["light"]}),
+        ("intent__HassTurnOn", {"name": "Телевизор"}),
+    ]
+    assert [a.text for a in result.outputs["ack"].items] == ["Приятного просмотра"]
+    assert commands.all()[0].uses == 1 and commands.all()[0].id == movie.id
+
+
+async def test_a_learned_command_that_fails_says_so() -> None:
+    from flowpilot_sdk import Action
+    from flowpilot_server.commands_store import CommandStore
+
+    commands = CommandStore(None)
+    commands.add(
+        ["режим кино"],
+        [Action("intent__HassTurnOn", {"name": "Нет"})],
+        "",
+        created_by=None,
+        source="editor",
+    )
+    failed = {"error": True, "data": {"message": "no device named Нет"}}
+    node = HaQuickCommands()
+    ctx = RuntimeNodeContext("quick", {}, {}, frozenset())
+    ctx.commands = commands
+    await node.start(ctx)
+    run = await run_node_once(
+        node,
+        {"utterance": InputFeed(items=[Utterance("режим кино", "ru")], end="end")},
+        host=FakeHa(failed),
+    )
+    [answer] = run.outputs["response"].items
+    assert answer.text == "Не получилось: no device named Нет"
+    assert commands.all()[0].uses == 0

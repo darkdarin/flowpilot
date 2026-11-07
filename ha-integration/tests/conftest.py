@@ -107,6 +107,7 @@ async def _runtime(
     agent: dict[str, Any],
     graph_data: dict[str, Any] | None = None,
     extra: tuple[str, ...] = (),
+    commands: Any = None,
 ) -> AsyncIterator[Runtime]:
     registry = register_builtin(NodeRegistry())
     classes: list[type[Node]] = [
@@ -124,6 +125,7 @@ async def _runtime(
         validate_graph(parse_graph(graph_data or graph(agent)), registry, grants=GrantPolicy()),
         registry,
         trace=trace,
+        commands=commands,
     )
     await deployment.start()
     server = TestServer(

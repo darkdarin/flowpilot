@@ -31,6 +31,7 @@ from flowpilot_core.runtime import Deployment, MemorySessionStore, TraceSink
 from flowpilot_sdk import registered_types
 from flowpilot_sdk.types import PRIVILEGED_TYPES, type_kind
 
+from .commands_store import CommandStore
 from .memory_store import MemoryStore
 from .migrations import migrate_graph
 from .secret_store import secret_fields
@@ -126,8 +127,11 @@ class GraphManager:
         trace_factory: TraceFactory | None = None,
         data_dir: Path | None = None,
         memory: MemoryStore | None = None,
+        commands: CommandStore | None = None,
     ) -> None:
         self.data_dir = data_dir
+        # quick commands people taught the assistant (flowpilot_sdk.QuickCommands)
+        self.commands = commands if commands is not None else CommandStore(None)
         # long-term facts for every graph (flowpilot_sdk.Memory); in memory only when not given
         self.memory = (
             memory if memory is not None else MemoryStore(None)
@@ -220,6 +224,7 @@ class GraphManager:
             data_dir=self.data_dir,
             sessions=self.sessions,
             memory=self.memory,
+            commands=self.commands,
             taps_active=(lambda: watching(graph_id)) if watching else None,
         )
         try:

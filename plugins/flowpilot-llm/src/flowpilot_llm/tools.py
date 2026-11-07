@@ -13,7 +13,8 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from flowpilot_sdk import MAX_FACT_CHARS, Memory
+from flowpilot_sdk import MAX_FACT_CHARS, Action, Memory, QuickCommands
+from flowpilot_sdk.commands import MAX_PHRASE_CHARS
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +146,105 @@ def memory_tools(
                 "type": "object",
                 "properties": {"fact": {"type": "string"}},
                 "required": ["fact"],
+            },
+            forget,
+        ),
+    ]
+
+
+def command_tools(commands: QuickCommands, speaker: str | None, home: set[str]) -> list[Tool]:
+    """``save_quick_command`` and ``forget_quick_command``: quick commands people teach.
+
+    ``home`` are the Home Assistant tools of this turn: a command may only replay those.
+    """
+
+    async def save(args: Mapping[str, Any]) -> str:
+        if speaker is None:
+            raise ValueError("it is not known who is speaking: only a known person may teach")
+        phrases = args.get("phrases")
+        if isinstance(phrases, str):
+            phrases = [phrases]
+        actions_in = args.get("actions")
+        if not isinstance(phrases, list) or not isinstance(actions_in, list):
+            raise ValueError("give phrases (a list) and actions (a list)")
+        actions = []
+        for item in actions_in:
+            if not isinstance(item, Mapping) or str(item.get("tool")) not in home:
+                raise ValueError(
+                    f"{item!r}: an action must be one of the Home Assistant tools you have"
+                )
+            arguments = item.get("arguments") or {}
+            if isinstance(arguments, str):
+                arguments = json.loads(arguments or "{}")
+            actions.append(Action(str(item["tool"]), dict(arguments)))
+        command = commands.add(
+            [str(p) for p in phrases],
+            actions,
+            str(args.get("reply") or ""),
+            created_by=speaker,
+            source="llm.agent",
+        )
+        return f"saved: «{'», «'.join(command.phrases)}» now runs at once, without you"
+
+    async def forget(args: Mapping[str, Any]) -> str:
+        if speaker is None:
+            raise ValueError("it is not known who is speaking: only a known person may change it")
+        wanted = " ".join(str(args.get("phrase") or "").casefold().split())
+        if not wanted:
+            raise ValueError("say which command to forget")
+        found = [
+            c
+            for c in commands.all()
+            if any(wanted == p.casefold() or wanted in p.casefold() for p in c.phrases)
+        ]
+        if not found:
+            return "no such quick command"
+        if len(found) > 1:
+            listed = "; ".join(c.phrases[0] for c in found[:5])
+            return f"several commands match, be more precise: {listed}"
+        commands.remove(found[0].id)
+        return f"forgotten: «{found[0].phrases[0]}»"
+
+    action = {
+        "type": "object",
+        "properties": {
+            "tool": {"type": "string", "description": "A Home Assistant tool you called."},
+            "arguments": {"type": "object", "description": "Its arguments, as you called it."},
+        },
+        "required": ["tool", "arguments"],
+    }
+    return [
+        Tool(
+            "save_quick_command",
+            "Teach the home a quick command: after this, saying one of the phrases does the "
+            "actions at once, without you. Only after the person agreed. Actions are the Home "
+            "Assistant tool calls that do it (several for a scene-like command), exactly as you "
+            "called them; prefer names and areas to 'here'.",
+            {
+                "type": "object",
+                "properties": {
+                    "phrases": {
+                        "type": "array",
+                        "items": {"type": "string", "maxLength": MAX_PHRASE_CHARS},
+                        "description": "How people say it, e.g. 'режим кино', 'включи кино'.",
+                    },
+                    "actions": {"type": "array", "items": action},
+                    "reply": {
+                        "type": "string",
+                        "description": "A short answer when done, e.g. 'Приятного просмотра'.",
+                    },
+                },
+                "required": ["phrases", "actions"],
+            },
+            save,
+        ),
+        Tool(
+            "forget_quick_command",
+            "Remove a quick command the home was taught, when the person asks.",
+            {
+                "type": "object",
+                "properties": {"phrase": {"type": "string"}},
+                "required": ["phrase"],
             },
             forget,
         ),

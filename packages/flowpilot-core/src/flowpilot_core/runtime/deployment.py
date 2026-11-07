@@ -19,6 +19,7 @@ from flowpilot_sdk import (
     Memory,
     Node,
     PortSpec,
+    QuickCommands,
     SessionInfo,
     SessionState,
     TurnContext,
@@ -89,11 +90,13 @@ class RuntimeNodeContext:
         graph_id: str = "",
         data_dir: Path | None = None,
         memory: Memory | None = None,
+        commands: QuickCommands | None = None,
     ) -> None:
         self.node_id = node_id
         self.graph_id = graph_id
         self.data_dir = data_dir
         self.memory = memory
+        self.commands = commands
         self.config = config
         self.logger = logging.getLogger(f"flowpilot.node.{node_id}")
         self._secrets = secrets
@@ -216,6 +219,7 @@ class Deployment:
         sessions: MemorySessionStore | None = None,
         data_dir: Path | None = None,
         memory: Memory | None = None,
+        commands: QuickCommands | None = None,
         taps_active: Callable[[], bool] | None = None,
     ) -> None:
         self.graph = graph
@@ -224,6 +228,7 @@ class Deployment:
         # nodes get <data_dir>/nodes/<node type>/ for their files
         self._data_dir = data_dir
         self._memory = memory
+        self._commands = commands
         self._registry = registry
         self._secrets = secrets or {}
         self.trace: TraceSink = trace or NullTraceSink()
@@ -263,6 +268,7 @@ class Deployment:
                     graph_id=self.graph.graph.id,
                     data_dir=self._data_dir / "nodes" / decl.type if self._data_dir else None,
                     memory=self._memory,
+                    commands=self._commands,
                 )
                 await instance.start(ctx)
                 self._instances[node_id] = instance

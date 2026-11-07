@@ -103,3 +103,41 @@ async def test_a_room_in_another_case_is_understood(hass: HomeAssistant) -> None
         assert calls, done.response.speech
         [event] = runtime.trace.named("ha.quick")
         assert event.attrs["handled"] is True and event.attrs["retried"] is True
+
+
+async def test_a_learned_command_does_several_things(hass: HomeAssistant) -> None:
+    """A command taught earlier: dim the ceiling and turn on the floor lamp, without an LLM."""
+    from flowpilot_sdk import Action
+    from flowpilot_server.commands_store import CommandStore
+
+    hass.config.language = "en"
+    for domain in ("llm", "intent", "light"):
+        assert await async_setup_component(hass, domain, {})
+    commands = CommandStore(None)
+    commands.add(
+        ["movie night"],
+        [
+            Action("intent__HassTurnOff", {"name": "Ceiling light"}),
+            Action("intent__HassTurnOn", {"name": "Floor lamp"}),
+        ],
+        "Enjoy the film",
+        created_by=None,
+        source="llm.agent",
+    )
+    async for runtime in _runtime({}, GRAPH, commands=commands):
+        await setup_flowpilot(hass, runtime)
+        for entity, name in (("light.ceiling", "Ceiling light"), ("light.floor", "Floor lamp")):
+            hass.states.async_set(entity, "on", {"friendly_name": name})
+            async_expose_entity(hass, "conversation", entity, True)
+        off = async_mock_service(hass, "light", "turn_off")
+        on = async_mock_service(hass, "light", "turn_on")
+        user = await hass.auth.async_create_user("Pavel")
+
+        result = await async_converse(
+            hass, "Movie night, please!", None, Context(user_id=user.id), agent_id=AGENT_ENTITY
+        )
+        assert result.response.speech["plain"]["speech"] == "Enjoy the film"
+        assert [c.data["entity_id"] for c in off] == [["light.ceiling"]]
+        assert [c.data["entity_id"] for c in on] == [["light.floor"]]
+        assert on[0].context.user_id == user.id  # as the person who asked
+        assert commands.all()[0].uses == 1

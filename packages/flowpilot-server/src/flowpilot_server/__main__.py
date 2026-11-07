@@ -42,6 +42,7 @@ from flowpilot_sdk import Node
 
 from . import datadir, supervisor
 from .answer import FixedAnswer
+from .commands_store import CommandStore
 from .devnodes import DEV_NODES
 from .manager import GraphManager, GraphStore
 from .memory_store import MemoryStore
@@ -99,6 +100,7 @@ async def serve(config_path: Path, *, dev: bool = False, announce: bool = False)
         grants=grants,
         data_dir=base,
         memory=MemoryStore(base / config.get("memory_file", "memory.json")),
+        commands=CommandStore(base / config.get("commands_file", "quick_commands.json")),
     )
 
     def remember_default(graph_id: str) -> None:

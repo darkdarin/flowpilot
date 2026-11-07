@@ -15,6 +15,9 @@ All routes need ``Authorization: Bearer <token>``.
                                               Assistant users) they may belong to
 - ``POST /api/editor/memory``                 ``{text, owner}``: add a fact (``owner`` null: the
                                               home's); ``PUT``/``DELETE /api/editor/memory/{id}``
+- ``GET  /api/editor/commands``               quick commands people taught (and the people);
+                                              ``PUT /api/editor/commands/{id}`` ``{phrases,
+                                              reply}``, ``DELETE`` removes one
 - ``GET  /api/editor/recordings``             debug recordings (``?graph=``), newest first
 - ``GET  /api/editor/recordings/{file}``      one recording as audio/wav; ``DELETE`` removes it
 - ``PUT  /api/editor/default``                ``{graph}``: the graph turns go to when a client
@@ -331,7 +334,38 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
             return _error(404, "no such fact")
         return web.json_response({"removed": True})
 
+    async def list_commands(request: web.Request) -> web.Response:
+        hosts = await server.host_options()
+        people = hosts["options"].get("ha.user", []) if hosts["available"] else []
+        return web.json_response(
+            {"commands": [asdict(c) for c in manager.commands.all()], "people": people}
+        )
+
+    async def update_command(request: web.Request) -> web.Response:
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get("phrases"), list):
+            return _error(400, "send {phrases, reply}")
+        try:
+            command = manager.commands.update(
+                request.match_info["command_id"],
+                phrases=[str(p) for p in body["phrases"]],
+                reply=str(body.get("reply") or ""),
+            )
+        except KeyError:
+            return _error(404, "no such command")
+        except ValueError as err:
+            return _error(400, str(err))
+        return web.json_response(asdict(command))
+
+    async def delete_command(request: web.Request) -> web.Response:
+        if not manager.commands.remove(request.match_info["command_id"]):
+            return _error(404, "no such command")
+        return web.json_response({"removed": True})
+
     routes = [
+        ("GET", f"{PREFIX}/commands", list_commands),
+        ("PUT", f"{PREFIX}/commands/{{command_id}}", update_command),
+        ("DELETE", f"{PREFIX}/commands/{{command_id}}", delete_command),
         ("GET", f"{PREFIX}/memory", list_memory),
         ("POST", f"{PREFIX}/memory", add_fact),
         ("PUT", f"{PREFIX}/memory/{{fact_id}}", update_fact),

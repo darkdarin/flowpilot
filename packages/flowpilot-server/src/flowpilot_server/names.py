@@ -69,3 +69,14 @@ class NameMatcher:
                 out.append(tokens[i])
                 i += 1
         return " ".join(out)
+
+
+def phrase_key(text: str, language: str | None) -> list[frozenset[str]]:
+    """A phrase as the dictionary forms of its words: two phrases match when every word has a
+    form in common ("включи режим кино" and "включи режим кина")."""
+    base = (language or "").split("-")[0].casefold()
+    return [_forms(w, base) for w in words(text)]
+
+
+def same_phrase(a: list[frozenset[str]], b: list[frozenset[str]]) -> bool:
+    return len(a) == len(b) and all(x & y for x, y in zip(a, b, strict=True))

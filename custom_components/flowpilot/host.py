@@ -52,7 +52,26 @@ def targets_in_area(
     states = getattr(response, "matched_states", None)
     if getattr(response, "response_type", None) is not intent.IntentResponseType.ACTION_DONE:
         return False
-    if not states:
+    return entities_in_area(hass, [s.entity_id for s in states or []], satellite_id, device_id)
+
+
+def tool_entities(data: Any) -> list[str]:
+    """The entities a Home Assistant intent tool acted on, from its result."""
+    if not isinstance(data, dict) or data.get("response_type") != "action_done":
+        return []
+    found = (data.get("data") or {}).get("success") or []
+    return [
+        str(t["id"])
+        for t in found
+        if isinstance(t, dict) and t.get("type") == "entity" and t.get("id")
+    ]
+
+
+def entities_in_area(
+    hass: HomeAssistant, entity_ids: list[str], satellite_id: str | None, device_id: str | None
+) -> bool:
+    """Whether every entity is in the area of the satellite (or device) that heard the turn."""
+    if not entity_ids:
         return False
     entities, devices = er.async_get(hass), dr.async_get(hass)
     area_id: str | None = None
@@ -63,8 +82,8 @@ def targets_in_area(
         area_id = dr.async_get_effective_area_id(hass, device) if device else None
     if area_id is None:
         return False
-    for state in states:
-        entry = entities.async_get(state.entity_id)
+    for entity_id in entity_ids:
+        entry = entities.async_get(entity_id)
         if entry is None:
             return False
         target_area = entry.area_id
@@ -297,7 +316,11 @@ def build_host_ops(
         except (HomeAssistantError, ValueError) as err:  # bad arguments, unknown entity, ...
             return {"error": True, "data": {"error": type(err).__name__, "message": str(err)}}
         data = json.loads(json.dumps(result.data, cls=JSONEncoder))
-        return {"error": result.error, "data": data}
+        context = api.llm_context
+        here = entities_in_area(
+            hass, tool_entities(data), request.args.get("satellite_id"), context.device_id
+        )
+        return {"error": result.error, "data": data, "targets_in_area": here}
 
     async def names_list(request: HostRequest) -> Any:
         """Every name Assist matches: areas, floors and entities exposed to it, with aliases."""

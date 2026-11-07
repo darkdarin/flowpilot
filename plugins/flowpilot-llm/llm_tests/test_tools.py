@@ -444,3 +444,75 @@ def test_a_long_pause_starts_the_dialogue_afresh() -> None:
     assert dialogue.recent(old, turns=10, quiet_s=3600) == []
     assert dialogue.recent(old, turns=10, quiet_s=10800) == old
     assert dialogue.recent(old, turns=0, quiet_s=10800) == []
+
+
+async def test_the_agent_teaches_a_quick_command_after_doing_it(
+    api: tuple[ToolCallingApi, str],
+) -> None:
+    """Turn 1: the agent turns the light on. Turn 2: "yes, remember it": it saves the calls."""
+    from flowpilot_core.runtime.state import MemorySessionStore
+    from flowpilot_server.commands_store import CommandStore
+
+    fake, url = api
+    commands = CommandStore(None)
+    sessions = MemorySessionStore()
+    node = LlmAgent()
+    cfg = {"base_url": url, "model": "m", "api_key": {"secret": "k"}, "remember": "off"}
+    ctx = RuntimeNodeContext("brain", cfg, {"k": KEY}, frozenset({"k"}))
+    ctx.commands = commands
+    await node.start(ctx)
+    pavel = InputFeed(items=[Principal("pavel", frozenset(), Assurance.MEDIUM)], end="end")
+
+    async def say(text: str) -> Any:
+        inputs = {
+            "utterance": InputFeed(items=[Utterance(text, "ru")], end="end"),
+            "principal": pavel,
+        }
+        run = await run_node_once(node, inputs, host=HomeHost(), sessions=sessions, session_id="s")
+        assert run.error is None, run.error
+        return run
+
+    try:
+        fake.calls = [{"name": "intent__HassTurnOn", "arguments": {"name": "Люстра"}}]
+        await say("вруби люстру")
+        first = fake.requests[0]
+        assert "save_quick_command" in {t["function"]["name"] for t in first["tools"]}
+        assert "teach the home quick commands" in first["messages"][0]["content"]
+        fake.requests.clear()
+        save = {
+            "phrases": ["вруби люстру"],
+            "actions": [{"tool": "intent__HassTurnOn", "arguments": {"name": "Люстра"}}],
+            "reply": "Люстра горит",
+        }
+        fake.calls = [{"name": "save_quick_command", "arguments": save}]
+        await say("да, запомни")
+        # the calls of the previous answer were shown to the model
+        assert '"intent__HassTurnOn"' in fake.requests[0]["messages"][0]["content"]
+    finally:
+        await node.stop()
+    [command] = commands.all()
+    assert command.phrases == ("вруби люстру",) and command.reply == "Люстра горит"
+    assert [(a.tool, dict(a.arguments)) for a in command.actions] == [
+        ("intent__HassTurnOn", {"name": "Люстра"})
+    ]
+    assert command.created_by == "pavel" and command.source == "llm.agent"
+
+
+async def test_only_home_tools_and_known_people_teach() -> None:
+    from flowpilot_llm.tools import Toolbox, command_tools
+    from flowpilot_server.commands_store import CommandStore
+
+    commands = CommandStore(None)
+    known = Toolbox(command_tools(commands, "pavel", {"intent__HassTurnOn"}))
+    nobody = Toolbox(command_tools(commands, None, {"intent__HassTurnOn"}))
+    action = {"tool": "intent__HassTurnOn", "arguments": {"name": "Люстра"}}
+    ok = json.dumps({"phrases": ["люстра"], "actions": [action]})
+    _, done = await nobody.call("save_quick_command", ok)
+    assert not done and not commands.all()
+    stranger = json.dumps({"phrases": ["x"], "actions": [{"tool": "remember", "arguments": {}}]})
+    _, done = await known.call("save_quick_command", stranger)
+    assert not done
+    result, done = await known.call("save_quick_command", ok)
+    assert done and "люстра" in result and len(commands.all()) == 1
+    result, done = await known.call("forget_quick_command", json.dumps({"phrase": "люстра"}))
+    assert done and commands.all() == []

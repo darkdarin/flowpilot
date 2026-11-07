@@ -24,6 +24,8 @@ from flowpilot_sdk import (
     NodeContext,
     NodeSpec,
     PortSpec,
+    QuickCommand,
+    QuickCommands,
     Response,
     TextDelta,
     TurnSession,
@@ -32,10 +34,20 @@ from flowpilot_sdk import (
     node_translations,
 )
 
-from .names import NameMatcher, warm_up, words
+from .names import NameMatcher, phrase_key, same_phrase, warm_up, words
 from .nodes import HA_CONVERSATION_OP
 
 NAMES_OP = "ha.names.list"
+# Home Assistant's tools, as the LLM agent calls them: learned commands replay their calls
+TOOL_CALL_OP = "ha.llm.call"
+# what a learned command answers when it has no reply of its own, and when it failed
+DONE = {"ru": ("Готово", "Не получилось"), "en": ("Done", "That did not work")}
+
+
+def _base(language: str | None) -> str:
+    return (language or "").split("-")[0].casefold()
+
+
 # Names change rarely (a new device, a renamed room): asked for again after this long
 NAMES_MAX_AGE_S = 300.0
 
@@ -162,7 +174,7 @@ class HaQuickCommands:
             "additionalProperties": False,
         },
         host_ops=frozenset({HA_CONVERSATION_OP}),
-        optional_host_ops=frozenset({NAMES_OP}),
+        optional_host_ops=frozenset({NAMES_OP, TOOL_CALL_OP}),
         turn_timeout_s=20.0,
         description=(
             "Runs commands Home Assistant understands by itself (turn on the light, set the "
@@ -177,6 +189,7 @@ class HaQuickCommands:
         self._retry = True
         self._acknowledge = "area"
         self._extra: list[str] = []
+        self._commands: QuickCommands | None = None
 
     async def start(self, ctx: NodeContext) -> None:
         self._agent = str(ctx.config.get("agent_id") or BUILT_IN_AGENT)
@@ -185,7 +198,8 @@ class HaQuickCommands:
         self._acknowledge = str(ctx.config.get("acknowledge", "area"))
         self._extra = [str(w) for w in ctx.config.get("extra_words") or []]
         self._names: tuple[float, list[str]] | None = None
-        if self._retry:
+        self._commands = getattr(ctx, "commands", None)
+        if self._retry or self._commands is not None:
             await asyncio.to_thread(warm_up)
 
     async def _matcher(self, turn: TurnSession, language: str | None) -> NameMatcher | None:
@@ -211,6 +225,48 @@ class HaQuickCommands:
     async def stop(self) -> None:
         return None
 
+    def _learned(self, text: str, language: str | None) -> QuickCommand | None:
+        """A command people taught whose phrase is this one, in any form of its words."""
+        if self._commands is None:
+            return None
+        said = phrase_key(cleaned(text, language, self._extra), language)
+        if not said:
+            return None
+        for command in self._commands.all():
+            for phrase in command.phrases:
+                if same_phrase(said, phrase_key(cleaned(phrase, language, self._extra), language)):
+                    return command
+        return None
+
+    async def _replay(
+        self, turn: TurnSession, command: QuickCommand, args: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Run a learned command's actions with Home Assistant's tools, in order; the result
+        reads like Home Assistant's own answer."""
+        principal = turn.context.initial_principal
+        who = {
+            "user_id": principal.user_id if principal.is_known else None,
+            "device_id": args["device_id"],
+            "satellite_id": args["satellite_id"],
+            "language": args["language"],
+        }
+        here = True
+        for action in command.actions:
+            try:
+                result = await turn.call_host(
+                    TOOL_CALL_OP, {**who, "name": action.tool, "arguments": dict(action.arguments)}
+                )
+            except (HostError, HostUnavailable) as err:
+                result = {"error": True, "data": {"message": str(err)}}
+            if not isinstance(result, dict) or result.get("error"):
+                data = result.get("data") if isinstance(result, dict) else None
+                why = data.get("message") if isinstance(data, dict) else None
+                failed = DONE.get(_base(args["language"]), DONE["en"])[1]
+                return {"response_type": "error", "speech": f"{failed}: {why or action.tool}"}
+            here = here and bool(result.get("targets_in_area"))
+        done = command.reply or DONE.get(_base(args["language"]), DONE["en"])[0]
+        return {"response_type": "action_done", "speech": done, "targets_in_area": here}
+
     async def run_turn(self, turn: TurnSession) -> None:
         said: Utterance | None = await turn.input("utterance").value()
         if said is None or not said.text.strip():
@@ -225,10 +281,16 @@ class HaQuickCommands:
             "satellite_id": ctx.device.satellite_id if ctx.device else None,
         }
         started = time.monotonic()
-        result = await self._ask(turn, args)
+        learned = self._learned(said.text, args["language"])
+        if learned is not None:
+            result = await self._replay(turn, learned, args)
+            if self._commands is not None and result.get("response_type") == "action_done":
+                self._commands.used(learned.id)
+        else:
+            result = await self._ask(turn, args)
         tried = said.text
         code0 = result.get("error_code")
-        if code0 in ("no_intent_match", "no_valid_targets") and self._retry:
+        if learned is None and code0 in ("no_intent_match", "no_valid_targets") and self._retry:
             simpler = cleaned(said.text, args["language"], self._extra)
             matcher = await self._matcher(turn, args["language"])
             named = matcher.canonical(simpler) if matcher else simpler
@@ -246,15 +308,29 @@ class HaQuickCommands:
         kind = str(result.get("response_type") or "")
         code = result.get("error_code")
         speech = str(result.get("speech") or "").strip()
-        handled = kind != "error" and bool(speech or kind == "action_done")
+        handled = learned is not None or (kind != "error" and bool(speech or kind == "action_done"))
         retried = tried != said.text
-        turn.trace("ha.quick", handled=handled, response=kind, code=code, ms=ms, retried=retried)
+        turn.trace(
+            "ha.quick",
+            handled=handled,
+            response=kind,
+            code=code,
+            ms=ms,
+            retried=retried,
+            learned=learned.id if learned else None,
+        )
         if getattr(turn, "watched", False):
-            summary = (
-                f"done by Home Assistant ({kind}) in {ms} ms"
-                if handled
-                else f"passed on ({code or kind or 'no answer'}) after {ms} ms"
-            ) + (f"; second try: «{tried}»" if retried else "")
+            if learned is not None:
+                summary = (
+                    f"learned command «{learned.phrases[0]}»: {len(learned.actions)} actions, "
+                    f"{kind} in {ms} ms"
+                )
+            else:
+                summary = (
+                    f"done by Home Assistant ({kind}) in {ms} ms"
+                    if handled
+                    else f"passed on ({code or kind or 'no answer'}) after {ms} ms"
+                ) + (f"; second try: «{tried}»" if retried else "")
             turn.trace(
                 LOG_EVENT, kind="quick", summary=summary, detail=speech or None, ms=ms, ok=handled
             )

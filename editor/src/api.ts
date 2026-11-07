@@ -126,6 +126,23 @@ export interface SecretInfo {
   graphs: string[];
 }
 
+/** A quick command people taught: phrases and the Home Assistant tool calls they replay. */
+export interface QuickCommand {
+  id: string;
+  phrases: string[];
+  actions: { tool: string; arguments: Record<string, unknown> }[];
+  reply: string;
+  created_at: string;
+  created_by: string | null;
+  source: string;
+  uses: number;
+}
+
+export interface CommandList {
+  commands: QuickCommand[];
+  people: { id: string; name: string }[];
+}
+
 /** A fact of the long-term memory: the home's (``owner`` null) or one person's. */
 export interface Fact {
   id: string;
@@ -258,6 +275,15 @@ export class Api {
   }
   deleteSecret(name: string) {
     return this.call<{ redeployed: Record<string, string | null> }>("DELETE", `/secrets/${encodeURIComponent(name)}`);
+  }
+  commands() {
+    return this.call<CommandList>("GET", "/commands");
+  }
+  updateCommand(id: string, phrases: string[], reply: string) {
+    return this.call<QuickCommand>("PUT", `/commands/${encodeURIComponent(id)}`, { phrases, reply });
+  }
+  deleteCommand(id: string) {
+    return this.call<{ removed: boolean }>("DELETE", `/commands/${encodeURIComponent(id)}`);
   }
   memory() {
     return this.call<MemoryList>("GET", "/memory");

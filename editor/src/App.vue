@@ -7,6 +7,7 @@ import BrandMark from "./components/BrandMark.vue";
 import DebugPanel from "./components/DebugPanel.vue";
 import FpNode from "./components/FpNode.vue";
 import Inspector from "./components/Inspector.vue";
+import CommandsDialog from "./components/CommandsDialog.vue";
 import MemoryDialog from "./components/MemoryDialog.vue";
 import SecretsDialog from "./components/SecretsDialog.vue";
 import Login from "./components/Login.vue";
@@ -41,6 +42,7 @@ import {
   token,
   secretsOpen,
   memoryOpen,
+  commandsOpen,
 } from "./store";
 import { connectProblem, edgeType } from "./porttypes";
 import { typeColor } from "./types";
@@ -281,6 +283,9 @@ function legendTypes() {
       <button class="btn icon ghost" :title="t('memory.title')" :aria-label="t('memory.title')" @click="memoryOpen = true">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h8.5l1.5 1.5v9.5H3z" /><path d="M5.5 6h5M5.5 8.5h5M5.5 11h3" /></svg>
       </button>
+      <button class="btn icon ghost" :title="t('commands.title')" :aria-label="t('commands.title')" @click="commandsOpen = true">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 1.5 3.5 9H8l-1 5.5L12.5 7H8z" /></svg>
+      </button>
       <button class="btn icon ghost" :title="t('secrets.title')" :aria-label="t('secrets.title')" @click="secretsOpen = true">
         <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5.5" cy="8" r="3" /><path d="M8.5 8H14.5M12.5 8v2.5M14.5 8v2" /></svg>
       </button>
@@ -338,6 +343,7 @@ function legendTypes() {
 
     <SecretsDialog v-if="secretsOpen" />
     <MemoryDialog v-if="memoryOpen" />
+    <CommandsDialog v-if="commandsOpen" />
 
     <div v-if="creating" class="modal" @click.self="creating = false">
       <form @submit.prevent="onCreate">

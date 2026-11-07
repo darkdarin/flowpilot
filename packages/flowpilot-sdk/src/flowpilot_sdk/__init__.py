@@ -1,5 +1,6 @@
 """FlowPilot plugin SDK: message contracts and node interfaces (contracts v1, ADR-013)."""
 
+from .commands import Action, QuickCommand, QuickCommands
 from .context import DeviceInfo, SessionInfo, SessionState, SourceInfo, TurnContext
 from .host import HostAudio, HostError, HostUnavailable
 from .ids import new_ulid
@@ -53,6 +54,9 @@ from .types import (
 __version__ = "0.1.18"
 
 __all__ = [
+    "Action",
+    "QuickCommand",
+    "QuickCommands",
     "MAX_FACT_CHARS",
     "Fact",
     "Memory",
