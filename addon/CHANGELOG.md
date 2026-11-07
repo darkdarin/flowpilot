@@ -4,6 +4,25 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.18
+
+### App
+
+- **Quick commands understand names in any case.** Home Assistant compares names literally, so
+  "включи свет в гостиной" missed the area "Гостиная". When it does not understand a phrase, the
+  second try now writes every room, floor and device name the way Home Assistant has it ("в
+  гостиной" → "Гостиная", "настольную лампу" → "Настольная лампа"), using a Russian dictionary.
+- **A sound instead of words**, as Home Assistant does: Quick commands get the output ack and the
+  setting Confirm with a sound (in the same room as the speaker, always, never). Connect the new
+  **Sound signal** node to it: it plays Home Assistant's confirmation sound, or a short sound of
+  your own uploaded in its settings. Join its sound with text-to-speech using First present, which
+  now joins audio too. Without ack connected, answers are spoken as before.
+
+### Integration
+
+- Lists the names Assist knows and tells whether a command touched only devices in the
+  speaker's room. Update it together with the app.
+
 ## 0.1.17
 
 ### App
