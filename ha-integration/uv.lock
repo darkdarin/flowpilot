@@ -1037,7 +1037,7 @@ wheels = [
 
 [[package]]
 name = "flowpilot-core"
-version = "0.1.9"
+version = "0.1.10"
 source = { editable = "../packages/flowpilot-core" }
 dependencies = [
     { name = "flowpilot-sdk" },
@@ -1091,12 +1091,12 @@ dev = [
 
 [[package]]
 name = "flowpilot-sdk"
-version = "0.1.9"
+version = "0.1.10"
 source = { editable = "../packages/flowpilot-sdk" }
 
 [[package]]
 name = "flowpilot-server"
-version = "0.1.9"
+version = "0.1.10"
 source = { editable = "../packages/flowpilot-server" }
 dependencies = [
     { name = "aiohttp" },

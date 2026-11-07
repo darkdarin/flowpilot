@@ -4,6 +4,26 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.10
+
+### App
+
+- **The agent can remember on its own.** The LLM agent's new setting **Remembers facts**: when
+  asked (as before), on its own too, or never. On its own, it also keeps what it learns about the
+  home and the family (names, birthdays, pets, routines, habits), never health, money, passwords or
+  private matters, and says so in a few words. What it keeps is on the Memory page, marked as
+  written by the assistant. **Remember on request** turned off becomes **Never**.
+- **Memory settings in one place.** The agent's dialogue, memory and remembering settings open
+  from one entry, **Memory**, in the node's settings.
+- The agent no longer answers that it cannot remember things for later: it is told it has a
+  long-term memory. Facts about the family, pets and the house are kept as the home's; when it is
+  not known who is speaking, facts are kept as the home's instead of being refused. The same fact
+  is not kept twice.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.9
 
 ### App
