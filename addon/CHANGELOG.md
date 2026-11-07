@@ -4,6 +4,21 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.12
+
+### App
+
+- **The LLM agent knows who it talks to and who is home.** On every turn it gets the home's people
+  from Home Assistant (people with where they are, and users without a person) and is told which
+  of them is talking: the Home Assistant user of the Assist chat, or the Telegram user mapped in
+  Telegram Assist. The new setting **Knows the household** (under Memory, on by default) turns it
+  off. Needs the integration of this version.
+
+### Integration
+
+- Gives the app the home's people and where they are, so the LLM agent knows who it talks to.
+  Update it together with the app.
+
 ## 0.1.11
 
 ### App

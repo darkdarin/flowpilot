@@ -8,7 +8,7 @@ from flowpilot_sdk.helpers import split_sentences
 from .stt import WyomingStt
 from .tts import WyomingTts
 
-__version__ = "0.1.11"
+__version__ = "0.1.12"
 
 
 def nodes() -> list[type[Node]]:
