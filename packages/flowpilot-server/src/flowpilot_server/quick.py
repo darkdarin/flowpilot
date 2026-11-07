@@ -10,6 +10,7 @@ what was done ("turn it back on").
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, ClassVar
 
@@ -32,6 +33,37 @@ from flowpilot_sdk import (
 from .nodes import HA_CONVERSATION_OP
 
 TYPE = "ha.quick"
+
+# Words that make Home Assistant's sentence matching miss a command it knows: politeness, fillers,
+# ways to address the assistant. Removed (as whole words) for a second try.
+FILLERS: dict[str, tuple[str, ...]] = {
+    "ru": (
+        "пожалуйста", "слушай", "послушай", "а можешь", "ты можешь", "можешь", "можно",
+        "будь добр", "будь добра", "будь любезен", "будь любезна", "сделай так чтобы",
+        "давай", "ну", "а", "ещё", "еще", "уже", "плиз",
+    ),
+    "en": (
+        "please", "could you", "can you", "would you", "will you", "hey", "just", "kindly",
+        "i want you to", "go ahead and",
+    ),
+}  # fmt: skip
+
+
+def cleaned(text: str, language: str | None, extra: list[str]) -> str:
+    """``text`` without punctuation, fillers and politeness, as Home Assistant's sentences are
+    written: "Алиса, включи-ка, пожалуйста, свет на кухне!" → "включи свет на кухне"."""
+    words = re.sub(r"[^\w\s-]", " ", text.casefold().replace("ё", "е"))
+    words = re.sub(r"(\w)-(ка|то)\b", r"\1", words)  # включи-ка → включи
+    words = " ".join(words.replace("-", " ").split())
+    base = (language or "").split("-")[0].casefold()
+    drop = sorted({*FILLERS.get(base, ()), *(w.casefold() for w in extra)}, key=len, reverse=True)
+    for phrase in drop:
+        phrase = " ".join(phrase.replace("ё", "е").split())
+        if phrase:
+            words = re.sub(rf"(?:^|\s){re.escape(phrase)}(?=\s|$)", " ", words)
+    return " ".join(words.split())
+
+
 BUILT_IN_AGENT = "conversation.home_assistant"
 UTTERANCE = "text.utterance/1"
 
@@ -76,6 +108,25 @@ class HaQuickCommands:
                     "minLength": 1,
                     OPTIONS_KEY: "ha.conversation",
                 },
+                "retry_cleaned": {
+                    "title": "Second try without extra words",
+                    "description": (
+                        "When Home Assistant did not understand the phrase, try once more "
+                        "without punctuation, politeness and fillers (please, listen, can you…) "
+                        "and the words below. On when not set."
+                    ),
+                    "type": "boolean",
+                    "default": True,
+                },
+                "extra_words": {
+                    "title": "Words to leave out",
+                    "description": (
+                        "More words or phrases to remove for the second try, e.g. the "
+                        "assistant's name if speech-to-text keeps it."
+                    ),
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                },
             },
             "additionalProperties": False,
         },
@@ -91,10 +142,22 @@ class HaQuickCommands:
     def __init__(self) -> None:
         self._agent = BUILT_IN_AGENT
         self._node = ""
+        self._retry = True
+        self._extra: list[str] = []
 
     async def start(self, ctx: NodeContext) -> None:
         self._agent = str(ctx.config.get("agent_id") or BUILT_IN_AGENT)
         self._node = ctx.node_id
+        self._retry = bool(ctx.config.get("retry_cleaned", True))
+        self._extra = [str(w) for w in ctx.config.get("extra_words") or []]
+
+    async def _ask(self, turn: TurnSession, args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            result = await turn.call_host(HA_CONVERSATION_OP, args)
+        except (HostError, HostUnavailable) as err:
+            # no Home Assistant to ask: the agent after this node answers instead
+            return {"response_type": "error", "error_code": "unavailable", "speech": str(err)}
+        return dict(result) if isinstance(result, dict) else {}
 
     async def stop(self) -> None:
         return None
@@ -113,23 +176,26 @@ class HaQuickCommands:
             "satellite_id": ctx.device.satellite_id if ctx.device else None,
         }
         started = time.monotonic()
-        try:
-            result = await turn.call_host(HA_CONVERSATION_OP, args)
-        except (HostError, HostUnavailable) as err:
-            # no Home Assistant to ask: the agent after this node answers instead
-            result = {"response_type": "error", "error_code": "unavailable", "speech": str(err)}
+        result = await self._ask(turn, args)
+        tried = said.text
+        if result.get("error_code") == "no_intent_match" and self._retry:
+            simpler = cleaned(said.text, args["language"], self._extra)
+            if simpler and simpler != " ".join(said.text.casefold().split()):
+                tried = simpler
+                result = await self._ask(turn, args | {"text": simpler})
         ms = round(1000 * (time.monotonic() - started))
         kind = str(result.get("response_type") or "")
         code = result.get("error_code")
         speech = str(result.get("speech") or "").strip()
         handled = kind != "error" and bool(speech or kind == "action_done")
-        turn.trace("ha.quick", handled=handled, response=kind, code=code, ms=ms)
+        retried = tried != said.text
+        turn.trace("ha.quick", handled=handled, response=kind, code=code, ms=ms, retried=retried)
         if getattr(turn, "watched", False):
             summary = (
                 f"done by Home Assistant ({kind}) in {ms} ms"
                 if handled
                 else f"passed on ({code or kind or 'no answer'}) after {ms} ms"
-            )
+            ) + (f"; second try: «{tried}»" if retried else "")
             turn.trace(
                 LOG_EVENT, kind="quick", summary=summary, detail=speech or None, ms=ms, ok=handled
             )

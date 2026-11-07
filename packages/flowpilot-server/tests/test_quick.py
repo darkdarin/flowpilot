@@ -9,34 +9,48 @@ from flowpilot_core.runtime import RuntimeNodeContext
 from flowpilot_core.runtime.deployment import SHARED_NAMESPACE
 from flowpilot_core.runtime.state import MemorySessionStore
 from flowpilot_sdk import HostUnavailable, Utterance, dialogue
-from flowpilot_server.quick import HaQuickCommands
+from flowpilot_server.quick import HaQuickCommands, cleaned
 
 
 class FakeHa:
-    def __init__(self, answer: dict[str, Any] | None) -> None:
-        self.answer = answer
+    """Answers each request with the next of ``answers`` (the last one repeats)."""
+
+    def __init__(self, *answers: dict[str, Any] | None) -> None:
+        self.answers = list(answers)
         self.calls: list[dict[str, Any]] = []
 
     def offers(self, op: str) -> bool:
-        return self.answer is not None
+        return self.answers[0] is not None
 
     async def call(self, turn_id: str, op: str, args: Any, **kwargs: Any) -> Any:
         self.calls.append(dict(args))
-        if self.answer is None:
+        answer = self.answers[min(len(self.calls), len(self.answers)) - 1]
+        if answer is None:
             raise HostUnavailable(op)
-        return self.answer
+        return answer
 
     def stream(self, turn_id: str, op: str, args: Any) -> Any:
         raise NotImplementedError
 
 
-async def run(answer: dict[str, Any] | None, text: str = "включи свет на кухне") -> Any:
+async def run(
+    answer: dict[str, Any] | None,
+    text: str = "включи свет на кухне",
+    *more: dict[str, Any],
+    host: FakeHa | None = None,
+    config: dict[str, Any] | None = None,
+) -> Any:
     node = HaQuickCommands()
-    await node.start(RuntimeNodeContext("quick", {}, {}, frozenset()))
+    await node.start(RuntimeNodeContext("quick", config or {}, {}, frozenset()))
     sessions = MemorySessionStore()
     inputs = {"utterance": InputFeed(items=[Utterance(text, "ru")], meta={}, end="end")}
     result = await run_node_once(
-        node, inputs, host=FakeHa(answer), sessions=sessions, session_id="s", watched=True
+        node,
+        inputs,
+        host=host or FakeHa(answer, *more),
+        sessions=sessions,
+        session_id="s",
+        watched=True,
     )
     assert result.error is None, result.error
     shared = sessions.view("s", SHARED_NAMESPACE)
@@ -70,3 +84,43 @@ async def test_what_it_did_not_understand_passes_on_unchanged() -> None:
 async def test_without_home_assistant_everything_passes_on() -> None:
     result, _ = await run(None)
     assert result.outputs["unhandled"].items == [Utterance("включи свет на кухне", "ru")]
+
+
+DONE = {"response_type": "action_done", "speech": "Включила свет", "error_code": None}
+MISSED = {"response_type": "error", "speech": "Не поняла", "error_code": "no_intent_match"}
+
+
+def test_extra_words_are_left_out() -> None:
+    assert cleaned("Алиса, включи-ка, пожалуйста, свет на кухне!", "ru", ["алиса"]) == (
+        "включи свет на кухне"
+    )
+    assert cleaned("Слушай, а можешь выключить телевизор?", "ru", []) == "выключить телевизор"
+    assert cleaned("Please, could you turn on the kitchen light?", "en", []) == (
+        "turn on the kitchen light"
+    )
+    assert cleaned("Включи ёлку", "ru-RU", []) == "включи елку"
+
+
+async def test_a_second_try_without_extra_words() -> None:
+    host = FakeHa(MISSED, DONE)
+    result, _ = await run(None, "Слушай, включи-ка свет на кухне, пожалуйста", host=host)
+    assert [c["text"] for c in host.calls] == [
+        "Слушай, включи-ка свет на кухне, пожалуйста",
+        "включи свет на кухне",
+    ]
+    assert [r.text for r in result.outputs["response"].items] == ["Включила свет"]
+    [event] = [e for e in result.trace.events if e.event == "ha.quick"]
+    assert event.attrs["retried"] is True and event.attrs["handled"] is True
+
+
+async def test_no_second_try_when_understood_or_turned_off() -> None:
+    no_target = {"response_type": "error", "speech": "Нет такого", "error_code": "no_valid_targets"}
+    host = FakeHa(no_target, DONE)
+    await run(None, "пожалуйста, включи свет в гараже", host=host)
+    assert len(host.calls) == 1  # it understood: the words are not the problem
+    off = FakeHa(MISSED, DONE)
+    await run(None, "пожалуйста, включи свет", host=off, config={"retry_cleaned": False})
+    assert len(off.calls) == 1
+    clean = FakeHa(MISSED, DONE)
+    await run(None, "расскажи анекдот", host=clean)
+    assert len(clean.calls) == 1  # nothing to leave out: no point asking again
