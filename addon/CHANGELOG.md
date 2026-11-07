@@ -4,6 +4,31 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.17
+
+### App
+
+- **Home Assistant quick commands.** A new node runs the commands Home Assistant understands by
+  itself (turn on the light, set the temperature, start a timer, your own custom sentences) in a
+  fraction of a second, without an LLM; everything else goes on unchanged to the next agent.
+  When Home Assistant does not understand a phrase, it tries once more without punctuation,
+  politeness and fillers ("please", "listen", "can you"…) and the words you list, such as the
+  assistant's name. What a quick command did becomes part of the dialogue, so the LLM agent knows
+  it ("turn it back on").
+- **First present** (formerly First utterance) joins two branches of any kind of text: its output
+  has the type connected to its inputs, and a text stream passes through as it comes. Use it to
+  join a quick command and an agent in front of the client output and text-to-speech.
+- **One text input** on Debug probe and Text converter: connect any kind of text. Graphs are
+  updated when the app starts: a probe that watched several texts becomes one probe per text.
+- Ports may take several types: wires, pins and the legend show the type each port carries in
+  the graph, and the editor only lets you connect what fits.
+- The dialogue is shared by the nodes of a session; the LLM agent keeps its dialogue there now.
+
+### Integration
+
+- Tells the app why Home Assistant's own agent did not handle a phrase, so quick commands pass
+  only those on. Update it together with the app.
+
 ## 0.1.16
 
 ### App
