@@ -10,6 +10,7 @@ what was done ("turn it back on").
 
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from typing import Any, ClassVar
@@ -30,7 +31,12 @@ from flowpilot_sdk import (
     node_translations,
 )
 
+from .names import NameMatcher, warm_up, words
 from .nodes import HA_CONVERSATION_OP
+
+NAMES_OP = "ha.names.list"
+# Names change rarely (a new device, a renamed room): asked for again after this long
+NAMES_MAX_AGE_S = 300.0
 
 TYPE = "ha.quick"
 
@@ -131,6 +137,7 @@ class HaQuickCommands:
             "additionalProperties": False,
         },
         host_ops=frozenset({HA_CONVERSATION_OP}),
+        optional_host_ops=frozenset({NAMES_OP}),
         turn_timeout_s=20.0,
         description=(
             "Runs commands Home Assistant understands by itself (turn on the light, set the "
@@ -150,6 +157,21 @@ class HaQuickCommands:
         self._node = ctx.node_id
         self._retry = bool(ctx.config.get("retry_cleaned", True))
         self._extra = [str(w) for w in ctx.config.get("extra_words") or []]
+        self._names: tuple[float, list[str]] | None = None
+        if self._retry:
+            await asyncio.to_thread(warm_up)
+
+    async def _matcher(self, turn: TurnSession, language: str | None) -> NameMatcher | None:
+        """Names Assist knows, from Home Assistant; kept for a while, they change rarely."""
+        now = time.monotonic()
+        if self._names is None or now - self._names[0] > NAMES_MAX_AGE_S:
+            try:
+                result = await turn.call_host(NAMES_OP, {})
+            except HostError, HostUnavailable:
+                return None
+            names = result.get("names") if isinstance(result, dict) else None
+            self._names = (now, [str(n) for n in names] if isinstance(names, list) else [])
+        return NameMatcher(self._names[1], language) if self._names[1] else None
 
     async def _ask(self, turn: TurnSession, args: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -178,11 +200,21 @@ class HaQuickCommands:
         started = time.monotonic()
         result = await self._ask(turn, args)
         tried = said.text
-        if result.get("error_code") == "no_intent_match" and self._retry:
+        code0 = result.get("error_code")
+        if code0 in ("no_intent_match", "no_valid_targets") and self._retry:
             simpler = cleaned(said.text, args["language"], self._extra)
-            if simpler and simpler != " ".join(said.text.casefold().split()):
-                tried = simpler
-                result = await self._ask(turn, args | {"text": simpler})
+            matcher = await self._matcher(turn, args["language"])
+            named = matcher.canonical(simpler) if matcher else simpler
+            # not understood: any cleaning may help; understood but no such target: only a name
+            # put back in its own form can
+            worth = (
+                named != " ".join(words(said.text))
+                if code0 == "no_intent_match"
+                else (words(named) != words(simpler))
+            )
+            if named and worth:
+                tried = named
+                result = await self._ask(turn, args | {"text": named})
         ms = round(1000 * (time.monotonic() - started))
         kind = str(result.get("response_type") or "")
         code = result.get("error_code")

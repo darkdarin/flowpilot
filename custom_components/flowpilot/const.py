@@ -18,6 +18,9 @@ HOST_OP_STT: Final = "ha.stt.process"
 HOST_OP_TTS: Final = "ha.tts.synthesize"
 HOST_OP_ENTITIES: Final = "ha.entities.list"
 HOST_OP_PEOPLE: Final = "ha.people.list"
+# Names Assist knows (areas, floors, exposed entities, with aliases): the app matches inflected
+# forms of them ("в гостиной" → "Гостиная") before asking Home Assistant again
+HOST_OP_NAMES: Final = "ha.names.list"
 # Home Assistant's LLM tools (the Assist API: entities exposed to Assist) for FlowPilot's agents
 HOST_OP_LLM_TOOLS: Final = "ha.llm.tools"
 HOST_OP_LLM_CALL: Final = "ha.llm.call"

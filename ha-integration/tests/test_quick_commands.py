@@ -68,3 +68,38 @@ async def test_quick_commands_skip_the_agent(hass: HomeAssistant) -> None:
         assert other.response.speech["plain"]["speech"] == "echo: what rhymes with orange"
         quick = runtime.trace.named("ha.quick")
         assert [e.attrs["handled"] for e in quick] == [True, False]
+
+
+async def test_a_room_in_another_case_is_understood(hass: HomeAssistant) -> None:
+    """Russian: Home Assistant knows the area "Гостиная", people say "в гостиной"."""
+    from homeassistant.helpers import area_registry as ar
+    from homeassistant.helpers import entity_registry as er
+
+    hass.config.language = "ru"
+    for domain in ("intent", "light"):
+        assert await async_setup_component(hass, domain, {})
+    async for runtime in _runtime({}, GRAPH):
+        await setup_flowpilot(hass, runtime)
+        living = ar.async_get(hass).async_create("Гостиная")
+        entry = er.async_get(hass).async_get_or_create("light", "test", "ceiling")
+        er.async_get(hass).async_update_entity(entry.entity_id, area_id=living.id)
+        hass.states.async_set(entry.entity_id, "off", {"friendly_name": "Люстра"})
+        async_expose_entity(hass, "conversation", entry.entity_id, True)
+        calls = async_mock_service(hass, "light", "turn_on")
+
+        plain = await async_converse(
+            hass,
+            "включи свет в гостиной",
+            None,
+            Context(),
+            agent_id="conversation.home_assistant",
+            language="ru",
+        )
+        assert plain.response.response_type.value == "error"  # Home Assistant alone misses it
+
+        done = await async_converse(
+            hass, "включи свет в гостиной", None, Context(), agent_id=AGENT_ENTITY, language="ru"
+        )
+        assert calls, done.response.speech
+        [event] = runtime.trace.named("ha.quick")
+        assert event.attrs["handled"] is True and event.attrs["retried"] is True

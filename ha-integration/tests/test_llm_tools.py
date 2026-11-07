@@ -78,3 +78,19 @@ async def test_conversation_tells_a_command_it_did_not_understand(hass: HomeAssi
         )
     )
     assert missed["response_type"] == "error" and missed["error_code"] == "no_intent_match"
+
+
+async def test_names_assist_knows(hass: HomeAssistant) -> None:
+    from homeassistant.helpers import area_registry as ar
+    from homeassistant.helpers import entity_registry as er
+
+    host = await ops(hass)
+    ar.async_get(hass).async_create("Гостиная", aliases={"Зал"})
+    entry = er.async_get(hass).async_get_or_create("light", "test", "lamp")
+    er.async_get(hass).async_update_entity(entry.entity_id, aliases=["Торшер"])
+    hass.states.async_set(entry.entity_id, "off", {"friendly_name": "Настольная лампа"})
+    async_expose_entity(hass, "conversation", entry.entity_id, True)
+    result = await host["ha.names.list"](HostRequest(None, {}))
+    names = set(result["names"])
+    assert {"Гостиная", "Зал", "Настольная лампа", "Торшер", "Kitchen light"} <= names
+    assert "Hidden light" not in names  # not exposed to Assist

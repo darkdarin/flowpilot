@@ -15,14 +15,19 @@ from flowpilot_server.quick import HaQuickCommands, cleaned
 class FakeHa:
     """Answers each request with the next of ``answers`` (the last one repeats)."""
 
-    def __init__(self, *answers: dict[str, Any] | None) -> None:
+    def __init__(self, *answers: dict[str, Any] | None, names: list[str] | None = None) -> None:
         self.answers = list(answers)
+        self.names = names
         self.calls: list[dict[str, Any]] = []
 
     def offers(self, op: str) -> bool:
+        if op == "ha.names.list":
+            return self.names is not None
         return self.answers[0] is not None
 
     async def call(self, turn_id: str, op: str, args: Any, **kwargs: Any) -> Any:
+        if op == "ha.names.list":
+            return {"names": self.names}
         self.calls.append(dict(args))
         answer = self.answers[min(len(self.calls), len(self.answers)) - 1]
         if answer is None:
@@ -124,3 +129,19 @@ async def test_no_second_try_when_understood_or_turned_off() -> None:
     clean = FakeHa(MISSED, DONE)
     await run(None, "расскажи анекдот", host=clean)
     assert len(clean.calls) == 1  # nothing to leave out: no point asking again
+
+
+async def test_names_are_put_back_in_their_own_form() -> None:
+    """Home Assistant knows "Гостиная", not "гостиной": the second try uses its name."""
+    no_target = {"response_type": "error", "speech": "Нет такого", "error_code": "no_valid_targets"}
+    host = FakeHa(no_target, DONE, names=["Гостиная", "Настольная лампа"])
+    result, _ = await run(None, "Включи, пожалуйста, свет в гостиной", host=host)
+    assert [c["text"] for c in host.calls][1] == "включи свет в Гостиная"
+    assert [r.text for r in result.outputs["response"].items] == ["Включила свет"]
+    lamp = FakeHa(MISSED, DONE, names=["Гостиная", "Настольная лампа"])
+    await run(None, "выключи настольную лампу", host=lamp)
+    assert lamp.calls[1]["text"] == "выключи Настольная лампа"
+    # no such target and no name to fix: asking again would not help
+    garage = FakeHa(no_target, DONE, names=["Гостиная"])
+    await run(None, "включи свет в гараже", host=garage)
+    assert len(garage.calls) == 1

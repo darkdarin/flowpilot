@@ -9,11 +9,14 @@ from typing import Any
 import probatio
 from homeassistant.components import conversation, stt, tts
 from homeassistant.components.conversation import async_converse
+from homeassistant.components.homeassistant.exposed_entities import async_should_expose
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import floor_registry as fr
 from homeassistant.helpers import llm
 from homeassistant.helpers.json import JSONEncoder
 
@@ -27,6 +30,7 @@ from .const import (
     HOST_OP_ENTITIES,
     HOST_OP_LLM_CALL,
     HOST_OP_LLM_TOOLS,
+    HOST_OP_NAMES,
     HOST_OP_PEOPLE,
     HOST_OP_STT,
     HOST_OP_TTS,
@@ -255,6 +259,23 @@ def build_host_ops(
         data = json.loads(json.dumps(result.data, cls=JSONEncoder))
         return {"error": result.error, "data": data}
 
+    async def names_list(request: HostRequest) -> Any:
+        """Every name Assist matches: areas, floors and entities exposed to it, with aliases."""
+        registry = er.async_get(hass)
+        names: set[str] = set()
+        for area in ar.async_get(hass).async_list_areas():
+            names.update([area.name, *area.aliases])
+        for floor in fr.async_get(hass).async_list_floors():
+            names.update([floor.name, *floor.aliases])
+        for state in hass.states.async_all():
+            if not async_should_expose(hass, conversation.DOMAIN, state.entity_id):
+                continue
+            names.add(state.name)
+            entry = registry.async_get(state.entity_id)
+            if entry is not None:
+                names.update(a for a in entry.aliases if isinstance(a, str))
+        return {"names": sorted(n for n in names if n and n.strip())}
+
     async def people_list(request: HostRequest) -> Any:
         """Who lives in the home: Home Assistant people with where they are, and users without a
         person, so an agent knows who it talks to and who is home."""
@@ -288,6 +309,7 @@ def build_host_ops(
     return {
         HOST_OP_ENTITIES: entities_list,
         HOST_OP_PEOPLE: people_list,
+        HOST_OP_NAMES: names_list,
         HOST_OP_LLM_TOOLS: llm_tools,
         HOST_OP_LLM_CALL: llm_call,
         HOST_OP_CONVERSATION: conversation_process,
