@@ -21,6 +21,14 @@ All routes need ``Authorization: Bearer <token>``.
 - ``GET  /api/editor/skills``                 skills described for the LLM agent; ``POST``
                                               creates one, ``PUT``/``DELETE
                                               /api/editor/skills/{id}``
+- ``GET  /api/editor/voices``                 voice profiles (samples per person, no embeddings),
+                                              the people, the model and match settings;
+                                              ``PUT`` ``{model, threshold, margin}``
+- ``POST /api/editor/voices/model``           download the chosen voice model
+- ``POST /api/editor/voices/{user}/samples``  a WAV of the person speaking (body), or
+                                              ``{recording}``: a debug recording; ``DELETE
+                                              .../samples/{id}``, ``DELETE /voices/{user}``
+- ``POST /api/editor/voices/test``            a WAV: how close it is to each profile, and the match
 - ``GET  /api/editor/recordings``             debug recordings (``?graph=``), newest first
 - ``GET  /api/editor/recordings/{file}``      one recording as audio/wav; ``DELETE`` removes it
 - ``PUT  /api/editor/default``                ``{graph}``: the graph turns go to when a client
@@ -39,21 +47,27 @@ Issues block a deploy; ``warnings`` (references to entities the host does not li
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
+import wave
 from collections.abc import Awaitable, Callable, MutableMapping
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import aiohttp
 from aiohttp import web
 
 from flowpilot_core import GraphError
+from flowpilot_sdk import AudioFormat
 
 from .auth import bearer_token
 from .manager import GRAPH_ID_RE, DeployError, GraphManager, GraphStore, issue_dicts
 from .probe import list_recordings, recording_path, recordings_dir
 from .references import OPTIONS_CACHE_S
 from .secret_store import secret_fields
+from .voices import MAX_SECONDS as MAX_VOICE_SECONDS
+from .voices import VoiceError
 
 if TYPE_CHECKING:
     from .server import FlowPilotServer
@@ -337,6 +351,88 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
             return _error(404, "no such fact")
         return web.json_response({"removed": True})
 
+    # ---- voices ---------------------------------------------------------------------------
+
+    async def voice_pcm(request: web.Request) -> tuple[AudioFormat, bytes]:
+        """The speech of a request: a WAV body, or ``{"recording": file}`` (a debug recording)."""
+        if request.content_type == "application/json":
+            body = await request.json()
+            path = recording_path(recordings(), str((body or {}).get("recording") or ""))
+            if path is None:
+                raise VoiceError("no such recording")
+            data = await asyncio.to_thread(path.read_bytes)
+        else:
+            data = await request.read()
+        try:
+            with wave.open(io.BytesIO(data), "rb") as wav:
+                if wav.getsampwidth() != 2 or wav.getnchannels() != 1:
+                    raise VoiceError("send 16-bit mono WAV")
+                rate = wav.getframerate()
+                pcm = wav.readframes(min(wav.getnframes(), int(rate * MAX_VOICE_SECONDS)))
+        except (wave.Error, EOFError) as err:
+            raise VoiceError(f"not a WAV sound: {err}") from err
+        return AudioFormat(sample_rate=rate), pcm
+
+    async def list_voices(request: web.Request) -> web.Response:
+        hosts = await server.host_options()
+        people = hosts["options"].get("ha.user", []) if hosts["available"] else []
+        return web.json_response(
+            {**manager.voices.settings(), "profiles": manager.voices.people(), "people": people}
+        )
+
+    async def set_voices(request: web.Request) -> web.Response:
+        try:
+            manager.voices.set_settings(await request.json())
+        except VoiceError as err:
+            return _error(400, str(err))
+        return web.json_response(manager.voices.settings())
+
+    async def download_voice_model(request: web.Request) -> web.Response:
+        try:
+            await manager.voices.download(manager.voices.model.id)
+        except (VoiceError, aiohttp.ClientError, TimeoutError) as err:
+            return _error(502, str(err))
+        return web.json_response(manager.voices.settings())
+
+    async def add_voice_sample(request: web.Request) -> web.Response:
+        source = "recording" if request.content_type == "application/json" else "microphone"
+        try:
+            fmt, pcm = await voice_pcm(request)
+            sample = await manager.voices.add_sample(
+                request.match_info["user"], pcm, fmt.sample_rate, source=source
+            )
+        except VoiceError as err:
+            return _error(400, str(err))
+        return web.json_response(sample)
+
+    async def delete_voice_sample(request: web.Request) -> web.Response:
+        if not manager.voices.remove_sample(request.match_info["user"], request.match_info["id"]):
+            return _error(404, "no such sample")
+        return web.json_response({"removed": True})
+
+    async def delete_voice(request: web.Request) -> web.Response:
+        if not manager.voices.remove_person(request.match_info["user"]):
+            return _error(404, "no voice profile")
+        return web.json_response({"removed": True})
+
+    async def test_voice(request: web.Request) -> web.Response:
+        try:
+            fmt, pcm = await voice_pcm(request)
+            scores = await manager.voices.scores(pcm, fmt.sample_rate)
+        except VoiceError as err:
+            return _error(400, str(err))
+        match = await manager.voices.identify(pcm, fmt.sample_rate)
+        return web.json_response(
+            {
+                "scores": scores,
+                "match": match.speaker_id,
+                "status": match.status.value,
+                "reason": match.reason,
+                "threshold": manager.voices.threshold,
+                "margin": manager.voices.margin,
+            }
+        )
+
     async def list_commands(request: web.Request) -> web.Response:
         hosts = await server.host_options()
         people = hosts["options"].get("ha.user", []) if hosts["available"] else []
@@ -390,6 +486,13 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
         return web.json_response({"removed": True})
 
     routes = [
+        ("GET", f"{PREFIX}/voices", list_voices),
+        ("PUT", f"{PREFIX}/voices", set_voices),
+        ("POST", f"{PREFIX}/voices/model", download_voice_model),
+        ("POST", f"{PREFIX}/voices/test", test_voice),
+        ("POST", f"{PREFIX}/voices/{{user}}/samples", add_voice_sample),
+        ("DELETE", f"{PREFIX}/voices/{{user}}/samples/{{id}}", delete_voice_sample),
+        ("DELETE", f"{PREFIX}/voices/{{user}}", delete_voice),
         ("GET", f"{PREFIX}/skills", list_skills),
         ("POST", f"{PREFIX}/skills", add_skill),
         ("PUT", f"{PREFIX}/skills/{{skill_id}}", update_skill),

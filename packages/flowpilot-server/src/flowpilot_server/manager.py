@@ -36,6 +36,7 @@ from .memory_store import MemoryStore
 from .migrations import migrate_graph
 from .secret_store import secret_fields
 from .skills_store import SkillStore
+from .voices import VoiceStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ RETIRE_TIMEOUT_S = 120.0
 BUILTIN_GRANTS: dict[str, frozenset[str]] = {
     "client.source": frozenset({IDENTITY_PROVIDER_GRANT}),
     "logic.condition": frozenset({IDENTITY_PROVIDER_GRANT}),  # forwards who speaks, unchanged
+    "identity.speaker": frozenset({IDENTITY_PROVIDER_GRANT}),  # who speaks, by their voice
 }
 
 GraphCheck = Callable[[ValidatedGraph], list[GraphIssue]]
@@ -136,12 +138,15 @@ class GraphManager:
         memory: MemoryStore | None = None,
         commands: CommandStore | None = None,
         skills: SkillStore | None = None,
+        voices: VoiceStore | None = None,
     ) -> None:
         self.data_dir = data_dir
         # quick commands people taught the assistant (flowpilot_sdk.QuickCommands)
         self.commands = commands if commands is not None else CommandStore(None)
         # skills people described for the agent (flowpilot_sdk.Skills)
         self.skills = skills if skills is not None else SkillStore(None)
+        # voice profiles of the household (flowpilot_sdk.Voices); in memory when not given
+        self.voices = voices if voices is not None else VoiceStore(None, None)
         # long-term facts for every graph (flowpilot_sdk.Memory); in memory only when not given
         self.memory = (
             memory if memory is not None else MemoryStore(None)
@@ -243,6 +248,7 @@ class GraphManager:
             memory=self.memory,
             commands=self.commands,
             skills=self.skills,
+            voices=self.voices,
             taps_active=(lambda: watching(graph_id)) if watching else None,
         )
         try:

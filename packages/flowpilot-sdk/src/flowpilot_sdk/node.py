@@ -19,6 +19,7 @@ from .skills import Skills
 from .streams import InputStream, OutputStream
 from .text import LANGUAGE_RE, NodeText
 from .types import ANY, PRIVILEGED_TYPES, union, union_members, validate_type_id
+from .voices import Voices
 
 # Any text: what speech-to-text heard, an utterance, a text stream, an agent's answer. A port of
 # this type takes whichever is connected; with ``var`` the node passes the same type on.
@@ -242,6 +243,8 @@ class NodeContext(Protocol):
     commands: QuickCommands | None
     # Skills people described for the agent (flowpilot_sdk.skills); ``None`` when none are kept.
     skills: Skills | None
+    # Voices people enrolled (flowpilot_sdk.voices); ``None`` when the runtime keeps none.
+    voices: Voices | None
 
     def secret(self, name: str) -> str:
         """Value of a secret referenced in the node config; ``KeyError`` if not granted."""

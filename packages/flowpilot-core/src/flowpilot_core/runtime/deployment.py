@@ -25,6 +25,7 @@ from flowpilot_sdk import (
     Skills,
     StreamError,
     TurnContext,
+    Voices,
     type_kind,
 )
 
@@ -95,6 +96,7 @@ class RuntimeNodeContext:
         memory: Memory | None = None,
         commands: QuickCommands | None = None,
         skills: Skills | None = None,
+        voices: Voices | None = None,
     ) -> None:
         self.node_id = node_id
         self.graph_id = graph_id
@@ -102,6 +104,7 @@ class RuntimeNodeContext:
         self.memory = memory
         self.commands = commands
         self.skills = skills
+        self.voices = voices
         self.config = config
         self.logger = logging.getLogger(f"flowpilot.node.{node_id}")
         self._secrets = secrets
@@ -257,6 +260,7 @@ class Deployment:
         memory: Memory | None = None,
         commands: QuickCommands | None = None,
         skills: Skills | None = None,
+        voices: Voices | None = None,
         taps_active: Callable[[], bool] | None = None,
     ) -> None:
         self.graph = graph
@@ -267,6 +271,7 @@ class Deployment:
         self._memory = memory
         self._commands = commands
         self._skills = skills
+        self._voices = voices
         self._registry = registry
         self._secrets = secrets or {}
         self.trace: TraceSink = trace or NullTraceSink()
@@ -308,6 +313,7 @@ class Deployment:
                     memory=self._memory,
                     commands=self._commands,
                     skills=self._skills,
+                    voices=self._voices,
                 )
                 await instance.start(ctx)
                 self._instances[node_id] = instance

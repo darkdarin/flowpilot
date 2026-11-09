@@ -55,6 +55,8 @@ from .server import FlowPilotServer
 from .session_file import SessionFile
 from .signal import SoundSignal
 from .skills_store import SkillStore
+from .speaker import SpeakerId
+from .voices import VoiceStore
 
 _LOGGER = logging.getLogger("flowpilot_server")
 
@@ -69,6 +71,7 @@ def build_registry(*, dev: bool = False) -> NodeRegistry:
         HaConversation,
         HaQuickCommands,
         Condition,
+        SpeakerId,
         SoundSignal,
         HaStt,
         HaTts,
@@ -105,6 +108,7 @@ async def serve(config_path: Path, *, dev: bool = False, announce: bool = False)
         memory=MemoryStore(base / config.get("memory_file", "memory.json")),
         commands=CommandStore(base / config.get("commands_file", "quick_commands.json")),
         skills=SkillStore(base / config.get("skills_file", "skills.json")),
+        voices=VoiceStore(base / config.get("voices_file", "voices.json"), base / "models"),
     )
 
     def remember_default(graph_id: str) -> None:

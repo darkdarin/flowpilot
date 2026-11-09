@@ -23,6 +23,8 @@ discovery:
 backup_exclude:
   - nodes/debug.probe/*
   - nodes/debug.record/*
+  # voice models: downloaded again on demand (the voice profiles themselves are backed up)
+  - models/*
 ports:
   8765/tcp: null
 ports_description:

@@ -55,6 +55,7 @@ from .types import (
     union_members,
     validate_type_id,
 )
+from .voices import Voices
 
 __version__ = "0.1.26"
 
@@ -118,6 +119,7 @@ __all__ = [
     "TextDelta",
     "Transcript",
     "TurnContext",
+    "Voices",
     "TurnSession",
     "Utterance",
     "Word",
