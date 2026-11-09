@@ -13,7 +13,9 @@ import {
   nodeIssues,
   nodeOptions,
   nodeWarnings,
+  settingPorts,
   specs,
+  type FpNode as FpNodeT,
   type FpNodeData,
 } from "../store";
 import { fieldOptionTitles, fieldTitle, nodeDescription, nodeTitle, portDescription } from "../texts";
@@ -26,6 +28,12 @@ import ClientInput from "./ClientInput.vue";
 const props = defineProps<NodeProps<FpNodeData>>();
 
 const spec = computed(() => specs.value.get(props.data.type));
+// its own inputs, then the settings the graph made inputs of it
+const inputs = computed(() => [
+  ...(spec.value?.inputs ?? []),
+  ...settingPorts({ id: props.id, data: props.data } as FpNodeT),
+]);
+const settingKeys = computed(() => new Set(props.data.setting_inputs ?? []));
 const problems = computed(() => nodeIssues.value.get(props.id) ?? []);
 const cautions = computed(() => nodeWarnings.value.get(props.id) ?? []);
 const run = computed(() => (debug.enabled ? currentTurn.value?.nodes[props.id] : undefined));
@@ -184,7 +192,7 @@ const summary = computed(() => {
 
     <div v-if="spec" class="ports">
       <div class="col in">
-        <div v-for="p in spec.inputs" :key="p.name" class="port" :style="{ '--pin': typeColor(shown(p, 'inputs')) }">
+        <div v-for="p in inputs" :key="p.name" class="port" :class="{ setting: settingKeys.has(p.name) }" :style="{ '--pin': typeColor(shown(p, 'inputs')) }">
           <Handle
             :id="p.name"
             type="target"
@@ -192,7 +200,7 @@ const summary = computed(() => {
             :class="[portKind(id, p, 'inputs'), { connected: connected.has(`in:${p.name}`) }]"
             :title="portTip('inputs', p.name, shown(p, 'inputs'), portKind(id, p, 'inputs'))"
           />
-          <span class="label" :class="{ optional: !p.required }" :title="portTip('inputs', p.name, shown(p, 'inputs'), portKind(id, p, 'inputs'))">{{ p.name }}</span>
+          <span class="label" :class="{ optional: !p.required }" :title="portTip('inputs', p.name, shown(p, 'inputs'), portKind(id, p, 'inputs'))">{{ settingKeys.has(p.name) ? fieldTitle(spec, p.name) || p.name : p.name }}</span>
           <span class="type">{{ typeShort(shown(p, 'inputs')) }}</span>
         </div>
       </div>

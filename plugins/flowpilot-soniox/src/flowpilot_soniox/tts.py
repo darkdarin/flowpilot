@@ -21,6 +21,7 @@ from urllib.parse import quote
 import aiohttp
 
 from flowpilot_sdk import (
+    DYNAMIC_KEY,
     ENUM_TITLES_KEY,
     NODE_OPTIONS_KEY,
     AudioChunk,
@@ -109,6 +110,7 @@ class SonioxTts:
                     ),
                     "type": "string",
                     NODE_OPTIONS_KEY: True,
+                    DYNAMIC_KEY: True,  # e.g. a softer voice at night
                 },
                 "model": {
                     "title": "Model",
@@ -130,6 +132,7 @@ class SonioxTts:
                     "minimum": 0.5,
                     "maximum": 2,
                     "default": 1.0,
+                    DYNAMIC_KEY: True,
                 },
                 "sample_rate": {
                     "title": "Sample rate, Hz",
@@ -226,6 +229,7 @@ class SonioxTts:
         text: InputStream[Any] = turn.input("text")
         if await text.header() is None:
             return
+        cfg = await turn.settings(self._config)  # voice or speed for this turn
         rate = int(self._config.get("sample_rate", 24000))
         language = language_base(self._config.get("language")) or language_base(
             turn.context.language
@@ -245,12 +249,12 @@ class SonioxTts:
             self._api_key,
             {
                 "model": self._model,
-                "voice": self._voice,
+                "voice": str(cfg.get("voice") or self._voice),
                 "language": language,
                 "audio_format": "pcm_s16le",
                 "sample_rate": rate,
             }
-            | ({"speed": float(self._config["speed"])} if self._config.get("speed") else {}),
+            | ({"speed": float(cfg["speed"])} if cfg.get("speed") else {}),
             deliver,
         )
         try:
@@ -265,7 +269,7 @@ class SonioxTts:
             seconds=round(offset / rate, 2),
             first_audio_ms=session.first_audio_ms,
             streams=session.streams,
-            voice=self._voice,
+            voice=str(cfg.get("voice") or self._voice),
         )
 
 

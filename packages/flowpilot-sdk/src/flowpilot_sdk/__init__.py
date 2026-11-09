@@ -6,6 +6,7 @@ from .host import HostAudio, HostError, HostUnavailable
 from .ids import new_ulid
 from .memory import MAX_FACT_CHARS, Fact, Memory
 from .node import (
+    DYNAMIC_KEY,
     ENUM_TITLES_KEY,
     GROUP_KEY,
     GROUPS_KEY,
@@ -30,6 +31,7 @@ from .payloads import (
     Evidence,
     Principal,
     Response,
+    SettingValue,
     SpeakerMatch,
     SpeakerStatus,
     TextDelta,
@@ -68,6 +70,7 @@ __all__ = [
     "MAX_FACT_CHARS",
     "Fact",
     "Memory",
+    "DYNAMIC_KEY",
     "ENUM_TITLES_KEY",
     "WHEN_INPUT_KEY",
     "GROUP_KEY",
@@ -107,6 +110,7 @@ __all__ = [
     "SessionInfo",
     "SessionState",
     "SourceInfo",
+    "SettingValue",
     "SpeakerMatch",
     "SpeakerStatus",
     "StreamError",

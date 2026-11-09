@@ -184,6 +184,9 @@ class FakeTurn:
     def input(self, name: str) -> FakeInput:
         return self.inputs[name]
 
+    async def settings(self, config: Mapping[str, Any]) -> dict[str, Any]:
+        return dict(config)
+
     def output(self, name: str) -> FakeOutput:
         return self.outputs.setdefault(name, FakeOutput())
 

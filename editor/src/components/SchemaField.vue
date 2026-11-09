@@ -19,8 +19,9 @@ const props = defineProps<{
   nodeType?: string; // for choices the node lists itself
   config?: Record<string, unknown>; // the node's whole config (those choices depend on it)
   optionTitles?: Record<string, string>; // labels of enum values, localized
+  pinned?: boolean; // the graph made this setting an input of the node
 }>();
-const emit = defineEmits<{ "update:modelValue": [value: unknown] }>();
+const emit = defineEmits<{ "update:modelValue": [value: unknown]; pin: [] }>();
 
 const kind = computed(() => {
   const s = props.schema;
@@ -260,8 +261,20 @@ const hint = computed(() => {
       <span class="title">{{ label || name }}</span>
       <span v-if="required" class="req" :title="t('inspector.required')">*</span>
       <code v-if="label" class="key">{{ name }}</code>
+      <button
+        v-if="schema['x-flowpilot-dynamic']"
+        type="button"
+        class="pin"
+        :class="{ on: pinned }"
+        :aria-pressed="!!pinned"
+        :title="pinned ? t('form.unpin') : t('form.pin')"
+        @click.prevent="emit('pin')"
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="8" r="2.5" /><path d="M6.5 8H14M11 5l3 3-3 3" /></svg>
+      </button>
     </label>
     <p v-if="description" class="desc">{{ description }}</p>
+    <small v-if="pinned" class="pinned">{{ t("form.pinned", { name }) }}</small>
 
     <template v-if="usePicker">
       <OptionPicker
@@ -401,6 +414,41 @@ const hint = computed(() => {
 </template>
 
 <style scoped>
+.pin {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 18px;
+  margin-left: 4px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.pin svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.pin.on {
+  border-color: var(--focus);
+  color: var(--focus);
+}
+
+.pin.on svg circle {
+  fill: currentColor;
+}
+
+.pinned {
+  color: var(--focus);
+}
+
 .multi {
   display: flex;
   flex-wrap: wrap;

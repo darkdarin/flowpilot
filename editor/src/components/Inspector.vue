@@ -2,7 +2,18 @@
 import { computed, ref, watch } from "vue";
 import type { JsonSchema } from "../api";
 import { t } from "../i18n";
-import { edges, issues, nodeIssues, nodeWarnings, removeNode, renameNode, selectedId, selectedNode, specs } from "../store";
+import {
+  edges,
+  issues,
+  nodeIssues,
+  nodeWarnings,
+  removeNode,
+  renameNode,
+  selectedId,
+  selectedNode,
+  specs,
+  toggleSettingInput,
+} from "../store";
 import { members, portType } from "../porttypes";
 import { categoryColor, typeColor, typeShort } from "../types";
 import {
@@ -144,7 +155,9 @@ function setConfig(key: string, value: unknown) {
             :config="selectedNode.data!.config"
             :option-titles="fieldOptionTitles(spec, item.key)"
             :model-value="selectedNode.data!.config[item.key]"
+            :pinned="selectedNode.data!.setting_inputs?.includes(item.key)"
             @update:model-value="setConfig(item.key, $event)"
+            @pin="toggleSettingInput(selectedNode.id, item.key)"
           />
           <button v-else type="button" class="group" @click="openGroup = item.group">
             <span class="gtext">

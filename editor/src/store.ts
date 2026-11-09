@@ -12,6 +12,7 @@ import {
   type HostOptions,
   type Issue,
   type NodeInfo,
+  type PortInfo,
   type SecretInfo,
   type TraceMsg,
   TraceSocket,
@@ -21,6 +22,7 @@ import { t } from "./i18n";
 export interface FpNodeData {
   type: string;
   config: Record<string, unknown>;
+  setting_inputs?: string[]; // settings made inputs of the node
 }
 
 export type FpNode = Node<FpNodeData>;
@@ -217,7 +219,11 @@ function toCanvas(doc: GraphDoc) {
     id: n.id,
     type: "fp",
     position: positions[n.id] ?? { x: 0, y: 0 },
-    data: { type: n.type, config: structuredClone(n.config ?? {}) },
+    data: {
+      type: n.type,
+      config: structuredClone(n.config ?? {}),
+      ...(n.setting_inputs?.length ? { setting_inputs: [...n.setting_inputs] } : {}),
+    },
     deletable: !specs.value.get(n.type)?.fixed, // the client input and output stay
   }));
   const types = new Map(doc.nodes.map((n) => [n.id, n.type]));
@@ -257,6 +263,7 @@ export function toDoc(): GraphDoc {
         id: n.id,
         type: n.data!.type,
         ...(Object.keys(config).length ? { config } : {}),
+        ...(n.data?.setting_inputs?.length ? { setting_inputs: [...n.data.setting_inputs] } : {}),
       };
     }),
     edges: edges.value.map((e) => ({
@@ -542,6 +549,36 @@ export function pasteNodes(): string[] {
 export function duplicateNodes(ids: string[]): string[] {
   const clip = clipOf(ids);
   return clip ? place(clip, PASTE_STEP) : [];
+}
+
+export const SETTING_TYPE = "config.value/1";
+
+/** The inputs a node has for the settings the graph made inputs of it. */
+export function settingPorts(node: FpNode | undefined): PortInfo[] {
+  const spec = node?.data ? specs.value.get(node.data.type) : undefined;
+  return (node?.data?.setting_inputs ?? [])
+    .filter((key) => spec?.config_schema.properties?.[key]?.["x-flowpilot-dynamic"])
+    .map((key) => ({
+      name: key,
+      type: SETTING_TYPE,
+      kind: "value" as const,
+      required: false,
+      delivery: "lossless" as const,
+      description: "",
+    }));
+}
+
+/** Make a setting an input of the node, or a plain setting again (its wire goes). */
+export function toggleSettingInput(nodeId: string, key: string) {
+  const node = nodes.value.find((n) => n.id === nodeId);
+  if (!node?.data) return;
+  const now = node.data.setting_inputs ?? [];
+  const on = !now.includes(key);
+  const setting_inputs = on ? [...now, key] : now.filter((k) => k !== key);
+  nodes.value = nodes.value.map((n) =>
+    n.id === nodeId ? { ...n, data: { ...n.data!, setting_inputs } } : n,
+  );
+  if (!on) edges.value = edges.value.filter((e) => !(e.target === nodeId && e.targetHandle === key));
 }
 
 export function removeNode(id: string) {

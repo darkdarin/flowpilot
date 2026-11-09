@@ -23,6 +23,7 @@ from typing import Any, ClassVar
 import aiohttp
 
 from flowpilot_sdk import (
+    DYNAMIC_KEY,
     ENUM_TITLES_KEY,
     GROUP_KEY,
     GROUPS_KEY,
@@ -293,6 +294,7 @@ class LlmAgent:
                     ),
                     "type": "string",
                     "format": "multiline",
+                    DYNAMIC_KEY: True,  # e.g. other instructions for a child
                 },
                 "history_turns": {
                     "title": "Remembered exchanges",
@@ -389,6 +391,7 @@ class LlmAgent:
                     "type": "number",
                     "minimum": 0,
                     "maximum": 2,
+                    DYNAMIC_KEY: True,
                 },
                 "max_tokens": {
                     "title": "Longest answer, tokens",
@@ -459,7 +462,7 @@ class LlmAgent:
         if self._http is not None:
             await self._http.close()
 
-    def _system(self, language: str | None) -> str:
+    def _system(self, language: str | None, config: Mapping[str, Any]) -> str:
         now = datetime.now().astimezone()
         values = {
             "date": now.strftime("%Y-%m-%d"),
@@ -467,7 +470,7 @@ class LlmAgent:
             "weekday": now.strftime("%A"),
             "language": language or "",
         }
-        prompt = str(self._config.get("system_prompt") or "")
+        prompt = str(config.get("system_prompt") or "")
         for name, value in values.items():
             prompt = prompt.replace("{" + name + "}", value)
         return prompt
@@ -661,6 +664,7 @@ class LlmAgent:
 
     async def run_turn(self, turn: TurnSession) -> None:
         said: Utterance | None = await turn.input("utterance").value()
+        cfg = await turn.settings(self._config)  # instructions or temperature for this turn
         if said is None or not said.text.strip():
             return
         language = said.language or turn.context.language
@@ -716,7 +720,7 @@ class LlmAgent:
             history=len(history) // 2,
         )
         parts = (
-            self._system(language),
+            self._system(language, cfg),
             _people_text(people, speaker),
             _memory_text(home, own),
             home_prompt if home_tools else "",
@@ -734,8 +738,8 @@ class LlmAgent:
             tools=len(toolbox),
         )
         body: dict[str, Any] = {"model": self._config["model"], "stream": True}
-        if "temperature" in self._config:
-            body["temperature"] = float(self._config["temperature"])
+        if "temperature" in cfg:
+            body["temperature"] = float(cfg["temperature"])
         if "max_tokens" in self._config:
             body["max_tokens"] = int(self._config["max_tokens"])
         if "reasoning" in self._config:

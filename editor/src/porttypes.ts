@@ -4,7 +4,7 @@
 
 import { computed } from "vue";
 import type { PortInfo } from "./api";
-import { catalog, edges, nodes, specs, type FpEdge, type FpNode } from "./store";
+import { catalog, edges, nodes, settingPorts, specs, type FpEdge, type FpNode } from "./store";
 
 /** A port type that takes every payload type (flowpilot_sdk.ANY). */
 export const ANY = "*";
@@ -24,8 +24,10 @@ function kindOf(type: string): string | undefined {
 }
 
 function portOf(nodeList: FpNode[], nodeId: string, port: string | null | undefined, side: "inputs" | "outputs") {
-  const type = nodeList.find((n) => n.id === nodeId)?.data?.type;
-  return type ? specs.value.get(type)?.[side].find((p) => p.name === port) : undefined;
+  const node = nodeList.find((n) => n.id === nodeId);
+  const type = node?.data?.type;
+  const own = type ? specs.value.get(type)?.[side].find((p) => p.name === port) : undefined;
+  return own ?? (side === "inputs" ? settingPorts(node).find((p) => p.name === port) : undefined);
 }
 
 interface Resolution {

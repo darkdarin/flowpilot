@@ -103,6 +103,12 @@ NODE_OPTIONS_KEY = "x-flowpilot-node-options"
 # types, and flag it when it is set but does not apply.
 WHEN_INPUT_KEY = "x-flowpilot-when-input"
 
+# JSON Schema keyword (``true``) for a setting that a graph may make an input of the node: the node
+# gets an input of that name (``config.value/1``) and what comes on it overrides the setting for
+# the turn (another voice at night, other instructions for a child). The node reads its settings
+# with ``await turn.settings(config)``. Not for secrets, addresses or models that need a restart.
+DYNAMIC_KEY = "x-flowpilot-dynamic"
+
 # JSON Schema keyword with English labels for the values of an ``enum`` setting:
 # ``{"enum": ["whole", "words"], ENUM_TITLES_KEY: {"whole": "At once", "words": "Word by word"}}``,
 # or of a list of them (``{"type": "array", "items": {"enum": [...]}, ENUM_TITLES_KEY: {...}}``).
@@ -265,6 +271,12 @@ class TurnSession(Protocol):
     def input(self, name: str) -> InputStream[Any]: ...
 
     def output(self, name: str) -> OutputStream[Any]: ...
+
+    async def settings(self, config: Mapping[str, Any]) -> dict[str, Any]:
+        """``config`` (the node's settings) with what came for this turn on the settings the graph
+        made inputs (``DYNAMIC_KEY``), each in its setting's type; a value that does not fit is
+        left out (and traced). Waits for those inputs; without any, ``config`` as it is."""
+        ...
 
     def trace(self, event: str, **attrs: Any) -> None:
         """Record a trace event. Never pass raw audio; text only where redaction allows."""

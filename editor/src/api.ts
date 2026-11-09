@@ -73,6 +73,8 @@ export type JsonSchema = {
   "x-flowpilot-groups"?: Record<string, { title?: string; description?: string }>;
   /** applies only to what one input carries (WHEN_INPUT_KEY in the SDK); "*": anything connected */
   "x-flowpilot-when-input"?: { port: string; types: string[] | "*" };
+  /** the graph may make this setting an input of the node, for one turn at a time */
+  "x-flowpilot-dynamic"?: boolean;
   uniqueItems?: boolean;
   format?: string;
 };
@@ -96,6 +98,8 @@ export interface GraphNode {
   type: string;
   version?: string;
   config?: Record<string, unknown>;
+  /** settings made inputs of the node (x-flowpilot-dynamic): an input of each name */
+  setting_inputs?: string[];
 }
 
 export interface GraphEdge {

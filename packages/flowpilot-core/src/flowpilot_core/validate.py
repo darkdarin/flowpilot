@@ -5,18 +5,38 @@ from __future__ import annotations
 import copy
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
-from flowpilot_sdk import NodeSpec, PortSpec, type_kind
+from flowpilot_sdk import DYNAMIC_KEY, NodeSpec, PortSpec, type_kind
 
 from .errors import GraphError, GraphIssue
 from .graph import EdgeDecl, Graph
 from .registry import NodeRegistry
 from .versions import satisfies, validate_range
+
+SETTING_TYPE = "config.value/1"
+
+
+def with_setting_inputs(spec: NodeSpec, keys: tuple[str, ...]) -> NodeSpec:
+    """The node's spec with an input for each setting the graph made one (``DYNAMIC_KEY``)."""
+    if not keys:
+        return spec
+    props = spec.config_schema.get("properties") or {}
+    inputs = dict(spec.inputs)
+    for key in keys:
+        title = props.get(key, {}).get("title") or key
+        inputs[key] = PortSpec(
+            SETTING_TYPE,
+            kind="value",
+            required=False,
+            description=f"{title}, for this turn: what comes here overrides the setting.",
+        )
+    return replace(spec, inputs=inputs)
+
 
 SECRET_REF_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -108,6 +128,28 @@ def validate_graph(
                 f"installed {node.type} {spec.version} does not satisfy {node.version!r}",
             )
             continue
+        props = spec.config_schema.get("properties") or {}
+        for setting in node.setting_inputs:
+            if not (props.get(setting) or {}).get(DYNAMIC_KEY):
+                issue(
+                    "setting_not_dynamic",
+                    f"{path}.setting_inputs",
+                    f"{node.type}: setting {setting!r} cannot be an input",
+                )
+            elif setting in spec.inputs:
+                issue(
+                    "setting_input_taken",
+                    f"{path}.setting_inputs",
+                    f"{node.type} already has an input {setting!r}",
+                )
+        spec = with_setting_inputs(
+            spec,
+            tuple(
+                k
+                for k in node.setting_inputs
+                if (props.get(k) or {}).get(DYNAMIC_KEY) and k not in spec.inputs
+            ),
+        )
         specs[node.id] = spec
 
         try:

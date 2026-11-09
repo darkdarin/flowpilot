@@ -18,6 +18,7 @@ from typing import Any, ClassVar
 import aiohttp
 
 from flowpilot_sdk import (
+    DYNAMIC_KEY,
     ENUM_TITLES_KEY,
     NODE_OPTIONS_KEY,
     AudioChunk,
@@ -91,6 +92,7 @@ class DeepgramTts:
                     ),
                     "type": "string",
                     NODE_OPTIONS_KEY: True,
+                    DYNAMIC_KEY: True,  # e.g. a softer voice at night
                 },
                 "speed": {
                     "title": "Speed",
@@ -100,6 +102,7 @@ class DeepgramTts:
                     "maximum": 1.5,
                     "multipleOf": 0.05,
                     "default": 1.0,
+                    DYNAMIC_KEY: True,
                 },
                 "sample_rate": {
                     "title": "Sample rate, Hz",
@@ -151,10 +154,11 @@ class DeepgramTts:
     async def stop(self) -> None:
         return None
 
-    def _voice(self, turn_language: str | None) -> str:
-        if voice := self._config.get("voice"):
+    def _voice(self, turn_language: str | None, config: Mapping[str, Any] | None = None) -> str:
+        config = self._config if config is None else config
+        if voice := config.get("voice"):
             return str(voice)
-        language = language_base(self._config.get("language")) or language_base(turn_language)
+        language = language_base(config.get("language")) or language_base(turn_language)
         voice = default_voice(language) or default_voice("en")
         assert voice is not None
         return voice
@@ -163,8 +167,9 @@ class DeepgramTts:
         text: InputStream[Any] = turn.input("text")
         if await text.header() is None:
             return
+        cfg = await turn.settings(self._config)  # voice or speed for this turn
         rate = int(self._config.get("sample_rate", 24000))
-        voice = self._voice(turn.context.language)
+        voice = self._voice(turn.context.language, cfg)
         speech = turn.output("speech")
         await speech.open(AudioFormat(sample_rate=rate).as_meta())
         offset = 0
@@ -175,7 +180,7 @@ class DeepgramTts:
             offset += len(pcm) // 2
 
         params = [("model", voice), ("encoding", "linear16"), ("sample_rate", str(rate))]
-        speed = float(self._config.get("speed") or 1.0)
+        speed = float(cfg.get("speed") or 1.0)
         if abs(speed - 1.0) > 1e-9:
             params.append(("speed", f"{speed:g}"))
         synthesis = _Synthesis(self._api_key, params, deliver)

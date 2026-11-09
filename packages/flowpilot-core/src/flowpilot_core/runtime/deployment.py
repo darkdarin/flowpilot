@@ -23,6 +23,7 @@ from flowpilot_sdk import (
     SessionInfo,
     SessionState,
     Skills,
+    StreamError,
     TurnContext,
     type_kind,
 )
@@ -30,6 +31,7 @@ from flowpilot_sdk import (
 from ..registry import NodeRegistry
 from ..validate import ValidatedGraph
 from .channel import Channel
+from .settings import coerce, fits
 from .state import MemorySessionStore, SessionStateView
 from .streams import RuntimeInputStream, RuntimeOutputStream
 from .trace import NullTraceSink, TraceEvent, TraceSink
@@ -148,6 +150,8 @@ class RuntimeTurnSession:
         host_ops: frozenset[str] = frozenset(),
         watched: bool = False,
         shared: SessionState | None = None,
+        setting_inputs: tuple[str, ...] = (),
+        config_schema: Mapping[str, Any] | None = None,
     ) -> None:
         self.context = context
         self.watched = watched
@@ -160,6 +164,35 @@ class RuntimeTurnSession:
         self._trace = trace
         self._host = host
         self._host_ops = host_ops
+        self._setting_inputs = setting_inputs
+        self._settings_schema = (config_schema or {}).get("properties") or {}
+        self._settings: dict[str, Any] | None = None  # what came on them, read once a turn
+
+    async def settings(self, config: Mapping[str, Any]) -> dict[str, Any]:
+        if self._settings is None:
+            self._settings = {}
+            for key in self._setting_inputs:
+                stream = self._inputs.get(key)
+                if stream is None or not stream.connected:
+                    continue
+                try:
+                    item = await stream.value()
+                except StreamError:
+                    item = None
+                if item is None:
+                    continue  # nothing this turn: the setting as it is
+                schema = self._settings_schema.get(key) or {}
+                value = coerce(getattr(item, "value", item), schema)
+                if (problem := fits(value, schema)) is not None:
+                    self.trace("settings.invalid", setting=key, error=problem)
+                    continue
+                self._settings[key] = value
+                self.trace(
+                    "settings.input",
+                    setting=key,
+                    **({"value": value} if self.watched else {}),
+                )
+        return {**config, **self._settings}
 
     def _host_for(self, op: str) -> HostCaller:
         if op not in self._host_ops:
@@ -359,6 +392,8 @@ class Deployment:
                 host_ops=spec.host_ops | spec.optional_host_ops,
                 watched=watched,
                 shared=self.sessions.view(session.session_id, SHARED_NAMESPACE),
+                setting_inputs=g.graph.node(node_id).setting_inputs,
+                config_schema=spec.config_schema,
             )
 
         outcomes: dict[str, NodeOutcome] = {}

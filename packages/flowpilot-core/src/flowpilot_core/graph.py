@@ -38,6 +38,8 @@ class NodeDecl:
     type: str
     version: str
     config: Mapping[str, Any] = field(default_factory=dict)
+    # settings made inputs of the node (``DYNAMIC_KEY``): the node gets an input of each name
+    setting_inputs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +79,7 @@ class Graph:
             "settings": {"turn_timeout_ms": self.settings.turn_timeout_ms},
             "nodes": [
                 {"id": n.id, "type": n.type, "version": n.version, "config": dict(n.config)}
+                | ({"setting_inputs": list(n.setting_inputs)} if n.setting_inputs else {})
                 for n in self.nodes
             ],
             "edges": [
@@ -159,6 +162,7 @@ def parse_graph(data: Any) -> Graph:
             continue
         node_id, node_type, version = raw.get("id"), raw.get("type"), raw.get("version", "*")
         config = raw.get("config", {})
+        setting_inputs = raw.get("setting_inputs", [])
         ok = True
         if not isinstance(node_id, str) or not NODE_ID_RE.match(node_id):
             issue("invalid_node_id", f"{path}.id", "node id must match [a-z][a-z0-9_]*")
@@ -175,11 +179,24 @@ def parse_graph(data: Any) -> Graph:
         if not isinstance(config, Mapping):
             issue("invalid_config", f"{path}.config", "config must be an object")
             ok = False
+        if not isinstance(setting_inputs, list) or not all(
+            isinstance(k, str) and k for k in setting_inputs
+        ):
+            issue(
+                "invalid_setting_inputs",
+                f"{path}.setting_inputs",
+                "setting_inputs must be a list of setting names",
+            )
+            ok = False
         if ok:
             assert isinstance(node_id, str) and isinstance(node_type, str)
             assert isinstance(version, str) and isinstance(config, Mapping)
             seen_ids.add(node_id)
-            nodes.append(NodeDecl(node_id, node_type, version, dict(config)))
+            nodes.append(
+                NodeDecl(
+                    node_id, node_type, version, dict(config), tuple(dict.fromkeys(setting_inputs))
+                )
+            )
 
     edges: list[EdgeDecl] = []
     raw_edges = data.get("edges", [])

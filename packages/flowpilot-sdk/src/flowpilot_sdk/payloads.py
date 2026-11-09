@@ -190,3 +190,17 @@ class Response:
     @property
     def spoken(self) -> str:
         return self.text if self.speech_text is None else self.speech_text
+
+
+# --- settings ------------------------------------------------------------------------------------
+
+
+@payload_type("config.value/1", kind="value")
+@dataclass(frozen=True, slots=True)
+class SettingValue:
+    """A value for one setting of a node, for one turn: what a setting made an input receives
+    (``DYNAMIC_KEY``). The runtime turns it into the setting's type (``"0.8"`` for a number)."""
+
+    TYPE_ID: ClassVar[str]
+
+    value: str | int | float | bool

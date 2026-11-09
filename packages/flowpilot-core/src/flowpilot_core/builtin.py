@@ -12,6 +12,7 @@ from flowpilot_sdk import (
     NodeSpec,
     PortSpec,
     Response,
+    SettingValue,
     StreamError,
     TextDelta,
     Transcript,
@@ -273,8 +274,61 @@ class TurnFilter:
         await out.end()
 
 
+class Value:
+    """A fixed value for a setting another node takes as an input: a voice, a speed, instructions.
+    Through a Condition it sets the node one way in some turns and another way in others."""
+
+    spec: ClassVar[NodeSpec] = NodeSpec(
+        type="logic.value",
+        translations=node_translations(__package__, "logic.value"),
+        version="1.0.0",
+        title="Value",
+        category="logic",
+        outputs={
+            "value": PortSpec(
+                "config.value/1",
+                kind="value",
+                description="The value, every turn: wire it to a setting made an input.",
+            )
+        },
+        config_schema={
+            "type": "object",
+            "properties": {
+                "value": {
+                    "title": "Value",
+                    "description": (
+                        "Text, a number or yes/no; it takes the type of the setting it goes to "
+                        '("0.8" for a speed, "yes" for a switch).'
+                    ),
+                    "type": "string",
+                    "format": "multiline",
+                }
+            },
+            "required": ["value"],
+            "additionalProperties": False,
+        },
+        description=(
+            "A fixed value for a setting another node takes as an input (a voice, a speed, "
+            "instructions); with a Condition, one value in some turns and another in others."
+        ),
+    )
+
+    def __init__(self) -> None:
+        self._value = ""
+
+    async def start(self, ctx: NodeContext) -> None:
+        self._value = str(ctx.config.get("value", ""))
+
+    async def stop(self) -> None:
+        return None
+
+    async def run_turn(self, turn: TurnSession) -> None:
+        await turn.output("value").send(SettingValue(self._value))
+
+
 def register_builtin(registry: NodeRegistry) -> NodeRegistry:
     registry.register(TextFirst)
     registry.register(TextConvert)
     registry.register(TurnFilter)
+    registry.register(Value)
     return registry
