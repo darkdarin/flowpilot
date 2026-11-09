@@ -4,6 +4,28 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.25
+
+### App
+
+- **New node: Condition.** Sends what comes in one way or the other: by the turn (spoken or
+  typed, a time span that may pass midnight, days of the week, the area of the speaker's device)
+  and by what comes on its check input (data came or not; words in any form or a pattern in
+  text; who speaks). All of the conditions or any one. The inspector shows the conditions that fit
+  what is connected; the node shows them in short, and live debug the branch taken and why.
+- **Who speaks travels by wire.** Client input has a new output, principal: the Home Assistant
+  user who asks (chat, app, Telegram) or unknown (a satellite does not know who speaks). The LLM
+  agent, the Home Assistant agent and Quick commands take who speaks only from their principal
+  input; not connected, they treat the person as unknown. Your graphs get this wire by
+  themselves, once, so they work as before; a speaker identification node can later stand in it.
+- Lists of choices in settings (people, areas, days) are toggles; lists of words are typed one
+  per line; times get a time field.
+
+### Integration
+
+- Gives the runtime the areas of Home Assistant and where a turn comes from (the satellite or
+  device and its area), for the Condition node. Update it together with the app.
+
 ## 0.1.24
 
 ### App
