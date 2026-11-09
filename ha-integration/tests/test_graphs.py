@@ -18,6 +18,7 @@ from flowpilot_core.runtime import Deployment
 from flowpilot_sdk import Node
 from flowpilot_server.answer import FixedAnswer
 from flowpilot_server.devnodes import DEV_NODES
+from flowpilot_server.manager import BUILTIN_GRANTS
 from flowpilot_server.nodes import ClientSink, ClientSource
 from flowpilot_server.server import FlowPilotServer
 
@@ -43,7 +44,7 @@ async def two_graphs() -> AsyncIterator[Runtime]:
         registry.register(cls)
     deployments = {}
     for data in (echo("main", "Main", "main: "), echo("kids", "Kids", "kids: ")):
-        vg = validate_graph(parse_graph(data), registry, grants=GrantPolicy())
+        vg = validate_graph(parse_graph(data), registry, grants=GrantPolicy(BUILTIN_GRANTS))
         deployments[data["id"]] = Deployment(vg, registry)
         await deployments[data["id"]].start()
     server = TestServer(FlowPilotServer(deployments, token=TOKEN, default_graph="main").app())

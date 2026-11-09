@@ -13,8 +13,10 @@ from typing import Any
 
 from .errors import GraphError, GraphIssue
 
-SCHEMA_VERSION = 1
-SUPPORTED_SCHEMA_VERSIONS = frozenset({1})
+# 2: who acts in a turn reaches nodes only by wire (the client input's ``principal`` output);
+# runtimes migrate graphs of 1 by wiring it to every node that takes it.
+SCHEMA_VERSION = 2
+SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2})
 
 NODE_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 GRAPH_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")

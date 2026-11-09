@@ -6,7 +6,7 @@ from pathlib import Path
 
 from flowpilot_core import GrantPolicy, NodeRegistry, parse_graph, validate_graph
 from flowpilot_server.__main__ import build_registry
-from flowpilot_server.manager import GraphStore
+from flowpilot_server.manager import BUILTIN_GRANTS, GraphStore
 from flowpilot_server.migrations import migrate_graph
 
 OLD = {
@@ -53,11 +53,12 @@ def test_old_debug_nodes_are_replaced(tmp_path: Path) -> None:
     assert ("stt.utterance", "say.utterance") in edges
     assert not any(src == "say.utterance" for src, _ in edges)  # the output is gone
     registry: NodeRegistry = build_registry(dev=True)
-    validate_graph(parse_graph(data), registry, grants=GrantPolicy())  # raises if invalid
+    # raises if invalid
+    validate_graph(parse_graph(data), registry, grants=GrantPolicy(BUILTIN_GRANTS))
 
 
 def test_current_graphs_are_left_alone() -> None:
-    data = {"schema_version": 1, "id": "g", "nodes": [{"id": "a", "type": "debug.probe"}]}
+    data = {"schema_version": 2, "id": "g", "nodes": [{"id": "a", "type": "debug.probe"}]}
     assert migrate_graph(data) is data
     assert migrate_graph(migrate_graph(OLD)) == migrate_graph(OLD)
 
@@ -177,4 +178,29 @@ def test_a_probe_has_one_input_of_any_type() -> None:
         ("a.response", "out.text"),  # not a probe
     }
     assert migrated["ui"]["nodes"]["both_audio_"] == {"x": 10, "y": 70}
+    assert migrate_graph(migrated) is migrated
+
+
+def test_who_asks_is_wired_once_when_a_graph_of_schema_1_loads() -> None:
+    data = {
+        "schema_version": 1,
+        "id": "g",
+        "nodes": [
+            {"id": "src", "type": "client.source"},
+            {"id": "agent", "type": "llm.agent"},
+            {"id": "ha", "type": "ha.conversation"},
+            {"id": "quick", "type": "ha.quick"},
+            {"id": "out", "type": "client.sink"},
+        ],
+        "edges": [{"from": "ident.principal", "to": "ha.principal"}],  # an identity node's: kept
+    }
+    migrated = migrate_graph(data)
+    assert migrated["schema_version"] == 2
+    assert {(e["from"], e["to"]) for e in migrated["edges"]} == {
+        ("ident.principal", "ha.principal"),
+        ("src.principal", "agent.principal"),
+        ("src.principal", "quick.principal"),
+    }
+    # once: a wire removed later stays removed
+    migrated["edges"] = [e for e in migrated["edges"] if e["to"] != "agent.principal"]
     assert migrate_graph(migrated) is migrated

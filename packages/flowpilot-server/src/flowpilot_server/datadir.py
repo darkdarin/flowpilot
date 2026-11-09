@@ -27,7 +27,7 @@ INGRESS_PORT = 8099
 SUPERVISOR_IP = "172.30.32.2"
 
 STARTER_GRAPH: dict[str, Any] = {
-    "schema_version": 1,
+    "schema_version": 2,
     "id": "main",
     "name": "Home Assistant agent",
     "nodes": [
@@ -37,6 +37,7 @@ STARTER_GRAPH: dict[str, Any] = {
     ],
     "edges": [
         {"from": "in.utterance", "to": "agent.utterance"},
+        {"from": "in.principal", "to": "agent.principal"},
         {"from": "agent.delta", "to": "out.delta"},
         {"from": "agent.response", "to": "out.response"},
     ],

@@ -40,7 +40,7 @@ def migrate_graph(data: Any) -> Any:
     if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
         return data
     data = _one_text_input(_agent_remember(_split_turn_filter(_rename_nodes(data))))
-    return _one_probe_input(data)
+    return _principal_by_wire(_one_probe_input(data))
 
 
 def _split_turn_filter(data: dict[str, Any]) -> dict[str, Any]:
@@ -148,6 +148,33 @@ def _one_text_input(data: dict[str, Any]) -> dict[str, Any]:
                 ui_nodes[copy_id] = {**at, "y": at["y"] + 230 * n}
     data["edges"] = [e for i, e in enumerate(data["edges"]) if i not in dropped]
     _LOGGER.info("graph %s: probes and converters now have one text input", data.get("id"))
+    return data
+
+
+# Schema 1 → 2 (0.1.25): who acts reaches nodes only by wire, from the client input's ``principal``
+# output; nodes no longer fall back to the turn's context. Graphs of 1 get the wire to every node
+# that takes it and has none, so they work as before. Once: a wire removed later stays removed.
+_PRINCIPAL_TAKERS = {"llm.agent", "ha.conversation", "ha.quick"}
+
+
+def _principal_by_wire(data: dict[str, Any]) -> dict[str, Any]:
+    if data.get("schema_version") != 1:
+        return data
+    data = copy.deepcopy(data)
+    data["schema_version"] = 2
+    nodes = [n for n in data["nodes"] if isinstance(n, dict) and isinstance(n.get("id"), str)]
+    source = next((n["id"] for n in nodes if n.get("type") == "client.source"), None)
+    if source is None:
+        return data
+    edges = data.setdefault("edges", [])
+    wired = {e.get("to") for e in edges if isinstance(e, dict)}
+    added = []
+    for node in nodes:
+        if node.get("type") in _PRINCIPAL_TAKERS and f"{node['id']}.principal" not in wired:
+            edges.append({"from": f"{source}.principal", "to": f"{node['id']}.principal"})
+            added.append(node["id"])
+    if added:
+        _LOGGER.info("graph %s: who speaks now comes by wire to %s", data.get("id"), added)
     return data
 
 

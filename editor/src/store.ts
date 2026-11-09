@@ -83,7 +83,7 @@ export const catalog = shallowRef<Catalog | null>(null);
 export const graphs = ref<GraphSummary[]>([]);
 export const graphId = ref<string | null>(null);
 export const graphName = ref("");
-export const extra = ref<Pick<GraphDoc, "settings" | "schema_version">>({ schema_version: 1 });
+export const extra = ref<Pick<GraphDoc, "settings" | "schema_version">>({ schema_version: 2 });
 export const nodes = ref([]) as Ref<FpNode[]>;
 export const edges = ref([]) as Ref<FpEdge[]>;
 export const issues = ref<Issue[]>([]);
@@ -247,7 +247,7 @@ export function makeEdge(source: string, sourceHandle: string, target: string, t
 
 export function toDoc(): GraphDoc {
   return {
-    schema_version: extra.value.schema_version ?? 1,
+    schema_version: extra.value.schema_version ?? 2,
     id: graphId.value ?? "",
     name: graphName.value,
     ...(extra.value.settings ? { settings: extra.value.settings } : {}),

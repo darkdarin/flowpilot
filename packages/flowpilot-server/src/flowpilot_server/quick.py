@@ -95,12 +95,21 @@ class HaQuickCommands:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type=TYPE,
         translations=node_translations(__package__, TYPE),
-        version="1.0.0",
+        version="1.1.0",
         title="Home Assistant quick commands",
         category="agent",
         inputs={
             "utterance": PortSpec(
                 UTTERANCE, kind="value", description="What the user said or typed."
+            ),
+            "principal": PortSpec(
+                "identity.principal/1",
+                kind="value",
+                required=False,
+                description=(
+                    "Who speaks: commands run as this person, and only a known person teaches "
+                    "commands. Not connected: an unknown person."
+                ),
             ),
         },
         outputs={
@@ -249,9 +258,9 @@ class HaQuickCommands:
     ) -> dict[str, Any]:
         """Run a learned command's actions with Home Assistant's tools, in order; the result
         reads like Home Assistant's own answer."""
-        principal = turn.context.initial_principal
+        principal = await turn.input("principal").value()
         who = {
-            "user_id": principal.user_id if principal.is_known else None,
+            "user_id": principal.user_id if principal is not None and principal.is_known else None,
             "device_id": args["device_id"],
             "satellite_id": args["satellite_id"],
             "language": args["language"],

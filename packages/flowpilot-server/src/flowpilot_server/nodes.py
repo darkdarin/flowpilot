@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, Protocol
 
 from flowpilot_sdk import (
+    IDENTITY_PROVIDER_GRANT,
     OPTIONS_KEY,
     AudioChunk,
     AudioFormat,
@@ -27,6 +28,7 @@ from flowpilot_sdk.helpers import SpeechWriter, split_sentences
 
 AUDIO = "audio.pcm/1"
 UTTERANCE = "text.utterance/1"
+PRINCIPAL = "identity.principal/1"
 HA_CONVERSATION_OP = "ha.conversation.process"
 HA_STT_OP = "ha.stt.process"
 HA_TTS_OP = "ha.tts.synthesize"
@@ -71,10 +73,11 @@ class ClientSource(_Lifecycle):
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="client.source",
         translations=node_translations(__package__, "client.source"),
-        version="1.0.0",
+        version="1.1.0",
         title="Client input",
         category="input",
         fixed=True,
+        grants=frozenset({IDENTITY_PROVIDER_GRANT}),  # who the client says asks
         outputs={
             "audio": PortSpec(
                 AUDIO, description="Speech from the client as it is recorded; absent in text turns."
@@ -83,6 +86,15 @@ class ClientSource(_Lifecycle):
                 UTTERANCE,
                 kind="value",
                 description="Typed text of a text turn; absent in voice turns.",
+            ),
+            "principal": PortSpec(
+                PRINCIPAL,
+                kind="value",
+                description=(
+                    "Who asks, as the client says: the signed-in Home Assistant user (chat, app, "
+                    "Telegram), or unknown (a satellite does not know who speaks). Wire it to the "
+                    "nodes that act for a person; a speaker identification node can refine it."
+                ),
             ),
         },
         description=(
@@ -98,6 +110,7 @@ class ClientSource(_Lifecycle):
         inp = self.inputs.pop(turn.context.turn_id, None)
         if inp is None:
             return
+        await turn.output("principal").send(turn.context.initial_principal)
         if inp.text is not None:
             await turn.output("utterance").send(Utterance(inp.text, turn.context.language))
         if inp.audio is not None and inp.audio_format is not None:
@@ -213,7 +226,8 @@ class HaConversation(_Lifecycle):
                 kind="value",
                 required=False,
                 description=(
-                    "Who is speaking, from an identity node; passed to the agent when known."
+                    "Who speaks: the client input's, or an identity node's; passed to the agent "
+                    "when known."
                 ),
             ),
         },

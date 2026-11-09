@@ -27,6 +27,7 @@ from flowpilot_sdk import (
     TurnSession,
     Utterance,
 )
+from flowpilot_server.manager import BUILTIN_GRANTS
 from flowpilot_server.nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
 from flowpilot_server.protocol import (
     PROTOCOL_VERSION,
@@ -37,6 +38,7 @@ from flowpilot_server.protocol import (
 )
 from flowpilot_server.server import FlowPilotServer
 
+GRANTS = GrantPolicy(BUILTIN_GRANTS)  # the client input gives who asks
 TOKEN = "test-token"
 FMT = AudioFormat(sample_rate=16000)
 
@@ -103,7 +105,7 @@ class FakeTts(_Node):
 
 
 GRAPH = {
-    "schema_version": 1,
+    "schema_version": 2,
     "id": "main",
     "nodes": [
         {"id": "in", "type": "client.source"},
@@ -119,6 +121,7 @@ GRAPH = {
         {"from": "stt.utterance", "to": "utt.primary"},
         {"from": "in.utterance", "to": "utt.fallback"},
         {"from": "utt.value", "to": "agent.utterance"},
+        {"from": "in.principal", "to": "agent.principal"},
         {"from": "agent.delta", "to": "out.delta"},
         {"from": "agent.delta", "to": "tts.text"},
         {"from": "tts.speech", "to": "out.speech"},
@@ -258,7 +261,7 @@ async def server() -> AsyncIterator[TestServer]:
     registry = register_builtin(NodeRegistry())
     for cls in (ClientSource, ClientSink, HaConversation, FakeStt, FakeTts):
         registry.register(cls)
-    vg = validate_graph(parse_graph(GRAPH), registry, grants=GrantPolicy())
+    vg = validate_graph(parse_graph(GRAPH), registry, grants=GRANTS)
     deployment = Deployment(vg, registry)
     await deployment.start()
     app = FlowPilotServer({"main": deployment}, token=TOKEN, default_graph="main").app()
@@ -331,6 +334,16 @@ async def test_text_turn(connect: Any) -> None:
     assert [d["text"] for d in c.of(turn_id, "turn.delta")] == ["echo: turn on the light"]
     assert bytes(c.speech[turn_id]) == b"echo: turn on the light"
     assert c.of(turn_id, "turn.transcript") == []
+    assert call["args"]["principal"] is None  # no user named: an unknown person
+
+
+async def test_who_asks_reaches_the_agent_by_wire(connect: Any) -> None:
+    """The client input gives the user the client names; the agent wired to it acts for them."""
+    c: Client = await connect()
+    await c.hello()
+    turn_id = await c.start(input={"utterance": {"text": "hi"}}, language="en", user_id="u-pavel")
+    assert (await c.end(turn_id))["status"] == "ok"
+    assert c.host_calls[0]["args"]["principal"] == {"user_id": "u-pavel", "roles": []}
 
 
 async def test_voice_turn_streams_both_ways(connect: Any) -> None:
@@ -419,7 +432,7 @@ async def test_shutdown_closes_client_connections() -> None:
     registry = register_builtin(NodeRegistry())
     for cls in (ClientSource, ClientSink, HaConversation, FakeStt, FakeTts):
         registry.register(cls)
-    deployment = Deployment(validate_graph(parse_graph(GRAPH), registry), registry)
+    deployment = Deployment(validate_graph(parse_graph(GRAPH), registry, grants=GRANTS), registry)
     await deployment.start()
     ts = TestServer(FlowPilotServer({"main": deployment}, token=TOKEN, default_graph="main").app())
     await ts.start_server()
@@ -463,7 +476,8 @@ async def test_ha_stt_and_tts_stream_audio_through_host_operations() -> None:
     registry = register_builtin(NodeRegistry())
     for cls in (ClientSource, ClientSink, HaConversation, HaStt, HaTts):
         registry.register(cls)
-    deployment = Deployment(validate_graph(parse_graph(HA_GRAPH), registry), registry)
+    validated = validate_graph(parse_graph(HA_GRAPH), registry, grants=GRANTS)
+    deployment = Deployment(validated, registry)
     await deployment.start()
     ts = TestServer(FlowPilotServer({"ha": deployment}, token=TOKEN, default_graph="ha").app())
     await ts.start_server()

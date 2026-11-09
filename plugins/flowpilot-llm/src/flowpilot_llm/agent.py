@@ -205,7 +205,7 @@ class LlmAgent:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="llm.agent",
         translations=node_translations(__package__, "llm.agent"),
-        version="1.4.0",
+        version="1.5.0",
         title="LLM agent",
         category="agent",
         inputs={
@@ -217,8 +217,8 @@ class LlmAgent:
                 kind="value",
                 required=False,
                 description=(
-                    "Who is speaking, from an identity node; without it, the user Home Assistant "
-                    "names (the signed-in user, a mapped Telegram user)."
+                    "Who speaks: the client input's, or an identity node's. Not connected: an "
+                    "unknown person (no personal memory, no teaching)."
                 ),
             ),
         },
@@ -473,12 +473,10 @@ class LlmAgent:
         return prompt
 
     async def _speaker(self, turn: TurnSession) -> str | None:
-        """The user id of who speaks, when known: an identity node's word, else the client's."""
-        principal: Principal | None = None
-        if turn.input("principal").connected:
-            principal = await turn.input("principal").value()
-        principal = principal or turn.context.initial_principal
-        return principal.user_id if principal.is_known else None
+        """The user id of who speaks, when known: from the ``principal`` input (the client input,
+        or an identity node); not connected, an unknown person."""
+        principal: Principal | None = await turn.input("principal").value()
+        return principal.user_id if principal is not None and principal.is_known else None
 
     def _known(self, speaker: str | None) -> tuple[list[str], list[str]]:
         """Facts for this turn: the home's, and the speaker's own."""

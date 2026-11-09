@@ -37,6 +37,9 @@ class TurnContext:
     deadline_mono_ns: int
     source: SourceInfo
     trace_id: str
+    # Who the client says asks (the signed-in Home Assistant user), or unknown. Only the client
+    # input node reads it: it gives it on its ``principal`` output, and nodes take who acts from
+    # their ``principal`` input, so the graph shows where identity comes from.
     initial_principal: Principal
     device: DeviceInfo | None = None
     language: str | None = None

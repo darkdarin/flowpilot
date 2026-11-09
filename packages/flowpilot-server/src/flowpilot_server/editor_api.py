@@ -74,7 +74,7 @@ def _error(status: int, message: str, **extra: Any) -> web.Response:
 def new_graph(graph_id: str, name: str) -> dict[str, Any]:
     """The smallest servable graph: client input and output, to be wired up in the editor."""
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "id": graph_id,
         "name": name,
         "settings": {"turn_timeout_ms": 30000},

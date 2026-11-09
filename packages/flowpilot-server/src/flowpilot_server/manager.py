@@ -28,7 +28,7 @@ from flowpilot_core import (
     validate_graph,
 )
 from flowpilot_core.runtime import Deployment, MemorySessionStore, TraceSink
-from flowpilot_sdk import registered_types
+from flowpilot_sdk import IDENTITY_PROVIDER_GRANT, registered_types
 from flowpilot_sdk.types import PRIVILEGED_TYPES, type_kind
 
 from .commands_store import CommandStore
@@ -41,6 +41,8 @@ _LOGGER = logging.getLogger(__name__)
 
 GRAPH_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 RETIRE_TIMEOUT_S = 120.0
+# Built-in nodes trusted with identity: the client input gives who the client says asks.
+BUILTIN_GRANTS: dict[str, frozenset[str]] = {"client.source": frozenset({IDENTITY_PROVIDER_GRANT})}
 
 GraphCheck = Callable[[ValidatedGraph], list[GraphIssue]]
 TraceFactory = Callable[[str], TraceSink]
@@ -146,7 +148,14 @@ class GraphManager:
         self.store = store
         # the live mapping (a SecretStore): deploys after a change see the new values
         self.secrets: Mapping[str, str] = secrets if secrets is not None else {}
-        self._grants = grants or GrantPolicy()
+        # built-in nodes trusted with identity, and what the runtime's config adds
+        self._grants = GrantPolicy(
+            {
+                node: BUILTIN_GRANTS.get(node, frozenset())
+                | (grants.allowed.get(node, frozenset()) if grants else frozenset())
+                for node in {*BUILTIN_GRANTS, *(grants.allowed if grants else {})}
+            }
+        )
         self._check = check
         self._trace_factory = trace_factory
         self._on_deployed: Callable[[str], None] | None = None

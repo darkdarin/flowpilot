@@ -21,6 +21,7 @@ from flowpilot_core.runtime import Deployment, ListTraceSink
 from flowpilot_sdk import Node
 from flowpilot_server.answer import FixedAnswer
 from flowpilot_server.devnodes import DEV_NODES
+from flowpilot_server.manager import BUILTIN_GRANTS
 from flowpilot_server.nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
 from flowpilot_server.quick import HaQuickCommands
 from flowpilot_server.server import FlowPilotServer
@@ -122,7 +123,9 @@ async def _runtime(
         registry.register(cls)
     trace = ListTraceSink()
     deployment = Deployment(
-        validate_graph(parse_graph(graph_data or graph(agent)), registry, grants=GrantPolicy()),
+        validate_graph(
+            parse_graph(graph_data or graph(agent)), registry, grants=GrantPolicy(BUILTIN_GRANTS)
+        ),
         registry,
         trace=trace,
         commands=commands,

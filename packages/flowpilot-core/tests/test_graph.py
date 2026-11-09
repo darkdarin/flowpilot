@@ -32,7 +32,7 @@ def test_defaults() -> None:
     assert g.settings.turn_timeout_ms == 30000
 
 
-@pytest.mark.parametrize("version", [None, 0, 2, "1"])
+@pytest.mark.parametrize("version", [None, 0, 3, "1"])
 def test_unsupported_schema_version(version: Any) -> None:
     with pytest.raises(GraphError) as exc:
         parse_graph({"schema_version": version, "id": "g", "nodes": []})
