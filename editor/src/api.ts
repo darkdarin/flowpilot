@@ -223,6 +223,50 @@ export interface TraceMsg {
  */
 export const ROOT = location.pathname.replace(/\/editor(\/.*)?$/, "");
 
+/** A debug recording kept by a Debug probe. */
+export interface Recording {
+  file: string;
+  graph: string;
+  node: string;
+  turn_id: string;
+  created: string;
+  seconds: number;
+  bytes: number;
+}
+
+/** A sample of a person's voice: its embedding stays on the runtime, the audio is not kept. */
+export interface VoiceSample {
+  id: string;
+  model: string;
+  source: "microphone" | "recording" | string;
+  seconds: number;
+  level_db: number;
+  created: string;
+  current: boolean; // of the model in use
+}
+
+export interface VoiceSettings {
+  model: string;
+  threshold: number;
+  default_threshold: number;
+  margin: number;
+  models: { id: string; title: string; ready: boolean }[];
+}
+
+export interface Voices extends VoiceSettings {
+  profiles: Record<string, VoiceSample[]>;
+  people: HostOption[];
+}
+
+export interface VoiceTest {
+  scores: Record<string, number>;
+  match: string | null;
+  status: string;
+  reason: string | null;
+  threshold: number;
+  margin: number;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -237,13 +281,14 @@ export class Api {
   constructor(public token: string) {}
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const raw = body instanceof Blob;
     const resp = await fetch(`${ROOT}/api/editor${path}`, {
       method,
       headers: {
         ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
-        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...(body === undefined ? {} : { "Content-Type": raw ? body.type || "application/octet-stream" : "application/json" }),
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
     });
     const text = await resp.text();
     let data: unknown = null;
@@ -275,6 +320,32 @@ export class Api {
     });
     if (!resp.ok) throw new ApiError(resp.status, resp.statusText);
     return resp.blob();
+  }
+  recordings() {
+    return this.call<{ recordings: Recording[] }>("GET", "/recordings");
+  }
+  voices() {
+    return this.call<Voices>("GET", "/voices");
+  }
+  /** ``threshold: null`` goes back to the model's own. */
+  setVoices(settings: { model?: string; threshold?: number | null; margin?: number }) {
+    return this.call<VoiceSettings>("PUT", "/voices", settings);
+  }
+  downloadVoiceModel() {
+    return this.call<VoiceSettings>("POST", "/voices/model");
+  }
+  /** A sample of a person's voice: a WAV of them speaking, or a debug recording by name. */
+  addVoiceSample(user: string, speech: Blob | { recording: string }) {
+    return this.call<VoiceSample>("POST", `/voices/${encodeURIComponent(user)}/samples`, speech);
+  }
+  deleteVoiceSample(user: string, id: string) {
+    return this.call<{ removed: boolean }>("DELETE", `/voices/${encodeURIComponent(user)}/samples/${encodeURIComponent(id)}`);
+  }
+  deleteVoice(user: string) {
+    return this.call<{ removed: boolean }>("DELETE", `/voices/${encodeURIComponent(user)}`);
+  }
+  testVoice(speech: Blob | { recording: string }) {
+    return this.call<VoiceTest>("POST", "/voices/test", speech);
   }
   deleteRecording(file: string) {
     return this.call<{ ok: boolean }>("DELETE", `/recordings/${encodeURIComponent(file)}`);

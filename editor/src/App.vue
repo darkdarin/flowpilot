@@ -10,6 +10,7 @@ import FpNode from "./components/FpNode.vue";
 import Inspector from "./components/Inspector.vue";
 import CommandsDialog from "./components/CommandsDialog.vue";
 import SkillsDialog from "./components/SkillsDialog.vue";
+import VoicesDialog from "./components/VoicesDialog.vue";
 import MemoryDialog from "./components/MemoryDialog.vue";
 import SecretsDialog from "./components/SecretsDialog.vue";
 import Login from "./components/Login.vue";
@@ -49,6 +50,7 @@ import {
   memoryOpen,
   commandsOpen,
   skillsOpen,
+  voicesOpen,
 } from "./store";
 import { connectProblem, edgeType, fittingPort } from "./porttypes";
 import { typeColor } from "./types";
@@ -430,6 +432,9 @@ function legendTypes() {
       <button class="btn icon ghost" :title="t('memory.title')" :aria-label="t('memory.title')" @click="memoryOpen = true">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h8.5l1.5 1.5v9.5H3z" /><path d="M5.5 6h5M5.5 8.5h5M5.5 11h3" /></svg>
       </button>
+      <button class="btn icon ghost" :title="t('voices.title')" :aria-label="t('voices.title')" @click="voicesOpen = true">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="2" width="4" height="7.5" rx="2" /><path d="M3.5 8a4.5 4.5 0 0 0 9 0M8 12.5V14.5" /></svg>
+      </button>
       <button class="btn icon ghost" :title="t('commands.title')" :aria-label="t('commands.title')" @click="commandsOpen = true">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 1.5 3.5 9H8l-1 5.5L12.5 7H8z" /></svg>
       </button>
@@ -526,6 +531,7 @@ function legendTypes() {
     <MemoryDialog v-if="memoryOpen" />
     <CommandsDialog v-if="commandsOpen" />
     <SkillsDialog v-if="skillsOpen" />
+    <VoicesDialog v-if="voicesOpen" />
 
     <div v-if="creating" class="modal" @click.self="creating = false">
       <form @submit.prevent="onCreate">
