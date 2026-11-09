@@ -4,6 +4,25 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.27
+
+### App
+
+- **Who speaks, by voice.** The new node Who speaks stands in the principal wire: when the client
+  does not name the person (a satellite never does), it compares the first seconds of speech with
+  the household's voice profiles and gives the person it matched, or unknown. Speech-to-text does
+  not wait for it. A voice is a convenience, not proof (a recording can fool it), so a person known
+  by voice gets low assurance.
+- **Voices page** (the microphone button): record each person from the microphone, or take turns a
+  Debug probe recorded on the satellite (better: the same microphone and room). Check a voice to
+  see how close it is to everyone and tune the threshold on your own voices. Only an embedding of
+  each sample is kept, not the audio; profiles are in backups, the speaker model (about 28 MB,
+  downloaded when you choose it) is not.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.26
 
 ### App

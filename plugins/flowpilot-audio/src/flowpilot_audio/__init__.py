@@ -6,7 +6,7 @@ from flowpilot_sdk import Node
 
 from .nodes import AutoGain, Gain, GainControl
 
-__version__ = "0.1.26"
+__version__ = "0.1.27"
 
 
 def nodes() -> list[type[Node]]:
