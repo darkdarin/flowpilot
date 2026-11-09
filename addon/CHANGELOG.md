@@ -4,6 +4,21 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.23
+
+### App
+
+- **Deepgram speech-to-text and text-to-speech.** Two new nodes talk to Deepgram's Flux models
+  directly, to try against Soniox. *Deepgram speech-to-text* recognizes speech in real time with
+  partial results and decides itself when the command is over, like Soniox, so it replaces the
+  Soniox node in a graph as is; the multilingual model speaks Russian. *Deepgram text-to-speech*
+  speaks while the agent is still writing, with any Flux voice (nine Russian ones among them).
+  Add your Deepgram API key under **Secrets** as `deepgram`.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.22
 
 ### App
