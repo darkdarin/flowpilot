@@ -4,6 +4,19 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.28
+
+### App
+
+- **Voices from a quiet satellite.** A Yandex Station sends very quiet audio, and voice samples
+  recorded from it were turned away as too quiet. Speech is now brought to one level before the
+  speaker model hears it, for samples and turns alike, so the station's own recordings can be
+  used; only near silence is turned away.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.27
 
 ### App

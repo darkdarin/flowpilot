@@ -1,6 +1,6 @@
 [project]
 name = "flowpilot-llm"
-version = "0.1.27"
+version = "0.1.28"
 description = "FlowPilot LLM agent: any OpenAI-compatible chat API, streamed"
 readme = "README.md"
 license = "Apache-2.0"
