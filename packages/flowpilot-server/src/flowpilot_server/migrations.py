@@ -40,7 +40,7 @@ def migrate_graph(data: Any) -> Any:
     if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
         return data
     data = _one_text_input(_agent_remember(_split_turn_filter(_rename_nodes(data))))
-    return _principal_by_wire(_one_probe_input(data))
+    return _no_signal_nor_turn_filter(_principal_by_wire(_one_probe_input(data)))
 
 
 def _split_turn_filter(data: dict[str, Any]) -> dict[str, Any]:
@@ -148,6 +148,69 @@ def _one_text_input(data: dict[str, Any]) -> dict[str, Any]:
                 ui_nodes[copy_id] = {**at, "y": at["y"] + 230 * n}
     data["edges"] = [e for i, e in enumerate(data["edges"]) if i not in dropped]
     _LOGGER.info("graph %s: probes and converters now have one text input", data.get("id"))
+    return data
+
+
+# 0.1.29 → 0.1.30: Voice or text turn and Sound signal are gone. A turn filter becomes a Condition
+# on spoken turns (spoken → yes, typed → no); a sound signal goes, and what triggered it goes to
+# the client output's ack, which confirms the turn with the satellite's own sound.
+
+
+def _no_signal_nor_turn_filter(data: dict[str, Any]) -> dict[str, Any]:
+    kinds = {
+        n["id"]: n["type"]
+        for n in data["nodes"]
+        if isinstance(n, dict) and n.get("type") in ("logic.turn_filter", "audio.signal")
+    }
+    if not kinds:
+        return data
+    data = copy.deepcopy(data)
+    edges = [e for e in data.get("edges") or [] if isinstance(e, dict)]
+    ports = {"text": "value", "spoken": "yes", "typed": "no"}
+
+    def ref(value: Any) -> tuple[str, str]:
+        node, _, port = str(value).rpartition(".")
+        return node, port
+
+    triggers: list[str] = []  # what played a sound: its source, to the client output's ack
+    kept: list[dict[str, Any]] = []
+    for edge in edges:
+        (src, out), (dst, inp) = ref(edge.get("from")), ref(edge.get("to"))
+        if kinds.get(dst) == "audio.signal":
+            triggers.append(str(edge["from"]))
+            continue
+        if kinds.get(src) == "audio.signal":
+            continue
+        if kinds.get(src) == "logic.turn_filter":
+            edge = {**edge, "from": f"{src}.{ports.get(out, out)}"}
+        if kinds.get(dst) == "logic.turn_filter":
+            edge = {**edge, "to": f"{dst}.{ports.get(inp, inp)}"}
+        kept.append(edge)
+    sink = next(
+        (n["id"] for n in data["nodes"] if isinstance(n, dict) and n.get("type") == "client.sink"),
+        None,
+    )
+    if sink and triggers and not any(e.get("to") == f"{sink}.ack" for e in kept):
+        kept.append({"from": triggers[0], "to": f"{sink}.ack"})
+    data["edges"] = kept
+    nodes = []
+    for node in data["nodes"]:
+        kind = kinds.get(node.get("id")) if isinstance(node, dict) else None
+        if kind == "audio.signal":
+            continue
+        if kind == "logic.turn_filter":
+            node = {"id": node["id"], "type": "logic.condition", "config": {"turn": "voice"}}
+        nodes.append(node)
+    data["nodes"] = nodes
+    ui_nodes = (data.get("ui") or {}).get("nodes")
+    if isinstance(ui_nodes, dict):
+        for node_id, kind in kinds.items():
+            if kind == "audio.signal":
+                ui_nodes.pop(node_id, None)
+    _LOGGER.info(
+        "graph %s: Voice or text turn became a Condition, Sound signal the client output's ack",
+        data.get("id"),
+    )
     return data
 
 

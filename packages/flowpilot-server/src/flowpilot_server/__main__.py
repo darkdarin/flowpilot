@@ -53,7 +53,6 @@ from .quick import HaQuickCommands
 from .secret_store import SecretStore
 from .server import FlowPilotServer
 from .session_file import SessionFile
-from .signal import SoundSignal
 from .skills_store import SkillStore
 from .speaker import SpeakerId
 from .voices import VoiceStore
@@ -72,7 +71,6 @@ def build_registry(*, dev: bool = False) -> NodeRegistry:
         HaQuickCommands,
         Condition,
         SpeakerId,
-        SoundSignal,
         HaStt,
         HaTts,
         DebugProbe,

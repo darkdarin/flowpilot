@@ -63,7 +63,8 @@ def test_current_graphs_are_left_alone() -> None:
     assert migrate_graph(migrate_graph(OLD)) == migrate_graph(OLD)
 
 
-def test_voice_or_text_turn_gets_two_outputs() -> None:
+def test_voice_or_text_turn_becomes_a_condition_on_spoken_turns() -> None:
+    """Old turn filters (one output, then two) end up as Conditions: spoken → yes, typed → no."""
     data = {
         "schema_version": 1,
         "id": "g",
@@ -80,13 +81,46 @@ def test_voice_or_text_turn_gets_two_outputs() -> None:
         ],
     }
     migrated = migrate_graph(data)
-    assert [n.get("config") for n in migrated["nodes"]] == [None, None, None]
+    assert [(n["type"], n.get("config")) for n in migrated["nodes"]] == [
+        ("logic.condition", {"turn": "voice"})
+    ] * 3
     assert [(e["from"], e["to"]) for e in migrated["edges"]] == [
-        ("a.delta", "voice.text"),
-        ("voice.spoken", "tts.text"),
-        ("chat.typed", "out.delta"),
-        ("new.typed", "out.delta"),
+        ("a.delta", "voice.value"),
+        ("voice.yes", "tts.text"),
+        ("chat.no", "out.delta"),
+        ("new.no", "out.delta"),
     ]
+    assert migrate_graph(migrated) is migrated
+
+
+def test_a_sound_signal_becomes_the_client_outputs_ack() -> None:
+    """The owner's graph: Quick commands' ack played a Sound signal through First present into
+    the speech; now ack goes to the client output, which confirms with the satellite's sound."""
+    data = {
+        "schema_version": 2,
+        "id": "g",
+        "nodes": [
+            {"id": "quick", "type": "ha.quick"},
+            {"id": "ding", "type": "audio.signal", "config": {"sound": "data:audio/wav;base64,AA"}},
+            {"id": "sound", "type": "text.first"},
+            {"id": "out", "type": "client.sink"},
+        ],
+        "edges": [
+            {"from": "quick.ack", "to": "ding.trigger"},
+            {"from": "ding.speech", "to": "sound.primary"},
+            {"from": "tts.speech", "to": "sound.fallback"},
+            {"from": "sound.value", "to": "out.speech"},
+        ],
+        "ui": {"nodes": {"ding": {"x": 1, "y": 2}, "quick": {"x": 3, "y": 4}}},
+    }
+    migrated = migrate_graph(data)
+    assert [n["id"] for n in migrated["nodes"]] == ["quick", "sound", "out"]
+    assert [(e["from"], e["to"]) for e in migrated["edges"]] == [
+        ("tts.speech", "sound.fallback"),
+        ("sound.value", "out.speech"),
+        ("quick.ack", "out.ack"),
+    ]
+    assert "ding" not in migrated["ui"]["nodes"]
     assert migrate_graph(migrated) is migrated
 
 

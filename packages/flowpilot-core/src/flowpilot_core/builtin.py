@@ -220,60 +220,6 @@ class TextConvert:
         await turn.output("response").send(answer or Response(text=text, language=language))
 
 
-class TurnFilter:
-    """Sends a text stream to one of two outputs: spoken turns or typed turns.
-
-    Typical use: between an agent and text-to-speech, so a typed turn (chat, Telegram through
-    Assist) gets its answer as text without synthesizing speech nobody hears; the typed output can
-    lead somewhere else (or nowhere).
-    """
-
-    spec: ClassVar[NodeSpec] = NodeSpec(
-        type="logic.turn_filter",
-        translations=node_translations(__package__, "logic.turn_filter"),
-        version="2.0.0",
-        title="Voice or text turn",
-        category="logic",
-        inputs={"text": PortSpec(DELTA, description="A text stream, e.g. an agent's answer.")},
-        outputs={
-            "spoken": PortSpec(
-                DELTA,
-                description=(
-                    "The stream in spoken turns: the client sent audio (a satellite, Assist "
-                    "voice); absent in typed turns."
-                ),
-            ),
-            "typed": PortSpec(
-                DELTA,
-                description=(
-                    "The stream in typed turns: text only (Assist chat, automations, Telegram "
-                    "through Assist); absent in spoken turns."
-                ),
-            ),
-        },
-        turn_timeout_s=120.0,
-        description=(
-            "Sends a text stream on by the kind of turn: spoken turns to one output, typed turns "
-            "to the other. Put it in front of text-to-speech so typed turns get no speech."
-        ),
-    )
-
-    async def start(self, ctx: NodeContext) -> None:
-        return None
-
-    async def stop(self) -> None:
-        return None
-
-    async def run_turn(self, turn: TurnSession) -> None:
-        source: InputStream[Any] = turn.input("text")
-        if await source.header() is None:
-            return
-        out = turn.output("spoken" if turn.context.voice else "typed")  # the other stays absent
-        async for piece in source:
-            await out.send(piece)
-        await out.end()
-
-
 class Value:
     """A fixed value for a setting another node takes as an input: a voice, a speed, instructions.
     Through a Condition it sets the node one way in some turns and another way in others."""
@@ -329,6 +275,5 @@ class Value:
 def register_builtin(registry: NodeRegistry) -> NodeRegistry:
     registry.register(TextFirst)
     registry.register(TextConvert)
-    registry.register(TurnFilter)
     registry.register(Value)
     return registry

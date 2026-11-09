@@ -130,7 +130,8 @@ class HaQuickCommands:
                 kind="value",
                 description=(
                     "The answer, when it is confirmed with a sound instead of words: connect "
-                    "Sound signal. Then nothing comes on delta."
+                    "Client output's ack (with what was done: turned on, off or else). Then "
+                    "nothing comes on delta."
                 ),
             ),
             "unhandled": PortSpec(
@@ -155,7 +156,7 @@ class HaQuickCommands:
                 "acknowledge": {
                     "title": "Confirm with a sound",
                     "description": (
-                        "Instead of speaking the answer, send it to ack for a Sound signal: when "
+                        "Instead of speaking the answer, send it to ack (Client output's): when "
                         "every device the command touched is in the room of the speaker that "
                         "heard it (as Home Assistant does), always, or never. Needs ack "
                         "connected; in the same room when not set."
