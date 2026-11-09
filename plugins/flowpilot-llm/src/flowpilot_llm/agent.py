@@ -17,6 +17,7 @@ import asyncio
 import json
 import time
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import replace
 from datetime import datetime
 from typing import Any, ClassVar
 
@@ -49,7 +50,15 @@ from flowpilot_sdk import (
 )
 from flowpilot_sdk.skills import definition as skill_definition
 
-from .tools import Tool, Toolbox, command_tools, memory_tools, run_skill
+from .tools import (
+    CONFIRM_TOOL,
+    Tool,
+    Toolbox,
+    command_tools,
+    confirm_tool,
+    memory_tools,
+    run_skill,
+)
 
 DEFAULT_URL = "https://api.openai.com/v1"
 DEFAULT_HISTORY_HOURS = 24
@@ -68,6 +77,9 @@ HOME_CALL_TIMEOUT_S = 20.0
 SERVICE_CALL_OP = "ha.service.call"
 # Rounds of tool calls in one turn; the last round must answer in words.
 MAX_TOOL_ROUNDS = 4
+# Home Assistant intents and the sound that confirms them (``acknowledge`` on the ack answer)
+ACK_KINDS = {"HassTurnOn": "on", "HassTurnOff": "off"}
+DONE = {"ru": "Готово", "en": "Done"}
 
 
 DETAIL_CHARS = 8000  # one journal entry's content in live debug
@@ -175,6 +187,21 @@ TEACH_TEXT = (
 )
 
 
+def acknowledge_kind(tools: list[str]) -> str:
+    """What the actions did, for the sound: ``on`` when all turned something on, ``off`` when
+    all turned something off, else ``done``."""
+    kinds = {ACK_KINDS.get(name.removeprefix("intent__"), "done") for name in tools}
+    return kinds.pop() if len(kinds) == 1 else "done"
+
+
+def _speech_of(data: Any) -> str:
+    """The words of a Home Assistant intent's answer (``speech.plain.speech``), or nothing."""
+    speech = data.get("speech") if isinstance(data, Mapping) else None
+    plain = speech.get("plain") if isinstance(speech, Mapping) else None
+    text = plain.get("speech") if isinstance(plain, Mapping) else None
+    return text.strip() if isinstance(text, str) else ""
+
+
 def _tools_text(speaker_known: bool, *, auto: bool) -> str:
     """How to use the memory tools. Without it models tend to say they cannot remember anything
     between conversations, which is their default belief, and never call the tools."""
@@ -206,7 +233,7 @@ class LlmAgent:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="llm.agent",
         translations=node_translations(__package__, "llm.agent"),
-        version="1.5.0",
+        version="1.6.0",
         title="LLM agent",
         category="agent",
         inputs={
@@ -229,6 +256,15 @@ class LlmAgent:
             ),
             "response": PortSpec(
                 "agent.response/1", kind="value", description="The whole answer, for the client."
+            ),
+            "ack": PortSpec(
+                "agent.response/1",
+                kind="value",
+                description=(
+                    "The answer, when a done command is confirmed with a sound instead of words: "
+                    "connect Client output's ack (with what was done: turned on, off or else). "
+                    "Then nothing comes on delta."
+                ),
             ),
         },
         config_schema={
@@ -343,6 +379,26 @@ class LlmAgent:
                     ),
                     "type": "boolean",
                     "default": True,
+                    GROUP_KEY: "tools",
+                },
+                "acknowledge": {
+                    "title": "Confirm with a sound",
+                    "description": (
+                        "The agent may confirm a simple command it did (turn on the light) with "
+                        "the satellite's sound instead of words: it says so with the actions, and "
+                        "when they all succeeded the turn ends on ack at once, without a second "
+                        "request to the model. In the same room: only when every device it "
+                        "touched is in the room of the speaker that heard it (as Home Assistant "
+                        "does); else it answers in words. Needs ack connected; in the same room "
+                        "when not set."
+                    ),
+                    "enum": ["area", "model", "never"],
+                    ENUM_TITLES_KEY: {
+                        "area": "In the same room",
+                        "model": "When the model decides",
+                        "never": "Never",
+                    },
+                    "default": "area",
                     GROUP_KEY: "tools",
                 },
                 "teach": {
@@ -545,9 +601,16 @@ class LlmAgent:
         return "".join(pieces), [calls[i] for i in sorted(calls)]
 
     async def _home(
-        self, turn: TurnSession, speaker: str | None, language: str | None
+        self,
+        turn: TurnSession,
+        speaker: str | None,
+        language: str | None,
+        done: list[dict[str, Any]],
     ) -> tuple[str, list[Tool]]:
-        """Home Assistant's instructions and tools for this turn, or nothing without them."""
+        """Home Assistant's instructions and tools for this turn, or nothing without them.
+
+        Each action that succeeded is added to ``done``: its tool, words and whether its devices
+        are in the satellite's room (for a confirmation sound)."""
         if not self._config.get("home", True):
             return "", []
         device = turn.context.device
@@ -581,6 +644,15 @@ class LlmAgent:
                 data = json.dumps(answer.get("data"), ensure_ascii=False)
                 if answer.get("error"):
                     raise ValueError(data)
+                result = answer.get("data")
+                if isinstance(result, Mapping) and result.get("response_type") == "action_done":
+                    done.append(
+                        {
+                            "tool": name,
+                            "speech": _speech_of(result),
+                            "here": bool(answer.get("targets_in_area")),
+                        }
+                    )
                 return data
 
             parameters = spec.get("parameters")
@@ -593,17 +665,20 @@ class LlmAgent:
 
         specs = [t for t in result.get("tools") or [] if isinstance(t, Mapping) and t.get("name")]
         tools = [tool(t) for t in specs]
-        tools += [self._skill_tool(turn, s, who) for s in self._enabled_skills()]
+        tools += [self._skill_tool(turn, s, who, done) for s in self._enabled_skills()]
         return str(result.get("prompt") or ""), tools
 
     def _enabled_skills(self) -> list[Skill]:
         return [s for s in self._skills.all() if s.enabled] if self._skills is not None else []
 
-    def _skill_tool(self, turn: TurnSession, skill: Skill, who: dict[str, Any]) -> Tool:
+    def _skill_tool(
+        self, turn: TurnSession, skill: Skill, who: dict[str, Any], done: list[dict[str, Any]]
+    ) -> Tool:
         """A skill as a tool: the model fills its fields, Home Assistant runs its actions."""
 
         async def run(args: Mapping[str, Any]) -> str:
             results = await run_skill(turn, skill, args, who)
+            done.append({"tool": skill.tool, "speech": "", "here": False})
             return json.dumps(results, ensure_ascii=False)
 
         spec = skill_definition(skill)["function"]
@@ -686,11 +761,16 @@ class LlmAgent:
         personal = self._config.get("memory", "personal") == "personal"
         auto = self._remember() == "auto"
         guide = _tools_text(speaker is not None or not personal, auto=auto) if remembers else ""
+        done: list[dict[str, Any]] = []  # the actions that succeeded, in order
         people, (home_prompt, home_tools) = await asyncio.gather(
-            self._people(turn), self._home(turn, speaker, language)
+            self._people(turn), self._home(turn, speaker, language, done)
         )
         if home_tools:
             toolbox = toolbox.with_tools(home_tools)
+        mode = str(self._config.get("acknowledge", "area"))
+        confirming = bool(home_tools) and mode != "never" and turn.output("ack").connected
+        if confirming:
+            toolbox = toolbox.with_tools([confirm_tool(mode)])
         home_names = {t.name for t in home_tools}
         teaching = (
             bool(home_tools) and self._commands is not None and self._config.get("teach", True)
@@ -766,6 +846,7 @@ class LlmAgent:
 
         used: list[str] = []
         home_calls: list[dict[str, Any]] = []
+        acknowledged: str | None = None  # the sound that confirms the turn, instead of words
         for round_ in range(MAX_TOOL_ROUNDS + 1):
             request = body | {"messages": messages}
             offer = bool(toolbox) and round_ < MAX_TOOL_ROUNDS
@@ -823,9 +904,23 @@ class LlmAgent:
                     ],
                 }
             )
-            for i, call in enumerate(calls):
+            acted_from = len(done)
+            failed = False
+            # the confirmation is decided last, once the actions of this reply have run
+            order = sorted(range(len(calls)), key=lambda i: calls[i]["name"] == CONFIRM_TOOL)
+            for i in order:
+                call = calls[i]
                 called_at = time.monotonic()
-                result, ok = await toolbox.call(call["name"], call["arguments"])
+                if call["name"] == CONFIRM_TOOL and confirming:
+                    sound, result = self._confirmation(
+                        mode, done[acted_from:], failed=failed, spoken=len(pieces) > 0
+                    )
+                    ok = sound is not None
+                    if ok:
+                        acknowledged = sound
+                else:
+                    result, ok = await toolbox.call(call["name"], call["arguments"])
+                    failed = failed or not ok
                 if ok and call["name"] in home_names:
                     try:
                         arguments = json.loads(call["arguments"] or "{}")
@@ -849,8 +944,15 @@ class LlmAgent:
                         "content": result,
                     }
                 )
+            if acknowledged is not None:
+                break  # confirmed with a sound: no words to ask the model for
         await delta.end()
         answer = "".join(pieces).strip()
+        if acknowledged is not None:
+            base = (language or "").split("-")[0].casefold()
+            acted = [d["speech"] for d in done if d["speech"]]
+            answer = " ".join(dict.fromkeys(acted)) or DONE.get(base, DONE["en"])
+            log("acknowledge", f"confirmed with a sound ({acknowledged})", answer)
         turn.trace(
             "llm.agent",
             model=str(self._config["model"]),
@@ -861,10 +963,32 @@ class LlmAgent:
             facts=len(home) + len(own),
             people=len(people) if people is not None else None,
             tools=",".join(used) or None,
+            acknowledge=acknowledged,
         )
         if not answer:
             raise LlmError("the model gave an empty answer")
         await dialogue.add(turn.shared, said.text, answer, by=self._node)
         # what this answer did with Home Assistant, for "yes, remember it" in the next turn
         await turn.state.set(LAST_CALLS_KEY, home_calls, ttl_s=LAST_CALLS_S)
-        await turn.output("response").send(Response(text=answer, language=language))
+        response = Response(text=answer, language=language)
+        if acknowledged is not None:  # a sound instead of words, as Home Assistant's pipeline does
+            await turn.output("ack").send(replace(response, data={"acknowledge": acknowledged}))
+        await turn.output("response").send(response)
+
+    @staticmethod
+    def _confirmation(
+        mode: str, acted: list[dict[str, Any]], *, failed: bool, spoken: bool
+    ) -> tuple[str | None, str]:
+        """The sound that confirms this reply's actions, or None, and what the model is told."""
+        if failed:
+            return None, "no sound: an action failed; say in words what happened"
+        if not acted:
+            return None, "no sound: nothing was done in this reply; answer in words"
+        if spoken:
+            return None, "no sound: you already answered in words; finish in words"
+        if mode == "area" and not all(a["here"] for a in acted):
+            return None, (
+                "no sound: not every device is in the room of the speaker that heard it; "
+                "say in a few words what you did"
+            )
+        return acknowledge_kind([a["tool"] for a in acted]), "confirmed with a sound"

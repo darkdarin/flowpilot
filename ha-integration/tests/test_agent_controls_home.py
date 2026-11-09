@@ -30,6 +30,7 @@ class FakeModel:
 
     def __init__(self) -> None:
         self.requests: list[dict[str, Any]] = []
+        self.confirm = False  # with the action, ask to confirm it with a sound
 
     async def chat(self, request: web.Request) -> web.StreamResponse:
         body = await request.json()
@@ -47,6 +48,9 @@ class FakeModel:
             args = json.dumps({"name": "Kitchen light"})
             call = {"index": 0, "id": "c0", "function": {"name": tool, "arguments": args}}
             await send({"tool_calls": [call]})
+            if self.confirm:
+                sound = {"name": "confirm_with_sound", "arguments": "{}"}
+                await send({"tool_calls": [{"index": 1, "id": "c1", "function": sound}]})
         else:
             await send({"content": "Turned on."})
         await resp.write(b"data: [DONE]\n\n")
@@ -93,3 +97,31 @@ async def check(hass: HomeAssistant, fake: FakeModel, runtime: Runtime) -> None:
     first, second = fake.requests
     assert any("HassTurnOn" in t["function"]["name"] for t in first["tools"])
     assert second["messages"][-1]["role"] == "tool"
+
+
+async def test_the_agent_confirms_with_a_sound_without_asking_the_model_again(
+    hass: HomeAssistant, model: tuple[FakeModel, str]
+) -> None:
+    """Home Assistant's intent answers action_done with its words: the agent ends the turn on
+    ack, and the speech carries acknowledge for satellites with their own sound."""
+    fake, url = model
+    fake.confirm = True
+    agent = {"type": "llm.agent", "config": {"base_url": url, "model": "m", "acknowledge": "model"}}
+    sounded = graph(agent)
+    sounded["edges"] = [*sounded["edges"], {"from": "agent.ack", "to": "out.ack"}]
+    async for runtime in _runtime({}, sounded, extra=("llm.agent",)):
+        for domain in ("llm", "intent", "light"):
+            assert await async_setup_component(hass, domain, {})
+        await setup_flowpilot(hass, runtime)
+        hass.states.async_set("light.kitchen", "off", {"friendly_name": "Kitchen light"})
+        async_expose_entity(hass, "conversation", "light.kitchen", True)
+        calls = async_mock_service(hass, "light", "turn_on")
+
+        result = await async_converse(
+            hass, "turn on the kitchen light", None, Context(), agent_id=AGENT_ENTITY
+        )
+
+        speech = result.response.speech["plain"]
+        assert speech["extra_data"] == {"acknowledge": "on"}
+        assert speech["speech"]  # Home Assistant's own words, for a chat
+        assert len(calls) == 1 and len(fake.requests) == 1

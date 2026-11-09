@@ -27,6 +27,7 @@ class ToolCallingApi:
         self.requests: list[dict[str, Any]] = []
         self.no_tools = False
         self.tools_need_no_reasoning = False  # like OpenAI's reasoning models in Chat Completions
+        self.say_first = True  # a few words before the tool calls
 
     async def chat(self, request: web.Request) -> web.StreamResponse:
         body = await request.json()
@@ -55,7 +56,8 @@ class ToolCallingApi:
 
         last = body["messages"][-1]
         if last["role"] == "user" and self.calls and "tools" in body:
-            await send({"content": "Хорошо."})
+            if self.say_first:
+                await send({"content": "Хорошо."})
             for i, call in enumerate(self.calls):
                 args = json.dumps(call["arguments"], ensure_ascii=False)
                 function = {"name": call["name"], "arguments": args[:5]}
@@ -329,6 +331,7 @@ async def test_the_agent_controls_the_home_as_the_speaker(api: tuple[ToolCalling
         "remember",
         "forget",
         "intent__HassTurnOn",
+        "confirm_with_sound",  # Client output's ack is connected
     }
     [(_, listed), (_, called)] = host.calls
     assert listed["user_id"] == "pavel"
@@ -595,3 +598,105 @@ async def test_the_agent_uses_a_skill_and_home_assistant_runs_it(
     assert call["action"] == "androidtv.adb_command"
     assert call["data"] == {"command": "monkey -p youtube 1"}
     assert call["target"] == {"entity_id": "media_player.tv"}
+
+
+class ActingHost:
+    """Home Assistant's intents as the Assist LLM API runs them: their answer and where the
+    devices are."""
+
+    def __init__(self, *, here: bool = True, fail: str | None = None) -> None:
+        self.here = here
+        self.fail = fail  # the device that is not found
+
+    def offers(self, op: str) -> bool:
+        return op in {"ha.llm.tools", "ha.llm.call"}
+
+    async def call(self, turn_id: str, op: str, args: Any, **kwargs: Any) -> Any:
+        if op == "ha.llm.tools":
+            schema = {"type": "object", "properties": {"name": {"type": "string"}}}
+            tools = [
+                {"name": name, "description": name, "parameters": schema}
+                for name in ("HassTurnOn", "HassTurnOff", "GetLiveContext")
+            ]
+            return {"prompt": "Use the tools.", "tools": tools}
+        name, device = args["name"], args["arguments"].get("name")
+        if self.fail is not None and device == self.fail:
+            return {"error": True, "data": {"message": f"no device named {device}"}}
+        if name == "GetLiveContext":
+            return {"error": False, "data": {"success": True, "result": "light: on"}}
+        said = {"HassTurnOn": "Включила", "HassTurnOff": "Выключила"}[name]
+        data = {"response_type": "action_done", "speech": {"plain": {"speech": f"{said} {device}"}}}
+        return {"error": False, "data": data, "targets_in_area": self.here}
+
+    def stream(self, turn_id: str, op: str, args: Any) -> Any:
+        raise NotImplementedError
+
+
+def turn_off(*devices: str) -> list[dict[str, Any]]:
+    return [{"name": "HassTurnOff", "arguments": {"name": d}} for d in devices] + [
+        {"name": "confirm_with_sound", "arguments": {}}
+    ]
+
+
+async def test_a_done_command_is_confirmed_with_a_sound_at_once(
+    api: tuple[ToolCallingApi, str],
+) -> None:
+    fake, url = api
+    fake.say_first = False
+    fake.calls = turn_off("свет", "торшер")
+    run = await ask(url, MemoryStore(None), "выключи свет", "pavel", host=ActingHost())
+    assert len(fake.requests) == 1  # no second request for words
+    assert "confirm_with_sound" in {t["function"]["name"] for t in fake.requests[0]["tools"]}
+    (ack,) = run.outputs["ack"].items
+    assert ack.data == {"acknowledge": "off"} and ack.text == "Выключила свет Выключила торшер"
+    assert run.outputs["delta"].items == []
+    assert [r.text for r in run.outputs["response"].items] == [ack.text]
+    (done,) = [e for e in run.trace.events if e.event == "llm.agent"]
+    assert done.attrs["acknowledge"] == "off"
+
+
+@pytest.mark.parametrize(
+    ("host", "calls", "config", "why"),
+    [
+        (ActingHost(fail="торшер"), turn_off("свет", "торшер"), {}, "an action failed"),
+        (ActingHost(here=False), turn_off("свет"), {}, "not every device is in the room"),
+        (
+            ActingHost(),
+            [{"name": "GetLiveContext", "arguments": {}}, *turn_off()],
+            {},
+            "nothing was done",
+        ),
+    ],
+)
+async def test_otherwise_the_agent_answers_in_words(
+    api: tuple[ToolCallingApi, str], host: ActingHost, calls: Any, config: Any, why: str
+) -> None:
+    fake, url = api
+    fake.say_first = False
+    fake.calls = calls
+    run = await ask(url, MemoryStore(None), "выключи свет", "pavel", host=host, **config)
+    assert run.outputs["ack"].items == [] and run.outputs["delta"].items
+    told = [m["content"] for m in fake.requests[1]["messages"] if m["role"] == "tool"]
+    assert any(why in t for t in told), told
+
+
+async def test_a_sound_anywhere_and_never(api: tuple[ToolCallingApi, str]) -> None:
+    fake, url = api
+    fake.say_first = False
+    fake.calls = turn_off("свет")
+    away = ActingHost(here=False)
+    run = await ask(url, MemoryStore(None), "выключи", "pavel", host=away, acknowledge="model")
+    assert run.outputs["ack"].items and len(fake.requests) == 1
+    fake.requests.clear()
+    run = await ask(url, MemoryStore(None), "выключи", "pavel", host=away, acknowledge="never")
+    assert "confirm_with_sound" not in {t["function"]["name"] for t in fake.requests[0]["tools"]}
+    assert not run.outputs["ack"].items
+
+
+async def test_words_already_said_are_not_followed_by_a_sound(
+    api: tuple[ToolCallingApi, str],
+) -> None:
+    fake, url = api
+    fake.calls = turn_off("свет")  # «Хорошо.» comes first
+    run = await ask(url, MemoryStore(None), "выключи", "pavel", host=ActingHost())
+    assert not run.outputs["ack"].items and len(fake.requests) == 2

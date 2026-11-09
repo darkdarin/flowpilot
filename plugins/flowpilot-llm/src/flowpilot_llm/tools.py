@@ -342,6 +342,35 @@ def command_tools(commands: QuickCommands, speaker: str | None, home: set[str]) 
     ]
 
 
+CONFIRM_TOOL = "confirm_with_sound"
+
+
+def confirm_tool(mode: str) -> Tool:
+    """``confirm_with_sound``: the agent asks to confirm the actions of the same reply with the
+    satellite's sound instead of words. The agent decides it after the actions ran (see
+    ``LlmAgent._confirmation``); this tool only describes it to the model."""
+
+    async def run(args: Mapping[str, Any]) -> str:
+        raise ValueError("call it together with the actions it confirms")
+
+    where = (
+        " It is played only when the devices are in the room of the speaker that heard the "
+        "request; otherwise you are asked to answer in words."
+        if mode == "area"
+        else ""
+    )
+    return Tool(
+        CONFIRM_TOOL,
+        "Confirm a simple command with a short sound instead of words, and end your answer. "
+        "Call it in the same reply as the Home Assistant actions that fully do what was asked "
+        "(turn on or off, open, close, set), when nothing needs saying: no question, nothing "
+        "unclear, nothing to tell. Never call it alone, for questions, or before the last "
+        "action. If an action fails there is no sound and you answer in words." + where,
+        {"type": "object", "properties": {}},
+        run,
+    )
+
+
 SERVICE_CALL_OP = "ha.service.call"
 
 
