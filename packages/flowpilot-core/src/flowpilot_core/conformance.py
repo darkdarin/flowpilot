@@ -72,6 +72,7 @@ class InputFeed:
     meta: Mapping[str, Any] | None = None
     end: Terminal = "end"
     delay_s: float = 0.0
+    start_delay_s: float = 0.0  # before the stream opens: a source that starts late (an agent)
 
 
 @dataclass(slots=True)
@@ -126,6 +127,8 @@ def _turn_context(
 
 
 async def _feed(channel: Channel, type_id: str, feed: InputFeed, turn_id: str) -> None:
+    if feed.start_delay_s:
+        await asyncio.sleep(feed.start_delay_s)
     if feed.end == "absent":
         await channel.put(End())
         return

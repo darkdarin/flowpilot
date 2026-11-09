@@ -129,6 +129,10 @@ class RuntimeInputStream:
         self._fail_reason = ""
         self._iterating = False
         self._value: Any = _UNSET
+        # the read of the first message, shared: a node may wait for the header in two places at
+        # once (one task reading the stream, another deciding where it goes)
+        self._opening: asyncio.Future[None] | None = None
+        self._waiting = 0
 
     @property
     def connected(self) -> bool:
@@ -140,16 +144,29 @@ class RuntimeInputStream:
 
     async def header(self) -> StreamHeader | None:
         if self._state == "pending":
-            msg = await self._next()
-            if isinstance(msg, Open):
-                self._header, self._state = msg.header, "open"
-            elif isinstance(msg, Fail):
-                self._state, self._fail_reason = "failed", msg.reason
-            else:  # End before Open: absent; an Item cannot arrive before Open
-                self._state = "ended"
+            if self._opening is None:
+                self._opening = asyncio.ensure_future(self._open())
+            opening = self._opening
+            self._waiting += 1
+            try:
+                await asyncio.shield(opening)  # a cancelled waiter leaves the read to the others
+            finally:
+                self._waiting -= 1
+                if self._waiting == 0 and not opening.done():
+                    opening.cancel()  # nobody waits any more: no read left behind
+                    self._opening = None
         if self._state == "failed":
             raise StreamError(self.name, self._fail_reason)
         return self._header
+
+    async def _open(self) -> None:
+        msg = await self._next()
+        if isinstance(msg, Open):
+            self._header, self._state = msg.header, "open"
+        elif isinstance(msg, Fail):
+            self._state, self._fail_reason = "failed", msg.reason
+        else:  # End before Open: absent; an Item cannot arrive before Open
+            self._state = "ended"
 
     def __aiter__(self) -> AsyncIterator[Any]:
         if self._iterating:

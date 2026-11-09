@@ -174,3 +174,13 @@ def test_a_graph_routes_who_speaks_through_a_condition() -> None:
 async def test_conforms() -> None:
     sample = {"value": value(Utterance("x"))}
     assert_conforms(await check_node(Condition, config={}, sample=sample))
+
+
+async def test_a_stream_is_passed_on_when_the_branch_is_decided_before_it_starts() -> None:
+    """The bug of 0.1.28: decided at once (spoken or typed), the node waited for the stream's
+    header in two places and lost every piece of an agent's answer that came later."""
+    deltas = [TextDelta(f"кусок {i} ") for i in range(12)]
+    node = await started(turn="voice")
+    late = InputFeed(items=deltas, meta={}, end="end", delay_s=0.01, start_delay_s=0.05)
+    branch, items = await route(node, {"value": late}, context={"voice": True})
+    assert branch == "yes" and items == deltas

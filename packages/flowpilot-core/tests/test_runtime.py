@@ -320,3 +320,26 @@ async def test_outputs_report_when_they_end_not_when_the_node_returns() -> None:
     await unused.end()
     await broken.fail("boom")
     assert ended[1:] == [("unused", 0, "absent"), ("broken", 0, "error")]
+
+
+async def test_two_waiters_for_a_header_share_one_read() -> None:
+    from flowpilot_core.runtime.channel import (  # noqa: PLC0415
+        Channel,  # noqa: PLC0415
+        End,
+        Item,
+        Open,
+    )
+    from flowpilot_core.runtime.streams import RuntimeInputStream  # noqa: PLC0415
+    from flowpilot_sdk import Envelope, PortSpec, TextDelta  # noqa: PLC0415
+    from flowpilot_sdk.streams import StreamHeader  # noqa: PLC0415
+
+    channel = Channel(8)
+    stream = RuntimeInputStream("text", PortSpec("text.delta/1"), channel)
+    first = asyncio.ensure_future(stream.header())
+    second = asyncio.ensure_future(stream.header())
+    await asyncio.sleep(0)
+    await channel.put(Open(StreamHeader("text.delta/1", {})))
+    await channel.put(Item(Envelope("t", 0, 0, TextDelta("a"))))
+    await channel.put(End())
+    assert (await first) == (await second) is not None
+    assert [d.text async for d in stream] == ["a"]  # the item was not taken for a header
