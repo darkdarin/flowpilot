@@ -4,6 +4,29 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.24
+
+### App
+
+- **A port that takes anything; the Debug probe has one input.** Connect the probe to any output:
+  audio is recorded to play back, text is shown as before, and any other data (a speaker match,
+  say) shows its fields. Probes in your graphs move over by themselves; a probe that had both
+  audio and text connected becomes two.
+- **Add a node on a wire.** Drag a wire from a port and drop it on empty canvas: a menu of the
+  nodes that fit that port opens there, by kind first (speech-to-text, text-to-speech, audio,
+  agents, logic, debug), or search them all by typing. The wire stays drawn up to a ghost of the
+  node, and the node picked lands there, wired.
+- **Copy and paste nodes.** ⌘C / Ctrl+C copies the selected nodes with the wires between them,
+  ⌘V pastes (here or in another graph), ⌘D duplicates, ⌘A selects every node.
+- **Filter the node list** by what nodes are for: chips under the search.
+- **Editor polish.** Dark tooltips that show quickly; the debug panel's height can be dragged;
+  the turn list lines up with the node list; the node search keeps its height; the top bar is as
+  tall as Home Assistant's header.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.23
 
 ### App

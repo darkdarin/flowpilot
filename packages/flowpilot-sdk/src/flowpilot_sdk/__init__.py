@@ -53,7 +53,7 @@ from .types import (
     validate_type_id,
 )
 
-__version__ = "0.1.23"
+__version__ = "0.1.24"
 
 __all__ = [
     "ANY",
