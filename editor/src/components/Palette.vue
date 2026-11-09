@@ -67,10 +67,22 @@ defineEmits<{ add: [type: string] }>();
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 12px;
+  padding: 12px 0 0;
   background: var(--panel);
   border-right: 1px solid var(--line);
   min-height: 0;
+}
+
+/* the search keeps its height; only the list scrolls, its scrollbar at the panel's edge */
+.palette > .field {
+  flex: none;
+  width: auto;
+  margin: 0 12px;
+}
+
+.palette > .hint {
+  flex: none;
+  margin: 0 14px 4px;
 }
 
 .hint {
@@ -80,13 +92,13 @@ defineEmits<{ add: [type: string] }>();
 }
 
 .groups {
+  flex: 1;
   overflow-y: auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  margin: 0 -4px;
-  padding: 0 4px;
+  padding: 0 12px 12px;
 }
 
 h3 {

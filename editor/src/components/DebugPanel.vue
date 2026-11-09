@@ -232,7 +232,7 @@ function status(s: string) {
 <style scoped>
 .debug {
   display: grid;
-  grid-template-columns: 230px 1fr;
+  grid-template-columns: var(--left-width, 250px) 1fr;
   height: 100%;
   min-height: 0;
   background: var(--panel);
@@ -240,7 +240,7 @@ function status(s: string) {
 }
 
 .debug.with-journal {
-  grid-template-columns: 230px minmax(0, 1fr) minmax(300px, 34%);
+  grid-template-columns: var(--left-width, 250px) minmax(0, 1fr) minmax(300px, 34%);
 }
 
 .journal {

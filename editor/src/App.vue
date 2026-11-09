@@ -100,6 +100,32 @@ onNodesInitialized(() => {
   void nextTick(() => fitView({ padding: 0.15, maxZoom: 1 }));
 });
 
+// The debug panel's height: drag its top edge (or use the arrow keys on it); kept per browser.
+const DEBUG_MIN = 120;
+const debugHeight = ref(Number(localStorage.getItem("flowpilot.debugHeight")) || 220);
+
+function setDebugHeight(height: number) {
+  const max = Math.max(DEBUG_MIN, window.innerHeight - 200);
+  debugHeight.value = Math.round(Math.min(max, Math.max(DEBUG_MIN, height)));
+  localStorage.setItem("flowpilot.debugHeight", String(debugHeight.value));
+}
+
+function startResize(event: PointerEvent) {
+  const handle = event.currentTarget as HTMLElement;
+  const startY = event.clientY;
+  const startHeight = debugHeight.value;
+  handle.setPointerCapture(event.pointerId);
+  const move = (e: PointerEvent) => setDebugHeight(startHeight + startY - e.clientY);
+  const stop = () => {
+    handle.removeEventListener("pointermove", move);
+    handle.removeEventListener("pointerup", stop);
+    handle.removeEventListener("pointercancel", stop);
+  };
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", stop);
+  handle.addEventListener("pointercancel", stop);
+}
+
 function toggleTheme() {
   theme.value = theme.value === "dark" ? "light" : "dark";
   document.documentElement.dataset.theme = theme.value;
@@ -232,7 +258,7 @@ function legendTypes() {
 <template>
   <div v-if="booting" class="boot" />
   <Login v-else-if="!api" />
-  <div v-else class="shell" :class="{ debugging: debug.enabled }">
+  <div v-else class="shell" :class="{ debugging: debug.enabled }" :style="{ '--debug-height': `${debugHeight}px` }">
     <header class="bar">
       <div class="brand" aria-label="FlowPilot">
         <BrandMark />
@@ -345,6 +371,21 @@ function legendTypes() {
     <Inspector class="right" />
 
     <DebugPanel v-if="debug.enabled" class="bottom" />
+    <div
+      v-if="debug.enabled"
+      class="resizer"
+      role="separator"
+      aria-orientation="horizontal"
+      tabindex="0"
+      :aria-label="t('debug.resize')"
+      :title="t('debug.resize')"
+      :aria-valuenow="debugHeight"
+      :aria-valuemin="DEBUG_MIN"
+      @pointerdown.prevent="startResize"
+      @dblclick="setDebugHeight(220)"
+      @keydown.up.prevent="setDebugHeight(debugHeight + 20)"
+      @keydown.down.prevent="setDebugHeight(debugHeight - 20)"
+    />
 
     <SecretsDialog v-if="secretsOpen" />
     <MemoryDialog v-if="memoryOpen" />
@@ -377,8 +418,10 @@ function legendTypes() {
 .shell {
   /* as tall as Home Assistant's header (--header-height), so the bar lines up with its sidebar */
   --bar-height: 56px;
+  /* the node list, and the turn list of the debug panel under it */
+  --left-width: 250px;
   display: grid;
-  grid-template-columns: 250px 1fr 320px;
+  grid-template-columns: var(--left-width) 1fr 320px;
   grid-template-rows: var(--bar-height) 1fr;
   grid-template-areas:
     "bar bar bar"
@@ -387,7 +430,7 @@ function legendTypes() {
 }
 
 .shell.debugging {
-  grid-template-rows: var(--bar-height) 1fr 220px;
+  grid-template-rows: var(--bar-height) 1fr var(--debug-height, 220px);
   grid-template-areas:
     "bar bar bar"
     "left canvas right"
@@ -414,6 +457,23 @@ function legendTypes() {
 
 .bottom {
   grid-area: bottom;
+}
+
+.resizer {
+  grid-area: bottom;
+  align-self: start;
+  z-index: 6;
+  height: 7px;
+  margin-top: -4px;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.resizer:hover,
+.resizer:focus-visible,
+.resizer:active {
+  outline: none;
+  background: linear-gradient(transparent 2px, var(--focus) 2px 5px, transparent 5px);
 }
 
 .canvas {
