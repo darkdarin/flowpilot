@@ -4,6 +4,18 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.29
+
+### App
+
+- **Condition passes text streams on again.** A Condition that decided at once (spoken or
+  typed, the time) before an agent began its answer passed nothing on: the answer was not spoken.
+  Fixed in the runtime, where two waits for the start of a stream could lose it.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.28
 
 ### App

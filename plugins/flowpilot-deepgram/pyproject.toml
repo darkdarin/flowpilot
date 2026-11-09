@@ -1,6 +1,6 @@
 [project]
 name = "flowpilot-deepgram"
-version = "0.1.28"
+version = "0.1.29"
 description = "FlowPilot Deepgram nodes: Flux real-time speech-to-text and text-to-speech"
 readme = "README.md"
 license = "Apache-2.0"
