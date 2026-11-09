@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "flowpilot-audio",
     "flowpilot-core",
+    "flowpilot-deepgram",
     "flowpilot-llm",
     "flowpilot-sdk",
     "flowpilot-server",
@@ -258,6 +259,21 @@ requires-dist = [
 ]
 
 [[package]]
+name = "flowpilot-deepgram"
+version = "0.1.22"
+source = { editable = "plugins/flowpilot-deepgram" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "flowpilot-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.10" },
+    { name = "flowpilot-sdk", editable = "packages/flowpilot-sdk" },
+]
+
+[[package]]
 name = "flowpilot-llm"
 version = "0.1.22"
 source = { editable = "plugins/flowpilot-llm" }
@@ -335,6 +351,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "flowpilot-audio" },
     { name = "flowpilot-core" },
+    { name = "flowpilot-deepgram" },
     { name = "flowpilot-llm" },
     { name = "flowpilot-sdk" },
     { name = "flowpilot-server" },
@@ -356,6 +373,7 @@ dev = [
 requires-dist = [
     { name = "flowpilot-audio", editable = "plugins/flowpilot-audio" },
     { name = "flowpilot-core", editable = "packages/flowpilot-core" },
+    { name = "flowpilot-deepgram", editable = "plugins/flowpilot-deepgram" },
     { name = "flowpilot-llm", editable = "plugins/flowpilot-llm" },
     { name = "flowpilot-sdk", editable = "packages/flowpilot-sdk" },
     { name = "flowpilot-server", editable = "packages/flowpilot-server" },

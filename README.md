@@ -31,11 +31,12 @@ join branches, and watch every turn flow through the graph live.
 
 - **A graph editor in the sidebar.** Nodes for Home Assistant speech-to-text, text-to-speech and
   conversation agents, any [Wyoming](https://github.com/OHF-Voice/wyoming) speech service,
-  [Soniox](https://soniox.com) real-time speech-to-text and text-to-speech, a lightweight LLM agent
+  [Soniox](https://soniox.com) and [Deepgram](https://deepgram.com) real-time speech-to-text and
+  text-to-speech, a lightweight LLM agent
   for any OpenAI-compatible API (OpenAI, OpenRouter, Ollama…), a voice command
   segmenter, gain and automatic gain for quiet microphones, and logic. Wires are colored by the data
   they carry and only connect where the types match. Light and dark themes, English and Russian.
-- **Secrets.** API keys (Soniox and other cloud services) are entered once under **Secrets** in
+- **Secrets.** API keys (Soniox, Deepgram and other cloud services) are entered once under **Secrets** in
   the editor and referred to by name in node settings; the runtime never shows a value again.
 - **Safe changes.** Every edit is saved as a draft and checked; **Deploy** switches the running
   graph without a restart, and a turn in progress finishes on the old version.

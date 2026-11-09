@@ -34,6 +34,7 @@ from flowpilot_sdk import (
     Utterance,
     node_translations,
 )
+from flowpilot_sdk.wake_word import Token, strip_wake_word
 
 from .common import (
     API_KEY_SETTING,
@@ -45,7 +46,6 @@ from .common import (
     get_json,
     language_base,
 )
-from .wake_word import Token, strip_wake_word
 
 END_TOKEN = "<end>"
 FIN_TOKEN = "<fin>"

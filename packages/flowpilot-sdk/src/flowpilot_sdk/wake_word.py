@@ -1,8 +1,8 @@
 """Remove the wake word (and anything before it) from the start of a transcript.
 
 Some satellites send the audio buffered before the command, including the wake word itself.
-Soniox recognizes the whole word reliably, so cutting it from the text is more robust than
-cutting a fixed amount of audio.
+Cloud recognizers get the whole word right, so cutting it from the text is more robust than
+cutting a fixed amount of audio. Speech-to-text nodes share this.
 """
 
 import re
@@ -15,7 +15,8 @@ _NON_WORD = re.compile(r"[^\w]+")
 
 @dataclass
 class Token:
-    """Final Soniox token. Tokens are word pieces; a new word starts with a space."""
+    """A final piece of recognized text. Pieces may be parts of words; a new word starts with a
+    space."""
 
     text: str
     start_ms: int = 0
