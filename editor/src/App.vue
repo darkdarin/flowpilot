@@ -4,7 +4,7 @@ import { type Connection, VueFlow, useVueFlow } from "@vue-flow/core";
 import { MiniMap } from "@vue-flow/minimap";
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import BrandMark from "./components/BrandMark.vue";
-import ConnectMenu, { type Choice } from "./components/ConnectMenu.vue";
+import ConnectMenu, { GHOST, type Choice } from "./components/ConnectMenu.vue";
 import DebugPanel from "./components/DebugPanel.vue";
 import FpNode from "./components/FpNode.vue";
 import Inspector from "./components/Inspector.vue";
@@ -63,6 +63,7 @@ const {
   getSelectedNodes,
   addSelectedNodes,
   removeSelectedNodes,
+  viewport,
 } = useVueFlow();
 
 // The inspector follows selectedId; keep the canvas selection in step when it is set elsewhere
@@ -171,7 +172,16 @@ interface DragFrom {
 }
 let dragFrom: DragFrom | null = null;
 let wired = false;
-const menu = ref<{ x: number; y: number; clientX: number; clientY: number; from: DragFrom; choices: Choice[] } | null>(null);
+const menu = ref<{
+  x: number;
+  y: number;
+  hx: number; // the port the wire comes from, in the canvas
+  hy: number;
+  clientX: number;
+  clientY: number;
+  from: DragFrom;
+  choices: Choice[];
+} | null>(null);
 
 function onConnectStart(params: { nodeId?: string; handleId?: string | null; handleType?: string }) {
   wired = false;
@@ -195,7 +205,21 @@ function onConnectEnd(event?: MouseEvent | TouchEvent) {
     if (port) choices.push({ node, port });
   }
   const rect = canvas.getBoundingClientRect();
-  menu.value = { x: point.clientX - rect.left, y: point.clientY - rect.top, clientX: point.clientX, clientY: point.clientY, from, choices };
+  const handle = canvas
+    .querySelector(`.vue-flow__node[data-id="${CSS.escape(from.nodeId)}"] .vue-flow__handle.${from.side === "outputs" ? "source" : "target"}[data-handleid="${CSS.escape(from.handle)}"]`)
+    ?.getBoundingClientRect();
+  const hx = handle ? handle.left + handle.width / 2 : point.clientX;
+  const hy = handle ? handle.top + handle.height / 2 : point.clientY;
+  menu.value = {
+    x: point.clientX - rect.left,
+    y: point.clientY - rect.top,
+    hx: hx - rect.left,
+    hy: hy - rect.top,
+    clientX: point.clientX,
+    clientY: point.clientY,
+    from,
+    choices,
+  };
 }
 
 function onMenuPick(choice: Choice) {
@@ -204,7 +228,8 @@ function onMenuPick(choice: Choice) {
   if (!m) return;
   const at = screenToFlowCoordinate({ x: m.clientX, y: m.clientY });
   // the new node's port near where the wire was dropped: inputs are on its left, outputs on its right
-  addNode(choice.node.type, m.from.side === "outputs" ? { x: at.x + 16, y: at.y - 70 } : { x: at.x - 300, y: at.y - 70 });
+  const left = m.from.side === "outputs" ? at.x + GHOST.gap : at.x - GHOST.gap - GHOST.width;
+  addNode(choice.node.type, { x: left, y: at.y - GHOST.top }); // where the ghost was
   const id = selectedId.value;
   if (!id) return;
   if (m.from.side === "outputs") {
@@ -447,6 +472,7 @@ function legendTypes() {
         @connect="onConnect"
         @connect-start="onConnectStart"
         @connect-end="onConnectEnd"
+        @move-start="menu = null"
         @node-click="({ node }) => (selectedId = node.id)"
         @node-drag-start="({ node }) => (selectedId = node.id)"
         @pane-click="selectedId = null"
@@ -454,7 +480,19 @@ function legendTypes() {
         <Background :gap="22" :size="1.4" pattern-color="var(--canvas-dot)" />
         <MiniMap pannable zoomable :node-color="() => 'var(--line-strong)'" mask-color="color-mix(in srgb, var(--canvas) 70%, transparent)" />
       </VueFlow>
-      <ConnectMenu v-if="menu" :x="menu.x" :y="menu.y" :choices="menu.choices" @pick="onMenuPick" @close="menu = null" />
+      <ConnectMenu
+        v-if="menu"
+        :x="menu.x"
+        :y="menu.y"
+        :hx="menu.hx"
+        :hy="menu.hy"
+        :side="menu.from.side"
+        :zoom="viewport.zoom"
+        color="var(--muted)"
+        :choices="menu.choices"
+        @pick="onMenuPick"
+        @close="menu = null"
+      />
 
       <div v-if="legendTypes().length" class="legend">
         <span v-for="ty in legendTypes()" :key="ty" :style="{ '--pin': typeColor(ty) }"><i />{{ ty }}</span>
