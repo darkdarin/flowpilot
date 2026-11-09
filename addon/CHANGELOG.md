@@ -4,6 +4,23 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.26
+
+### App
+
+- **A setting can be an input of its node.** Settings that may change from turn to turn have a
+  toggle in the inspector: the node gets an input of that name, and a value that comes on it
+  overrides the setting for that turn (nothing comes: the setting as it is). The value takes
+  the setting's type ("0,8" for a number, "yes" for a switch); one that does not fit is left out.
+  So far: the voice and speed of Soniox and Deepgram speech, the instructions and temperature of
+  the LLM agent.
+- **New node: Value.** A fixed value for such an input. With a Condition: a slower voice at
+  night, other instructions for a child.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.25
 
 ### App
