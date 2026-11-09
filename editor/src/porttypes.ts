@@ -107,3 +107,37 @@ export function portKind(nodeId: string, port: PortInfo, side: "inputs" | "outpu
   const type = portType(nodeId, port, side);
   return type === ANY || type.includes("|") ? "any" : (kindOf(type) ?? port.kind);
 }
+
+/**
+ * For a wire dragged from a port into empty space: the port of a new node of `spec` it would
+ * connect to, if any. From an output (`side` "outputs") a new node's input takes what the output
+ * gives; from an input, a new node's output must give what the input takes. A generic output of a
+ * new node gives nothing yet (no input of it is connected), so it is not offered.
+ */
+export function fittingPort(nodeId: string, handle: string, side: "inputs" | "outputs", spec: { inputs: PortInfo[]; outputs: PortInfo[] }): PortInfo | undefined {
+  const own = portOf(nodes.value, nodeId, handle, side);
+  if (!own) return undefined;
+  const kind = (port: PortInfo, types: string[]) =>
+    isUnion(port) ? (types.length === 1 ? kindOf(types[0]) : undefined) : port.kind;
+  if (side === "outputs") {
+    const given = portType(nodeId, own, "outputs");
+    if (own.var && given === own.type && isUnion(own)) return undefined; // nothing gives it a type yet
+    const types = members(given);
+    const ownKind = kind(own, types);
+    return spec.inputs.find((p) => {
+      if (p.type !== ANY && !types.every((t) => members(p.type).includes(t))) return false;
+      const theirs = kind(p, types);
+      return !ownKind || !theirs || ownKind === theirs;
+    });
+  }
+  // the wire on this input (if any) is replaced; a generic input still takes its node's type
+  const accepted = own.type === ANY ? null : members(own.var ? portType(nodeId, own, "inputs") : own.type);
+  return spec.outputs.find((p) => {
+    if (p.var) return false;
+    const types = members(p.type);
+    if (accepted && !types.every((t) => accepted.includes(t))) return false;
+    const ours = kind(own, types);
+    const theirs = kind(p, types);
+    return !ours || !theirs || ours === theirs;
+  });
+}

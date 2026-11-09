@@ -4,6 +4,7 @@ import { type Connection, VueFlow, useVueFlow } from "@vue-flow/core";
 import { MiniMap } from "@vue-flow/minimap";
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import BrandMark from "./components/BrandMark.vue";
+import ConnectMenu, { type Choice } from "./components/ConnectMenu.vue";
 import DebugPanel from "./components/DebugPanel.vue";
 import FpNode from "./components/FpNode.vue";
 import Inspector from "./components/Inspector.vue";
@@ -49,7 +50,7 @@ import {
   commandsOpen,
   skillsOpen,
 } from "./store";
-import { connectProblem, edgeType } from "./porttypes";
+import { connectProblem, edgeType, fittingPort } from "./porttypes";
 import { typeColor } from "./types";
 
 const nodeTypes = { fp: markRaw(FpNode) };
@@ -161,7 +162,60 @@ function isValidConnection(c: Connection): boolean {
   return connectProblem(c.source, c.sourceHandle ?? "", c.target, c.targetHandle ?? "") === null;
 }
 
+// A wire dragged from a port and dropped on empty canvas opens a menu of the nodes that fit that
+// port (like Unreal's Blueprints); the node picked is added there, wired.
+interface DragFrom {
+  nodeId: string;
+  handle: string;
+  side: "inputs" | "outputs";
+}
+let dragFrom: DragFrom | null = null;
+let wired = false;
+const menu = ref<{ x: number; y: number; clientX: number; clientY: number; from: DragFrom; choices: Choice[] } | null>(null);
+
+function onConnectStart(params: { nodeId?: string; handleId?: string | null; handleType?: string }) {
+  wired = false;
+  dragFrom = params.nodeId && params.handleId
+    ? { nodeId: params.nodeId, handle: params.handleId, side: params.handleType === "target" ? "inputs" : "outputs" }
+    : null;
+}
+
+function onConnectEnd(event?: MouseEvent | TouchEvent) {
+  const from = dragFrom;
+  dragFrom = null;
+  if (!from || wired || !event) return;
+  const target = event.target as Element | null;
+  const canvas = target?.closest(".canvas") as HTMLElement | null;
+  if (!canvas || target?.closest(".vue-flow__handle, .vue-flow__node")) return; // dropped on a port or a node
+  const point = "changedTouches" in event ? event.changedTouches[0] : event;
+  const choices: Choice[] = [];
+  for (const node of specs.value.values()) {
+    if (node.fixed) continue;
+    const port = fittingPort(from.nodeId, from.handle, from.side, node);
+    if (port) choices.push({ node, port });
+  }
+  const rect = canvas.getBoundingClientRect();
+  menu.value = { x: point.clientX - rect.left, y: point.clientY - rect.top, clientX: point.clientX, clientY: point.clientY, from, choices };
+}
+
+function onMenuPick(choice: Choice) {
+  const m = menu.value;
+  menu.value = null;
+  if (!m) return;
+  const at = screenToFlowCoordinate({ x: m.clientX, y: m.clientY });
+  // the new node's port near where the wire was dropped: inputs are on its left, outputs on its right
+  addNode(choice.node.type, m.from.side === "outputs" ? { x: at.x + 16, y: at.y - 70 } : { x: at.x - 300, y: at.y - 70 });
+  const id = selectedId.value;
+  if (!id) return;
+  if (m.from.side === "outputs") {
+    onConnect({ source: m.from.nodeId, sourceHandle: m.from.handle, target: id, targetHandle: choice.port.name });
+  } else {
+    onConnect({ source: id, sourceHandle: choice.port.name, target: m.from.nodeId, targetHandle: m.from.handle });
+  }
+}
+
 function onConnect(c: Connection) {
+  wired = true;
   const out = portOf(c.source, c.sourceHandle, "outputs");
   if (!out) return;
   const problem = connectProblem(c.source, c.sourceHandle ?? "", c.target, c.targetHandle ?? "");
@@ -391,6 +445,8 @@ function legendTypes() {
         :zoom-on-scroll="false"
         delete-key-code="Delete"
         @connect="onConnect"
+        @connect-start="onConnectStart"
+        @connect-end="onConnectEnd"
         @node-click="({ node }) => (selectedId = node.id)"
         @node-drag-start="({ node }) => (selectedId = node.id)"
         @pane-click="selectedId = null"
@@ -398,6 +454,7 @@ function legendTypes() {
         <Background :gap="22" :size="1.4" pattern-color="var(--canvas-dot)" />
         <MiniMap pannable zoomable :node-color="() => 'var(--line-strong)'" mask-color="color-mix(in srgb, var(--canvas) 70%, transparent)" />
       </VueFlow>
+      <ConnectMenu v-if="menu" :x="menu.x" :y="menu.y" :choices="menu.choices" @pick="onMenuPick" @close="menu = null" />
 
       <div v-if="legendTypes().length" class="legend">
         <span v-for="ty in legendTypes()" :key="ty" :style="{ '--pin': typeColor(ty) }"><i />{{ ty }}</span>
