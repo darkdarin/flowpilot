@@ -4,6 +4,22 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.31
+
+### App
+
+- **The LLM agent confirms with a sound too.** The agent has a new output, ack, and may confirm
+  a simple command it did (turn on the light) with the satellite's sound instead of words: it
+  says so together with the actions, and when they all succeeded the turn ends at once, without
+  a second request to the model, so the answer comes sooner. A failed action, a device outside
+  the satellite's room (in the default mode) or a reply with nothing done still get an answer in
+  words. Set it in the agent's Tools: Confirm with a sound. To use it together with Quick
+  commands, join both acks with First present in front of Client output's ack.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.30
 
 ### App
