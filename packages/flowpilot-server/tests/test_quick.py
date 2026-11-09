@@ -164,6 +164,17 @@ async def test_a_sound_instead_of_words_in_the_speakers_room() -> None:
     assert not never.outputs["ack"].items and never.outputs["delta"].items
 
 
+async def test_the_sound_says_what_was_done() -> None:
+    """The ack carries what was done: turned on, turned off, or something else."""
+    here = {**DONE, "targets_in_area": True}
+    for intent, kind in (("HassTurnOn", "on"), ("HassTurnOff", "off"), ("HassLightSet", "done")):
+        result, _ = await run({**here, "intent": intent})
+        (ack,) = result.outputs["ack"].items
+        assert ack.data == {"acknowledge": kind}, intent
+    result, _ = await run(here)  # an older integration says no intent
+    assert result.outputs["ack"].items[0].data == {"acknowledge": "done"}
+
+
 async def test_a_learned_command_runs_its_actions_without_asking_home_assistant() -> None:
     from flowpilot_sdk import Action
     from flowpilot_server.commands_store import CommandStore
@@ -195,6 +206,8 @@ async def test_a_learned_command_runs_its_actions_without_asking_home_assistant(
         ("intent__HassTurnOn", {"name": "Телевизор"}),
     ]
     assert [a.text for a in result.outputs["ack"].items] == ["Приятного просмотра"]
+    # one action turned off, the other on: neither sound, so "done"
+    assert result.outputs["ack"].items[0].data == {"acknowledge": "done"}
     assert commands.all()[0].uses == 1 and commands.all()[0].id == movie.id
 
 

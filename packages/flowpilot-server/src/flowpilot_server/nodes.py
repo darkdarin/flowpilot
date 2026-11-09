@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from typing import Any, ClassVar, Protocol
 
 from flowpilot_sdk import (
+    ANY,
     IDENTITY_PROVIDER_GRANT,
     OPTIONS_KEY,
     AudioChunk,
@@ -23,12 +24,14 @@ from flowpilot_sdk import (
     TurnSession,
     Utterance,
     node_translations,
+    type_kind,
 )
 from flowpilot_sdk.helpers import SpeechWriter, split_sentences
 
 AUDIO = "audio.pcm/1"
 UTTERANCE = "text.utterance/1"
 PRINCIPAL = "identity.principal/1"
+ACK_KINDS = ("on", "off", "done")  # what a sound confirms: turned on, turned off, else
 HA_CONVERSATION_OP = "ha.conversation.process"
 HA_STT_OP = "ha.stt.process"
 HA_TTS_OP = "ha.tts.synthesize"
@@ -50,7 +53,7 @@ class ClientOutlet(Protocol):
 
     async def delta(self, text: str) -> None: ...
 
-    async def response(self, response: Response) -> None: ...
+    async def response(self, response: Response, acknowledge: str | None = None) -> None: ...
 
     async def speech_start(self, fmt: AudioFormat) -> None: ...
 
@@ -128,7 +131,7 @@ class ClientSink(_Lifecycle):
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="client.sink",
         translations=node_translations(__package__, "client.sink"),
-        version="1.0.0",
+        version="1.1.0",
         title="Client output",
         category="output",
         fixed=True,
@@ -152,6 +155,15 @@ class ClientSink(_Lifecycle):
                 description=(
                     "Synthesized speech to play back; without it the client speaks the answer "
                     "itself (for example with Home Assistant TTS)."
+                ),
+            ),
+            "ack": PortSpec(
+                ANY,
+                required=False,
+                description=(
+                    "Confirm the turn with a sound instead of words when something comes here "
+                    "(Quick commands' ack): the satellite plays its own sound, others Home "
+                    "Assistant's. A turned on / off / done kind goes with it when the data says."
                 ),
             ),
         },
@@ -186,10 +198,35 @@ class ClientSink(_Lifecycle):
             finally:
                 await outlet.speech_end()
 
+        async def acknowledged() -> str | None:
+            """``on``, ``off`` or ``done`` when something came on ack (what was done, if it
+            says), else ``None``."""
+            stream = turn.input("ack")
+            if not stream.connected:
+                return None
+            try:
+                header = await stream.header()
+                if header is None:
+                    return None
+                items = (
+                    [await stream.value()]
+                    if type_kind(header.type) == "value"
+                    else [item async for item in stream]
+                )
+            except StreamError:
+                return None
+            for item in items:
+                data = getattr(item, "data", None)
+                if isinstance(data, Mapping) and data.get("acknowledge") in ACK_KINDS:
+                    return str(data["acknowledge"])
+            return "done"
+
         async def response() -> None:
+            ack = asyncio.ensure_future(acknowledged())
             value = await turn.input("response").value()
+            acknowledge = await ack  # with the answer, so the client knows before it speaks
             if value is not None:
-                await outlet.response(value)
+                await outlet.response(value, acknowledge)
 
         async def guarded(coro: Any) -> None:
             # Intermediate streams may fail upstream; the rest must still reach the client.

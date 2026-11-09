@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from dataclasses import replace
 from typing import Any, ClassVar
 
 from flowpilot_sdk import (
@@ -46,6 +47,9 @@ TOOL_CALL_OP = "ha.llm.call"
 SERVICE_CALL_OP = "ha.service.call"
 # what a learned command answers when it has no reply of its own, and when it failed
 DONE = {"ru": ("Готово", "Не получилось"), "en": ("Done", "That did not work")}
+
+# Home Assistant intents and the sound that confirms them (``acknowledge`` on the ack answer)
+ACK_KINDS = {"HassTurnOn": "on", "HassTurnOff": "off"}
 
 
 def _base(language: str | None) -> str:
@@ -253,6 +257,13 @@ class HaQuickCommands:
                     return command
         return None
 
+    @staticmethod
+    def _acknowledge_kind(intents: list[str]) -> str:
+        """What the command did, for the sound that confirms it: ``on`` when everything was
+        turned on, ``off`` when turned off, else ``done``."""
+        kinds = {ACK_KINDS.get(name, "done") for name in intents}
+        return kinds.pop() if len(kinds) == 1 else "done"
+
     async def _replay(
         self, turn: TurnSession, command: QuickCommand, args: dict[str, Any]
     ) -> dict[str, Any]:
@@ -266,8 +277,10 @@ class HaQuickCommands:
             "language": args["language"],
         }
         here = True
+        intents: list[str] = []
         skills = {s.tool: s for s in self._skills.all()} if self._skills is not None else {}
         for action in command.actions:
+            intents.append(action.tool.removeprefix("intent__"))
             try:
                 if action.tool.startswith(TOOL_PREFIX):  # a skill: its own actions
                     skill = skills.get(action.tool)
@@ -288,7 +301,12 @@ class HaQuickCommands:
                 return {"response_type": "error", "speech": f"{failed}: {why or action.tool}"}
             here = here and bool(result.get("targets_in_area"))
         done = command.reply or DONE.get(_base(args["language"]), DONE["en"])[0]
-        return {"response_type": "action_done", "speech": done, "targets_in_area": here}
+        return {
+            "response_type": "action_done",
+            "speech": done,
+            "targets_in_area": here,
+            "acknowledge": self._acknowledge_kind(intents),
+        }
 
     async def _run_skill(
         self, turn: TurnSession, skill: Skill, args: dict[str, Any], who: dict[str, Any]
@@ -385,6 +403,7 @@ class HaQuickCommands:
             language=language,
             continue_conversation=bool(result.get("continue_conversation", False)),
         )
+        ack = str(result.get("acknowledge") or self._acknowledge_kind([str(result.get("intent"))]))
         here = bool(result.get("targets_in_area"))
         sound = (
             kind == "action_done"
@@ -392,7 +411,8 @@ class HaQuickCommands:
             and (self._acknowledge == "always" or (self._acknowledge == "area" and here))
         )
         if sound:  # a sound instead of words, as Home Assistant's own pipeline does
-            await turn.output("ack").send(answer)
+            # what was done, for the sound: turned on, turned off or else
+            await turn.output("ack").send(replace(answer, data={"acknowledge": ack}))
         elif speech:
             await turn.output("delta").send(TextDelta(speech))
         await turn.output("response").send(answer)

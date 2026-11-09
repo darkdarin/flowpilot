@@ -172,6 +172,11 @@ class FlowPilotConversationEntity(GraphEntity, conversation.ConversationEntity):
             return self._error(user_input, chat_log, str(state["reason"]), str(state["error"]))
         result = conversation.async_get_result_from_chat_log(user_input, chat_log)
         result.continue_conversation = bool(state["continue"]) or result.continue_conversation
+        if handle.acknowledge:
+            # A sound instead of words: satellites that have their own sound (a Yandex Station)
+            # find it here; our text-to-speech entity plays Home Assistant's acknowledge sound.
+            speech = result.response.speech.get("plain", {}).get("speech", "")
+            result.response.async_set_speech(speech, extra_data={"acknowledge": handle.acknowledge})
         return result
 
     @staticmethod
@@ -196,6 +201,7 @@ class FlowPilotConversationEntity(GraphEntity, conversation.ConversationEntity):
             elif kind == "turn.response":
                 response = msg["response"]
                 state["continue"] = bool(response.get("continue_conversation"))
+                handle.acknowledge = response.get("acknowledge") or None
                 if not streamed:
                     yield {"content": str(response.get("text") or "")}
                 return

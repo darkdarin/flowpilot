@@ -163,6 +163,8 @@ def build_host_ops(
             "continue_conversation": result.continue_conversation,
             "conversation_id": result.conversation_id,
             "response_type": result.response.response_type.value,
+            # which intent did it (HassTurnOn, HassTurnOff...): the sound that confirms it
+            "intent": result.response.intent.intent_type if result.response.intent else None,
             # why an "error" answer failed: "no_intent_match" (not understood),
             # "no_valid_targets", "failed_to_handle", ...
             "error_code": (

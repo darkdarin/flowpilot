@@ -24,7 +24,8 @@ Server → client
 - ``turn.transcript`` ``{turn_id, text, final}``
 - ``turn.delta``     ``{turn_id, text}`` — streamed response text.
 - ``turn.response``  ``{turn_id, response: {text, speech_text, language, continue_conversation,
-  data}}``
+  data, acknowledge}}`` — ``acknowledge``: confirm with a sound instead of words, ``"on"`` (turned
+  on), ``"off"`` (turned off) or ``"done"``; ``null`` to speak the answer.
 - ``stream.start``   ``{turn_id, stream, kind: "speech", format}`` then binary frames, then
   ``stream.end {stream}``.
 - ``host.call``      ``{call, turn_id, op, args}`` — the client answers with ``host.result``.

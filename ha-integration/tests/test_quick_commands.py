@@ -141,3 +141,37 @@ async def test_a_learned_command_does_several_things(hass: HomeAssistant) -> Non
         assert [c.data["entity_id"] for c in on] == [["light.floor"]]
         assert on[0].context.user_id == user.id  # as the person who asked
         assert commands.all()[0].uses == 1
+
+
+async def test_a_command_confirmed_with_a_sound_says_what_it_did(hass: HomeAssistant) -> None:
+    """Quick commands' ack wired to the client output: the answer carries acknowledge (on/off)
+    in its speech's extra_data, for satellites with their own sound (a Yandex Station)."""
+    graph = {
+        **GRAPH,
+        "nodes": [
+            {**n, "config": {"acknowledge": "always"}} if n["id"] == "quick" else n
+            for n in GRAPH["nodes"]
+        ],
+        "edges": [*GRAPH["edges"], {"from": "quick.ack", "to": "out.ack"}],
+    }
+    for domain in ("intent", "light"):
+        assert await async_setup_component(hass, domain, {})
+    async for runtime in _runtime({}, graph):
+        await setup_flowpilot(hass, runtime)
+        hass.states.async_set("light.kitchen", "off", {"friendly_name": "Kitchen light"})
+        async_expose_entity(hass, "conversation", "light.kitchen", True)
+        async_mock_service(hass, "light", "turn_on")
+        async_mock_service(hass, "light", "turn_off")
+
+        on = await async_converse(
+            hass, "turn on kitchen light", None, Context(), agent_id=AGENT_ENTITY
+        )
+        assert on.response.speech["plain"]["extra_data"] == {"acknowledge": "on"}
+        off = await async_converse(
+            hass, "turn off kitchen light", None, Context(), agent_id=AGENT_ENTITY
+        )
+        assert off.response.speech["plain"]["extra_data"] == {"acknowledge": "off"}
+        chat = await async_converse(
+            hass, "what rhymes with orange", None, Context(), agent_id=AGENT_ENTITY
+        )
+        assert not chat.response.speech["plain"].get("extra_data")  # an answer in words

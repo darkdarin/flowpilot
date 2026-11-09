@@ -42,7 +42,7 @@ class RecordingOutlet:
     async def delta(self, text: str) -> None:
         self.events.append("delta")
 
-    async def response(self, response: Response) -> None:
+    async def response(self, response: Response, acknowledge: str | None = None) -> None:
         self.events.append("response")
 
     async def speech_start(self, fmt: AudioFormat) -> None:
@@ -155,3 +155,37 @@ async def test_ha_tts_conforms() -> None:
         HaTts, config={"engine": "tts.cloud"}, sample={"text": text}, host=FakeHost()
     )
     assert_conforms(report)
+
+
+async def test_client_sink_tells_the_client_to_confirm_with_a_sound() -> None:
+    """What comes on ack makes the answer a sound, with what was done when the data says."""
+    from flowpilot_core.conformance import InputFeed, run_node_once  # noqa: PLC0415
+    from flowpilot_core.runtime import RuntimeNodeContext  # noqa: PLC0415
+
+    class Outlet(RecordingOutlet):
+        acknowledge: str | None = "unset"
+
+        async def response(self, response: Response, acknowledge: str | None = None) -> None:
+            self.acknowledge = acknowledge
+
+    async def sent(ack: InputFeed | None) -> str | None:
+        node = ClientSink()
+        await node.start(RuntimeNodeContext("out", {}, {}, frozenset()))
+        outlet = Outlet()
+
+        def prepare(node: Node, ctx: TurnContext) -> None:
+            assert isinstance(node, ClientSink)
+            node.outlets[ctx.turn_id] = outlet
+
+        inputs = {"response": InputFeed(items=[Response("Выключила свет")])}
+        if ack is not None:
+            inputs["ack"] = ack
+        run = await run_node_once(node, inputs, prepare=prepare)
+        assert run.error is None, run.error
+        return outlet.acknowledge
+
+    off = Response("Выключила свет", data={"acknowledge": "off"})
+    assert await sent(InputFeed(items=[off])) == "off"
+    assert await sent(InputFeed(items=[Response("ок")])) == "done"  # says nothing of what
+    assert await sent(InputFeed(end="absent")) is None  # wired, nothing came: speak
+    assert await sent(None) is None

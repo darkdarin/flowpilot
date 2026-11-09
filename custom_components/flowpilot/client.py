@@ -131,6 +131,8 @@ class TurnHandle:
         self._audio_open = audio_stream is not None
         self.speech = SpeechBuffer()
         self.speech_taken = False  # played by a text-to-speech entity (once per turn)
+        # confirm with a sound instead of words: "on", "off" or "done" (turn.response)
+        self.acknowledge: str | None = None
 
     async def send_audio(self, pcm: bytes) -> None:
         if self._audio_open and self.audio_stream is not None:

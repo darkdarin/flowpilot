@@ -120,9 +120,17 @@ class FlowPilotTtsEntity(GraphEntity, tts.TextToSpeechEntity):
                 fmt = None
             if fmt is not None:
                 return tts.TTSAudioResponse("wav", self._graph_speech(handle, fmt))
+            if handle.acknowledge:
+                # confirmed with a sound instead of words, as Home Assistant's own pipeline does
+                return tts.TTSAudioResponse("mp3", self._acknowledge_sound())
             _LOGGER.debug("Turn %s has no speech; using the fallback voice", handle.turn_id)
         text = "".join([chunk async for chunk in request.message_gen])
         return await self._fallback(text, request.language)
+
+    async def _acknowledge_sound(self) -> AsyncGenerator[bytes]:
+        from homeassistant.components.assist_pipeline.const import ACKNOWLEDGE_PATH  # noqa: PLC0415
+
+        yield await self.hass.async_add_executor_job(ACKNOWLEDGE_PATH.read_bytes)
 
     @staticmethod
     async def _graph_speech(handle: TurnHandle, fmt: Mapping[str, Any]) -> AsyncGenerator[bytes]:

@@ -554,13 +554,14 @@ class _Collector:
     async def delta(self, text: str) -> None:
         return None
 
-    async def response(self, response: Response) -> None:
+    async def response(self, response: Response, acknowledge: str | None = None) -> None:
         self.answer = {
             "text": response.text,
             "speech_text": response.speech_text,
             "language": response.language,
             "continue_conversation": response.continue_conversation,
             "data": dict(response.data) if response.data else None,
+            "acknowledge": acknowledge,
         }
 
     async def speech_start(self, fmt: AudioFormat) -> None:
@@ -589,7 +590,7 @@ class _Outlet:
     async def delta(self, text: str) -> None:
         await self._conn.send({"type": "turn.delta", "turn_id": self._turn_id, "text": text})
 
-    async def response(self, response: Response) -> None:
+    async def response(self, response: Response, acknowledge: str | None = None) -> None:
         await self._conn.send(
             {
                 "type": "turn.response",
@@ -600,6 +601,8 @@ class _Outlet:
                     "language": response.language,
                     "continue_conversation": response.continue_conversation,
                     "data": dict(response.data) if response.data else None,
+                    # confirm with a sound instead of words: "on", "off" or "done"
+                    "acknowledge": acknowledge,
                 },
             }
         )
