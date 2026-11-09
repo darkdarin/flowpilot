@@ -190,3 +190,29 @@ def test_spoken_error_falls_back_to_english() -> None:
     assert spoken_error("timeout", "ru-RU") == "FlowPilot не успел ответить."
     assert spoken_error("timeout", "de") == "FlowPilot did not answer in time."
     assert spoken_error("unknown-reason", None) == "No answer: a step of the voice flow failed."
+
+
+async def test_where_the_turn_comes_from(hass: HomeAssistant) -> None:
+    from homeassistant.helpers import area_registry as ar  # noqa: PLC0415
+    from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
+
+    kitchen = ar.async_get(hass).async_create("Кухня")
+    entry = MockConfigEntry(domain="test")
+    entry.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={("test", "speaker")}, name="Колонка"
+    )
+    dr.async_get(hass).async_update_device(device.id, area_id=kitchen.id)
+    satellite = er.async_get(hass).async_get_or_create(
+        "assist_satellite", "test", "speaker", device_id=device.id, config_entry=entry
+    )
+    ops = build_host_ops(hass, MockConfigEntry(domain="flowpilot"))
+
+    # the satellite has no area of its own: its device's counts
+    where = await ops["ha.turn.where"](HostRequest(None, {"satellite_id": satellite.entity_id}))
+    assert where["area_id"] == kitchen.id and where["area"] == "Кухня"
+    assert where["device_id"] == device.id
+    nowhere = await ops["ha.turn.where"](HostRequest(None, {}))
+    assert nowhere["area_id"] is None
+    options = (await ops["ha.entities.list"](HostRequest(None, {})))["options"]
+    assert {"id": kitchen.id, "name": "Кухня"} in options["ha.area"]

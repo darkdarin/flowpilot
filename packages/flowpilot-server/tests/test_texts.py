@@ -6,6 +6,7 @@ import pytest
 
 from flowpilot_core.conformance import missing_descriptions
 from flowpilot_sdk import ENUM_TITLES_KEY, NodeSpec
+from flowpilot_sdk.node import enum_values
 from flowpilot_server.__main__ import build_registry
 
 REGISTRY = build_registry(dev=True)
@@ -23,8 +24,8 @@ def test_english_texts(spec: NodeSpec) -> None:
     assert missing_descriptions(spec) == []
     for name, prop in (spec.config_schema.get("properties") or {}).items():
         assert prop.get("title"), f"setting {name} has no title"
-        if "enum" in prop:  # every value of a list is labelled
-            assert set(prop.get(ENUM_TITLES_KEY) or {}) == {str(v) for v in prop["enum"]}, name
+        if enum_values(prop):  # every value of a list is labelled
+            assert set(prop.get(ENUM_TITLES_KEY) or {}) == {str(v) for v in enum_values(prop)}, name
 
 
 @pytest.mark.parametrize("language", LANGUAGES)
@@ -39,7 +40,7 @@ def test_translations_are_complete(spec: NodeSpec, language: str) -> None:
     assert set(text.config) == props
     for name, field in text.config.items():
         assert field.title and field.description, f"setting {name}"
-        values = {str(v) for v in spec.config_schema["properties"][name].get("enum", [])}
+        values = {str(v) for v in enum_values(spec.config_schema["properties"][name])}
         assert set(field.options) == values, f"labels of {name}"
 
 

@@ -40,7 +40,8 @@ class PortSpec:
 
     ``type`` is one payload type id, or a union of them (``"a/1|b/1"``, e.g. ``TEXT``): such a
     port takes any of them, and its kind is that of the type connected (``kind`` applies to
-    one-type ports). ``ANY`` takes every type, on inputs only. ``var`` makes the node generic:
+    one-type ports). ``ANY`` takes every type: on inputs, or on an output with ``var`` (it gives
+    what its inputs got). ``var`` makes the node generic:
     its ports with the same ``var`` carry the same type in a graph, the one connected to its
     inputs; an output with ``var`` has the type of the inputs with it.
     """
@@ -95,10 +96,27 @@ OPTIONS_KEY = "x-flowpilot-options"
 # Language settings carry ``"format": "language"`` so editors show language names for the codes.
 NODE_OPTIONS_KEY = "x-flowpilot-node-options"
 
+# JSON Schema keyword for a setting that applies only to what one input carries, e.g. text
+# conditions of a node whose ``check`` input takes any type:
+# ``{"type": "array", WHEN_INPUT_KEY: {"port": "check", "types": ["text.utterance/1", ...]}}``;
+# ``"types": "*"`` means anything connected. Editors show it when that input carries one of the
+# types, and flag it when it is set but does not apply.
+WHEN_INPUT_KEY = "x-flowpilot-when-input"
+
 # JSON Schema keyword with English labels for the values of an ``enum`` setting:
-# ``{"enum": ["whole", "words"], ENUM_TITLES_KEY: {"whole": "At once", "words": "Word by word"}}``.
+# ``{"enum": ["whole", "words"], ENUM_TITLES_KEY: {"whole": "At once", "words": "Word by word"}}``,
+# or of a list of them (``{"type": "array", "items": {"enum": [...]}, ENUM_TITLES_KEY: {...}}``).
 # Translations carry the same under ``config.<setting>.options``.
 ENUM_TITLES_KEY = "x-flowpilot-enum-titles"
+
+
+def enum_values(prop: Mapping[str, Any]) -> list[Any]:
+    """The values a setting may take from a list: its ``enum``, or its items' for a list of them."""
+    items = prop.get("items")
+    return list(
+        prop.get("enum") or (items.get("enum") if isinstance(items, Mapping) else None) or []
+    )
+
 
 # Settings that belong together: the config schema names its groups with their English texts,
 # ``{GROUPS_KEY: {"memory": {"title": "Memory", "description": "..."}}}``, and each grouped
@@ -159,7 +177,7 @@ class NodeSpec:
             if not PORT_NAME_RE.match(name):
                 raise ValueError(f"invalid port name {name!r} in {self.type}")
         for name, port in self.outputs.items():
-            if port.type == ANY:
+            if port.type == ANY and not port.var:
                 raise ValueError(f"{self.type}: output {name!r} cannot take any type")
             for member in port.types:
                 grant = PRIVILEGED_TYPES.get(member)
@@ -195,7 +213,7 @@ class NodeSpec:
             if unknown := set(text.groups) - groups:
                 raise ValueError(f"{where}: translations for unknown groups {sorted(unknown)}")
             for name, field_text in text.config.items():
-                values = {str(v) for v in self.config_schema["properties"][name].get("enum", [])}
+                values = {str(v) for v in enum_values(self.config_schema["properties"][name])}
                 if unknown := set(field_text.options) - values:
                     raise ValueError(f"{where}: labels for unknown values of {name}: {unknown}")
 

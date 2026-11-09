@@ -105,8 +105,8 @@ class DeepgramStt:
                 "keyterms": {
                     "title": "Terms",
                     "description": (
-                        "Words Deepgram should expect: names of rooms, devices, people. A JSON "
-                        'list of strings, e.g. ["garland", "kitchen"].'
+                        "Words Deepgram should expect: names of rooms, devices, people; one per "
+                        "line."
                     ),
                     "type": "array",
                     "items": {"type": "string"},
@@ -145,7 +145,7 @@ class DeepgramStt:
                     "title": "Wake words to cut",
                     "description": (
                         "For satellites that send the wake word with the command: cut it (and "
-                        'anything before it) from the text. A JSON list, e.g. ["Alexa"].'
+                        "anything before it) from the text; one per line, e.g. Alexa."
                     ),
                     "type": "array",
                     "items": {"type": "string"},

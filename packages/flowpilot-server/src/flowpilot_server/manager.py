@@ -41,8 +41,12 @@ _LOGGER = logging.getLogger(__name__)
 
 GRAPH_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 RETIRE_TIMEOUT_S = 120.0
-# Built-in nodes trusted with identity: the client input gives who the client says asks.
-BUILTIN_GRANTS: dict[str, frozenset[str]] = {"client.source": frozenset({IDENTITY_PROVIDER_GRANT})}
+# Built-in nodes trusted with identity: the client input gives who the client says asks, the
+# condition passes it on when routed through it.
+BUILTIN_GRANTS: dict[str, frozenset[str]] = {
+    "client.source": frozenset({IDENTITY_PROVIDER_GRANT}),
+    "logic.condition": frozenset({IDENTITY_PROVIDER_GRANT}),  # forwards who speaks, unchanged
+}
 
 GraphCheck = Callable[[ValidatedGraph], list[GraphIssue]]
 TraceFactory = Callable[[str], TraceSink]

@@ -36,7 +36,9 @@ from .const import (
     HOST_OP_SERVICE_CALL,
     HOST_OP_STT,
     HOST_OP_TTS,
+    HOST_OP_TURN_WHERE,
     INNER_CONVERSATION_PREFIX,
+    OPTION_AREA,
     OPTION_CONVERSATION,
     OPTION_STT,
     OPTION_TTS,
@@ -54,6 +56,18 @@ def targets_in_area(
     if getattr(response, "response_type", None) is not intent.IntentResponseType.ACTION_DONE:
         return False
     return entities_in_area(hass, [s.entity_id for s in states or []], satellite_id, device_id)
+
+
+def area_of(hass: HomeAssistant, satellite_id: str | None, device_id: str | None) -> str | None:
+    """The area of the satellite (or device) that heard the turn: the satellite entity's own area,
+    else its device's."""
+    entities, devices = er.async_get(hass), dr.async_get(hass)
+    if satellite_id and (satellite := entities.async_get(satellite_id)) is not None:
+        if satellite.area_id:
+            return satellite.area_id
+        device_id = satellite.device_id or device_id
+    device = devices.async_get(device_id) if device_id else None
+    return dr.async_get_effective_area_id(hass, device) if device else None
 
 
 def tool_entities(data: Any) -> list[str]:
@@ -75,12 +89,7 @@ def entities_in_area(
     if not entity_ids:
         return False
     entities, devices = er.async_get(hass), dr.async_get(hass)
-    area_id: str | None = None
-    if satellite_id and (satellite := entities.async_get(satellite_id)) is not None:
-        area_id, device_id = satellite.area_id, satellite.device_id
-    if area_id is None:
-        device = devices.async_get(device_id) if device_id else None
-        area_id = dr.async_get_effective_area_id(hass, device) if device else None
+    area_id = area_of(hass, satellite_id, device_id)
     if area_id is None:
         return False
     for entity_id in entity_ids:
@@ -233,9 +242,13 @@ def build_host_ops(
             for user in await hass.auth.async_get_users()
             if user.is_active and not user.system_generated
         ]
+        areas = [
+            {"id": area.id, "name": area.name} for area in ar.async_get(hass).async_list_areas()
+        ]
         return {
             "options": {
                 OPTION_USER: people,
+                OPTION_AREA: sorted(areas, key=lambda a: a["name"]),
                 OPTION_STT: states("stt"),
                 OPTION_TTS: states("tts"),
                 OPTION_CONVERSATION: states("conversation"),
@@ -255,6 +268,25 @@ def build_host_ops(
                 return await asyncio.shield(request.handle.attached)
         except TimeoutError:
             return None
+
+    async def turn_where(request: HostRequest) -> Any:
+        """Where the turn comes from: the satellite or device and its area. In a voice turn Home
+        Assistant names them once speech is recognized, so this waits for that (a few seconds)."""
+        args = request.args
+        user_input = await turn_input(request)
+        device_id = args.get("device_id") or (user_input.device_id if user_input else None)
+        satellite_id = args.get("satellite_id") or (user_input.satellite_id if user_input else None)
+        if device_id is None and satellite_id:
+            satellite = er.async_get(hass).async_get(satellite_id)
+            device_id = satellite.device_id if satellite else None
+        area_id = area_of(hass, satellite_id, device_id)
+        area = ar.async_get(hass).async_get_area(area_id) if area_id else None
+        return {
+            "device_id": device_id,
+            "satellite_id": satellite_id,
+            "area_id": area_id,
+            "area": area.name if area else None,
+        }
 
     async def llm_api(request: HostRequest) -> llm.APIInstance:
         """Home Assistant's Assist LLM API for the turn's person, device and language: only
@@ -403,6 +435,7 @@ def build_host_ops(
     return {
         HOST_OP_ENTITIES: entities_list,
         HOST_OP_PEOPLE: people_list,
+        HOST_OP_TURN_WHERE: turn_where,
         HOST_OP_NAMES: names_list,
         HOST_OP_SERVICE_CALL: service_call,
         HOST_OP_LLM_TOOLS: llm_tools,

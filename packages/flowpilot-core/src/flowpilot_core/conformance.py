@@ -21,6 +21,7 @@ Checks (codes are stable):
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -182,14 +183,19 @@ async def run_node_once(
     watched: bool = False,
     sessions: MemorySessionStore | None = None,
     session_id: str | None = None,
+    context: Mapping[str, Any] | None = None,
 ) -> NodeRun:
     """Run one turn of a started node against fed inputs, capturing outputs.
+
+    ``context`` sets fields of the turn's context (``voice``, ``language``, ``initial_principal``).
 
     Inputs not listed in ``inputs`` are absent. With ``cancel_after_s`` the turn is cancelled after
     that delay and ``error`` holds the resulting ``CancelledError`` if the node propagated it.
     """
     spec = node.spec
     ctx, session = _turn_context(budget_s, session_id)
+    if context:
+        ctx = dataclasses.replace(ctx, **context)
     if prepare is not None:
         prepared = prepare(node, ctx)
         if prepared is not None:

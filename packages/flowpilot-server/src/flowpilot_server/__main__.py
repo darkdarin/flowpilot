@@ -43,6 +43,7 @@ from flowpilot_sdk import Node
 from . import datadir, supervisor
 from .answer import FixedAnswer
 from .commands_store import CommandStore
+from .condition import Condition
 from .devnodes import DEV_NODES
 from .manager import GraphManager, GraphStore
 from .memory_store import MemoryStore
@@ -67,6 +68,7 @@ def build_registry(*, dev: bool = False) -> NodeRegistry:
         ClientSink,
         HaConversation,
         HaQuickCommands,
+        Condition,
         SoundSignal,
         HaStt,
         HaTts,

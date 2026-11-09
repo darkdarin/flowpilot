@@ -123,7 +123,26 @@ watch(
   { immediate: true },
 );
 
+/** A Condition's conditions in short: "Spoken · 22:00–07:00 · Kitchen", "or" when any one will do. */
+function conditionSummary(cfg: Record<string, unknown>): string {
+  const label = (key: string, value: unknown) => fieldOptionTitles(spec.value, key)[String(value)] ?? String(value);
+  const names = (kind: string, ids: unknown) =>
+    (Array.isArray(ids) ? ids : []).map((id) => hostOptions.value.options[kind]?.find((o) => o.id === id)?.name ?? String(id));
+  const parts: string[] = [];
+  if (cfg.turn) parts.push(label("turn", cfg.turn));
+  if (cfg.time_from || cfg.time_to) parts.push(`${cfg.time_from ?? "00:00"}–${cfg.time_to ?? "24:00"}`);
+  if (Array.isArray(cfg.days) && cfg.days.length) parts.push(cfg.days.map((d) => label("days", d)).join(", "));
+  parts.push(...names("ha.area", cfg.areas));
+  if (cfg.present) parts.push(`${fieldTitle(spec.value, "present")}: ${label("present", cfg.present)}`);
+  if (Array.isArray(cfg.words) && cfg.words.length) parts.push(cfg.words.map((w) => `«${w}»`).join(", "));
+  if (cfg.pattern) parts.push(`/${cfg.pattern}/`);
+  parts.push(...names("ha.user", cfg.people));
+  if (cfg.known) parts.push(label("known", cfg.known));
+  return parts.join(cfg.match === "any" ? ` ${t("node.or")} ` : " · ");
+}
+
 const summary = computed(() => {
+  if (props.data.type === "logic.condition") return conditionSummary(props.data.config);
   const p = pick.value;
   if (!p) return "";
   const { key, value, schema } = p;

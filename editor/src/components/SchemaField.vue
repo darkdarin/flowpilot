@@ -30,8 +30,36 @@ const kind = computed(() => {
   if (type === "boolean") return "boolean";
   if (type === "integer" || type === "number") return "number";
   if (type === "string") return "string";
+  if (type === "array" && (s.items?.enum || s.items?.["x-flowpilot-options"])) return "multi";
+  if (type === "array" && s.items?.type === "string") return "lines";
   return "json";
 });
+
+// A list of choices (people, areas, days): each one a toggle; nothing chosen, nothing set.
+const multiOptions = computed<{ id: string; name: string }[]>(() => {
+  const items = props.schema.items ?? {};
+  if (items.enum) return items.enum.map((v) => ({ id: String(v), name: props.optionTitles?.[String(v)] ?? String(v) }));
+  const kind = items["x-flowpilot-options"];
+  return kind ? (hostOptions.value.options[kind] ?? []).map((o) => ({ id: o.id, name: o.name || o.id })) : [];
+});
+const multiValue = computed(() => (Array.isArray(props.modelValue) ? props.modelValue.map(String) : []));
+// chosen ids the host does not list any more stay visible, so they can be removed
+const multiShown = computed(() => [
+  ...multiOptions.value,
+  ...multiValue.value.filter((id) => !multiOptions.value.some((o) => o.id === id)).map((id) => ({ id, name: id })),
+]);
+function toggleMulti(id: string) {
+  const now = multiValue.value.includes(id) ? multiValue.value.filter((v) => v !== id) : [...multiValue.value, id];
+  const order = multiShown.value.map((o) => o.id);
+  emit("update:modelValue", now.length ? now.sort((a, b) => order.indexOf(a) - order.indexOf(b)) : undefined);
+}
+
+// A list of words or phrases: one per line; empty lines are dropped.
+const linesText = computed(() => (Array.isArray(props.modelValue) ? props.modelValue.join("\n") : ""));
+function setLines(text: string) {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  emit("update:modelValue", lines.length ? lines : undefined);
+}
 
 const inputId = computed(() => `cfg-${props.name}`);
 
@@ -218,7 +246,7 @@ function setJson(text: string) {
 const hint = computed(() => {
   const s = props.schema;
   const parts: string[] = [];
-  if (s.pattern) parts.push(s.pattern);
+  if (s.pattern && s.format !== "time") parts.push(s.pattern);
   if (s.minimum !== undefined) parts.push(`≥ ${s.minimum}`);
   if (s.exclusiveMinimum !== undefined) parts.push(`> ${s.exclusiveMinimum}`);
   if (s.maximum !== undefined) parts.push(`≤ ${s.maximum}`);
@@ -228,7 +256,7 @@ const hint = computed(() => {
 
 <template>
   <div class="schema-field">
-    <label :for="inputId">
+    <label :id="inputId + '-label'" :for="inputId">
       <span class="title">{{ label || name }}</span>
       <span v-if="required" class="req" :title="t('inspector.required')">*</span>
       <code v-if="label" class="key">{{ name }}</code>
@@ -319,6 +347,15 @@ const hint = computed(() => {
     />
 
     <input
+      v-else-if="kind === 'string' && schema.format === 'time'"
+      :id="inputId"
+      class="field time"
+      type="time"
+      :value="stringValue"
+      @change="setString(($event.target as HTMLInputElement).value)"
+    />
+
+    <input
       v-else-if="kind === 'string'"
       :id="inputId"
       class="field"
@@ -326,6 +363,31 @@ const hint = computed(() => {
       :value="stringValue"
       :placeholder="schema.default !== undefined ? String(schema.default) : ''"
       @input="setString(($event.target as HTMLInputElement).value)"
+    />
+
+    <div v-else-if="kind === 'multi'" class="multi" role="group" :aria-labelledby="inputId + '-label'">
+      <button
+        v-for="o in multiShown"
+        :key="o.id"
+        type="button"
+        class="chip"
+        :class="{ on: multiValue.includes(o.id) }"
+        :aria-pressed="multiValue.includes(o.id)"
+        @click="toggleMulti(o.id)"
+      >
+        {{ o.name }}
+      </button>
+      <small v-if="!multiShown.length">{{ schema.items?.["x-flowpilot-options"] && !hostOptions.available ? t("form.noHost") : t("form.noChoices") }}</small>
+    </div>
+
+    <textarea
+      v-else-if="kind === 'lines'"
+      :id="inputId"
+      class="field"
+      rows="3"
+      :placeholder="t('form.onePerLine')"
+      :value="linesText"
+      @change="setLines(($event.target as HTMLTextAreaElement).value)"
     />
 
     <template v-else>
@@ -339,6 +401,34 @@ const hint = computed(() => {
 </template>
 
 <style scoped>
+.multi {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-raised);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.chip.on {
+  border-color: var(--focus);
+  background: color-mix(in srgb, var(--focus) 14%, var(--panel-raised));
+  color: var(--text);
+}
+
 .schema-field {
   display: flex;
   flex-direction: column;

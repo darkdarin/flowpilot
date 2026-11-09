@@ -18,6 +18,7 @@ HOST_OP_STT: Final = "ha.stt.process"
 HOST_OP_TTS: Final = "ha.tts.synthesize"
 HOST_OP_ENTITIES: Final = "ha.entities.list"
 HOST_OP_PEOPLE: Final = "ha.people.list"
+HOST_OP_TURN_WHERE: Final = "ha.turn.where"
 # Names Assist knows (areas, floors, exposed entities, with aliases): the app matches inflected
 # forms of them ("в гостиной" → "Гостиная") before asking Home Assistant again
 HOST_OP_NAMES: Final = "ha.names.list"
@@ -32,6 +33,7 @@ OPTION_TTS: Final = "ha.tts"
 OPTION_CONVERSATION: Final = "ha.conversation"
 # People whose facts the runtime's memory keeps (their Home Assistant user ids)
 OPTION_USER: Final = "ha.user"
+OPTION_AREA: Final = "ha.area"
 DEFAULT_AGENT_ID: Final = "conversation.home_assistant"
 # Conversation ids that are not ULIDs are kept as-is by Home Assistant, so the inner agent gets a
 # stable dialogue of its own next to the FlowPilot one.

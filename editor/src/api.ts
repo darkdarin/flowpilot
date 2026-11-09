@@ -71,6 +71,9 @@ export type JsonSchema = {
   "x-flowpilot-group"?: string;
   /** a node's setting groups with their English texts (on the config schema itself) */
   "x-flowpilot-groups"?: Record<string, { title?: string; description?: string }>;
+  /** applies only to what one input carries (WHEN_INPUT_KEY in the SDK); "*": anything connected */
+  "x-flowpilot-when-input"?: { port: string; types: string[] | "*" };
+  uniqueItems?: boolean;
   format?: string;
 };
 

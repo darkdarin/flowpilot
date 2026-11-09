@@ -2,7 +2,8 @@
 import { computed, ref, watch } from "vue";
 import type { JsonSchema } from "../api";
 import { t } from "../i18n";
-import { issues, nodeIssues, nodeWarnings, removeNode, renameNode, selectedId, selectedNode, specs } from "../store";
+import { edges, issues, nodeIssues, nodeWarnings, removeNode, renameNode, selectedId, selectedNode, specs } from "../store";
+import { members, portType } from "../porttypes";
 import { categoryColor, typeColor, typeShort } from "../types";
 import {
   fieldDescription,
@@ -25,6 +26,8 @@ const items = computed(() => {
   const list: ({ key: string; schema: JsonSchema } | { group: string; fields: Field[] })[] = [];
   const groups = new Map<string, Field[]>();
   for (const [key, schema] of allProps.value) {
+    // a setting for what one input carries: hidden until that input carries it (kept when set)
+    if (applies(schema) === false && selectedNode.value?.data?.config[key] === undefined) continue;
     const group = schema["x-flowpilot-group"];
     if (!group) list.push({ key, schema });
     else if (groups.has(group)) groups.get(group)!.push([key, schema]);
@@ -36,6 +39,19 @@ const items = computed(() => {
   }
   return list;
 });
+/** Whether a setting for what one input carries applies to what is connected there; null: any. */
+function applies(schema: JsonSchema): boolean | null {
+  const when = schema["x-flowpilot-when-input"];
+  const node = selectedNode.value;
+  if (!when || !node) return null;
+  const port = spec.value?.inputs.find((p) => p.name === when.port);
+  const wired = edges.value.some((e) => e.target === node.id && e.targetHandle === when.port);
+  if (!port || !wired) return false;
+  if (when.types === "*") return true;
+  const types = when.types;
+  return members(portType(node.id, port, "inputs")).every((type) => types.includes(type));
+}
+
 const openFields = computed(() => {
   for (const item of items.value) if ("group" in item && item.group === openGroup.value) return item.fields;
   return [];
@@ -114,6 +130,9 @@ function setConfig(key: string, value: unknown) {
         <h3>{{ t("inspector.settings") }}</h3>
         <p v-if="!allProps.length" class="muted">{{ t("inspector.noSettings") }}</p>
         <template v-for="item in items" :key="selectedNode.id + ('group' in item ? '#' + item.group : item.key)">
+          <small v-if="'key' in item && applies(item.schema) === false" class="bad">
+            {{ t("inspector.notForInput", { port: item.schema["x-flowpilot-when-input"]?.port ?? "" }) }}
+          </small>
           <SchemaField
             v-if="'key' in item"
             :name="item.key"
