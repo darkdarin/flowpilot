@@ -27,16 +27,23 @@ from flowpilot_sdk import (
     SpeakerStatus,
 )
 from flowpilot_server.speaker import SpeakerId
-from flowpilot_server.voices import VoiceError, VoiceStore, pcm_floats
+from flowpilot_server.voices import (
+    TARGET_DB,
+    VoiceError,
+    VoiceStore,
+    leveled,
+    pcm_floats,
+    speech_level_db,
+)
 
 RATE = 16000
-PAVEL, MASHA = 0.30, 0.05  # the "voices": how loud each one speaks
+PAVEL, MASHA = 120.0, 400.0  # the "voices": the pitch each one speaks at, Hz
 
 
-def speech(volume: float, seconds: float = 2.0, rate: int = RATE) -> bytes:
+def speech(pitch: float, seconds: float = 2.0, volume: float = 0.3, rate: int = RATE) -> bytes:
     n = int(seconds * rate)
     return b"".join(
-        int(volume * 32767 * math.sin(2 * math.pi * 220 * i / rate)).to_bytes(
+        int(volume * 32767 * math.sin(2 * math.pi * pitch * i / rate)).to_bytes(
             2, "little", signed=True
         )
         for i in range(n)
@@ -44,9 +51,10 @@ def speech(volume: float, seconds: float = 2.0, rate: int = RATE) -> bytes:
 
 
 async def fake_embed(self: VoiceStore, samples: list[float], sample_rate: int) -> list[float]:
-    """A point on a circle: the louder the voice, the further round."""
-    loud = math.sqrt(sum(s * s for s in samples) / len(samples))
-    return [math.cos(20 * loud), math.sin(20 * loud)]
+    """A point on a circle: the higher the voice, the further round (loudness does not count)."""
+    crossings = sum(1 for a, b in zip(samples, samples[1:]) if (a < 0) != (b < 0))
+    pitch = crossings / 2 / (len(samples) / sample_rate)
+    return [math.cos(pitch / 100), math.sin(pitch / 100)]
 
 
 @pytest.fixture(autouse=True)
@@ -67,7 +75,7 @@ async def test_a_voice_matches_its_person_and_a_stranger_does_not(tmp_path: Path
     match = await store.identify(speech(PAVEL), RATE)
     assert (match.status, match.speaker_id) == (SpeakerStatus.MATCHED, "u-pavel")
     assert (await store.identify(speech(MASHA), RATE)).speaker_id == "u-masha"
-    stranger = await store.identify(speech(0.14), RATE)  # far from both
+    stranger = await store.identify(speech(260), RATE)  # far from both
     assert stranger.status is SpeakerStatus.UNKNOWN and stranger.speaker_id is None
     # kept with mode 600, embeddings and all, but no audio
     path = tmp_path / "voices.json"
@@ -78,14 +86,33 @@ async def test_a_voice_matches_its_person_and_a_stranger_does_not(tmp_path: Path
     assert "embedding" not in again.people()["u-masha"][0]
 
 
+async def test_a_quiet_satellite_and_a_loud_microphone_sound_the_same() -> None:
+    """A Yandex Station sends very quiet audio: speech is levelled before the model hears it."""
+    store = VoiceStore(None, None)
+    sample = await store.add_sample(
+        "u-pavel", speech(PAVEL, volume=0.003), RATE, source="recording"
+    )  # about -53 dB
+    assert sample["level_db"] < -50
+    match = await store.identify(speech(PAVEL, volume=0.5), RATE)
+    assert (match.status, match.speaker_id) == (SpeakerStatus.MATCHED, "u-pavel")
+
+
+def test_speech_is_brought_to_one_level_without_clipping() -> None:
+    quiet = [0.01 * math.sin(i / 3) for i in range(16000)]
+    louder, level = leveled(quiet, RATE)
+    assert -45 < level < -40 and abs(speech_level_db(louder, RATE) - TARGET_DB) < 1
+    loud = [0.9 * math.sin(i / 3) for i in range(16000)]
+    assert max(abs(s) for s in leveled(loud, RATE)[0]) <= 0.99
+
+
 async def test_too_close_to_two_people_is_unknown() -> None:
     store = VoiceStore(None, None)
-    await store.add_sample("u-ann", speech(0.07), RATE, source="microphone")
-    await store.add_sample("u-kate", speech(0.08), RATE, source="microphone")  # sounds alike
-    match = await store.identify(speech(0.075), RATE)  # close enough to both
+    await store.add_sample("u-ann", speech(200), RATE, source="microphone")
+    await store.add_sample("u-kate", speech(215), RATE, source="microphone")  # sounds alike
+    match = await store.identify(speech(207), RATE)  # close enough to both
     assert match.status is SpeakerStatus.UNKNOWN and match.reason == "too close to two people"
     store.set_settings({"margin": 0})
-    assert (await store.identify(speech(0.075), RATE)).status is SpeakerStatus.MATCHED
+    assert (await store.identify(speech(207), RATE)).status is SpeakerStatus.MATCHED
 
 
 async def test_samples_are_checked() -> None:
@@ -93,7 +120,7 @@ async def test_samples_are_checked() -> None:
     with pytest.raises(VoiceError, match="too short"):
         await store.add_sample("u", speech(PAVEL, 0.5), RATE, source="microphone")
     with pytest.raises(VoiceError, match="too quiet"):
-        await store.add_sample("u", speech(0.001), RATE, source="microphone")
+        await store.add_sample("u", speech(PAVEL, volume=0.0002), RATE, source="microphone")
     with pytest.raises(VoiceError, match="nobody has a voice profile"):
         await store.scores(speech(PAVEL), RATE)
 

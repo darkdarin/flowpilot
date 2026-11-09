@@ -36,7 +36,14 @@ _LOGGER = logging.getLogger(__name__)
 MODELS_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models"
 MIN_SECONDS = 1.0  # less speech than this says too little about a voice
 MAX_SECONDS = 10.0  # of one sample or one turn: more adds little
-QUIET_DB = -45.0  # an RMS level below this is (almost) silence
+# Satellites differ a lot in level (a Yandex Station sends very quiet audio), so speech is brought
+# to one level before the model sees it, for samples and turns alike. The level is that of the
+# loudest frames (the speech, not the pauses around it); below QUIET_DB there is nothing to hear.
+QUIET_DB = -65.0
+TARGET_DB = -20.0
+MAX_GAIN_DB = 45.0
+FRAME_S = 0.02
+SPEECH_SHARE = 0.3  # the loudest share of frames taken as the speech
 MAX_SAMPLES = 20  # per person
 
 
@@ -88,6 +95,30 @@ def level_db(samples: list[float]) -> float:
         return -120.0
     rms = math.sqrt(sum(s * s for s in samples) / len(samples))
     return 20 * math.log10(rms) if rms > 0 else -120.0
+
+
+def speech_level_db(samples: list[float], sample_rate: int) -> float:
+    """The level of the speech: the RMS of the loudest frames, not of the pauses."""
+    size = max(1, int(FRAME_S * sample_rate))
+    energies = sorted(
+        (sum(s * s for s in samples[i : i + size]) / size for i in range(0, len(samples), size)),
+        reverse=True,
+    )
+    loud = energies[: max(1, int(len(energies) * SPEECH_SHARE))]
+    rms = math.sqrt(sum(loud) / len(loud)) if loud else 0.0
+    return 20 * math.log10(rms) if rms > 0 else -120.0
+
+
+def leveled(samples: list[float], sample_rate: int) -> tuple[list[float], float]:
+    """The speech brought to ``TARGET_DB`` (gain at most ``MAX_GAIN_DB``, never clipping), and
+    its level before."""
+    level = speech_level_db(samples, sample_rate)
+    peak = max((abs(s) for s in samples), default=0.0)
+    gain_db = min(TARGET_DB - level, MAX_GAIN_DB)
+    if peak > 0:
+        gain_db = min(gain_db, 20 * math.log10(0.99 / peak))
+    gain = 10 ** (gain_db / 20)
+    return [s * gain for s in samples], level
 
 
 def cosine(a: list[float], b: list[float]) -> float:
@@ -276,9 +307,9 @@ class VoiceStore:
         seconds = len(samples) / sample_rate
         if seconds < MIN_SECONDS:
             raise VoiceError(f"too short: {seconds:.1f} s, at least {MIN_SECONDS:.0f} s of speech")
-        level = level_db(samples)
+        samples, level = leveled(samples, sample_rate)
         if level < QUIET_DB:
-            raise VoiceError(f"too quiet ({level:.0f} dB): speak closer or louder")
+            raise VoiceError(f"too quiet ({level:.0f} dB): no speech to hear")
         person = self._data.setdefault("people", {}).setdefault(user_id, {"samples": []})
         if len(person["samples"]) >= MAX_SAMPLES:
             raise VoiceError(f"{MAX_SAMPLES} samples is enough: remove some first")
@@ -334,6 +365,9 @@ class VoiceStore:
         profiles = self._profiles()
         if not profiles:
             raise VoiceError("nobody has a voice profile yet")
+        samples, level = leveled(samples, sample_rate)
+        if level < QUIET_DB:
+            raise VoiceError("no speech to hear")
         embedding = await self._embed(samples, sample_rate)
         return {user_id: round(cosine(embedding, p), 4) for user_id, p in profiles.items()}
 
