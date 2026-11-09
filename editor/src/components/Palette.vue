@@ -1,17 +1,39 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { categoryLabel, t } from "../i18n";
+import { categoryLabel, t, type Key } from "../i18n";
 import { catalog } from "../store";
 import { nodeDescription, nodeTitle } from "../texts";
-import { CATEGORY_ORDER, categoryColor, typeColor } from "../types";
+import { CATEGORY_ORDER, ROLE_ORDER, categoryColor, nodeRole, typeColor } from "../types";
 
 const query = ref("");
+const role = ref<string | null>(null); // the chip pressed: only nodes for that
+
+const placeable = computed(() => (catalog.value?.nodes ?? []).filter((n) => !n.fixed));
+
+/** The chips: what the installed nodes are for, in a fixed order. */
+const roles = computed(() => {
+  const found = new Set(placeable.value.map(nodeRole));
+  const rank = (r: string) => (ROLE_ORDER.indexOf(r) + 100) % 100;
+  return [...found].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+});
+
+function roleLabel(r: string): string {
+  return ["stt", "tts", "audio"].includes(r) ? t(`role.${r}` as Key) : categoryLabel(r);
+}
+
+function roleColor(r: string): string {
+  return categoryColor(["stt", "tts", "audio"].includes(r) ? "speech" : r);
+}
+
+function toggleRole(r: string) {
+  role.value = role.value === r ? null : r;
+}
 
 const groups = computed(() => {
   const q = query.value.trim().toLowerCase();
-  const nodes = (catalog.value?.nodes ?? []).filter(
+  const nodes = placeable.value.filter(
     (n) =>
-      !n.fixed &&
+      (!role.value || nodeRole(n) === role.value) &&
       (!q ||
       n.type.includes(q) ||
       [n.title, nodeTitle(n), nodeDescription(n)].some((text) => text.toLowerCase().includes(q))),
@@ -33,10 +55,24 @@ defineEmits<{ add: [type: string] }>();
 <template>
   <aside class="palette">
     <input v-model="query" class="field" type="search" :placeholder="t('palette.search')" :aria-label="t('palette.search')" />
+    <div class="roles" role="group" :aria-label="t('palette.filter')">
+      <button
+        v-for="r in roles"
+        :key="r"
+        class="role"
+        :class="{ on: role === r }"
+        :style="{ '--cat': roleColor(r) }"
+        :aria-pressed="role === r"
+        :title="role === r ? t('palette.filterOff') : t('palette.filter')"
+        @click="toggleRole(r)"
+      >
+        {{ roleLabel(r) }}
+      </button>
+    </div>
     <p class="hint">{{ t("palette.hint") }}</p>
     <div class="groups">
       <section v-for="[cat, items] in groups" :key="cat" :style="{ '--cat': categoryColor(cat) }">
-        <h3>{{ categoryLabel(cat) }}</h3>
+        <h3 v-if="!role">{{ categoryLabel(cat) }}</h3>
         <button
           v-for="n in items"
           :key="n.type"
@@ -78,6 +114,38 @@ defineEmits<{ add: [type: string] }>();
   flex: none;
   width: auto;
   margin: 0 12px;
+}
+
+.roles {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 12px 0;
+}
+
+.role {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel-raised);
+  color: var(--muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.role:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.role.on {
+  border-color: var(--cat);
+  background: color-mix(in srgb, var(--cat) 16%, var(--panel-raised));
+  color: var(--text);
 }
 
 .palette > .hint {

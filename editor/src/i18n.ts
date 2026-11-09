@@ -35,6 +35,11 @@ const en = {
   "palette.search": "Find a node",
   "palette.hint": "Drag a node onto the canvas",
   "palette.empty": "No nodes match.",
+  "palette.filter": "Show only these nodes",
+  "palette.filterOff": "Show all nodes",
+  "role.stt": "Speech-to-text",
+  "role.tts": "Text-to-speech",
+  "role.audio": "Audio",
   "category.input": "Input",
   "category.output": "Output",
   "category.speech": "Speech",
@@ -217,7 +222,7 @@ const en = {
   "error.connectGeneric": "This node's inputs must carry the same type as each other.",
 };
 
-type Key = keyof typeof en;
+export type Key = keyof typeof en;
 
 const ru: Record<Key, string> = {
   "app.title": "FlowPilot",
@@ -254,6 +259,11 @@ const ru: Record<Key, string> = {
   "palette.search": "Найти ноду",
   "palette.hint": "Перетащите ноду на холст",
   "palette.empty": "Ничего не найдено.",
+  "palette.filter": "Показать только эти ноды",
+  "palette.filterOff": "Показать все ноды",
+  "role.stt": "Распознавание",
+  "role.tts": "Синтез",
+  "role.audio": "Звук",
   "category.input": "Вход",
   "category.output": "Выход",
   "category.speech": "Речь",
