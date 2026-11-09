@@ -7,6 +7,7 @@ embedding a vector made from it, so matching, margins and the node's flow are ch
 from __future__ import annotations
 
 import io
+import itertools
 import math
 import stat
 import wave
@@ -52,7 +53,7 @@ def speech(pitch: float, seconds: float = 2.0, volume: float = 0.3, rate: int = 
 
 async def fake_embed(self: VoiceStore, samples: list[float], sample_rate: int) -> list[float]:
     """A point on a circle: the higher the voice, the further round (loudness does not count)."""
-    crossings = sum(1 for a, b in zip(samples, samples[1:]) if (a < 0) != (b < 0))
+    crossings = sum(1 for a, b in itertools.pairwise(samples) if (a < 0) != (b < 0))
     pitch = crossings / 2 / (len(samples) / sample_rate)
     return [math.cos(pitch / 100), math.sin(pitch / 100)]
 
