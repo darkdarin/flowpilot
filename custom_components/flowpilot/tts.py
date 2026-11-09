@@ -128,6 +128,8 @@ class FlowPilotTtsEntity(GraphEntity, tts.TextToSpeechEntity):
         return await self._fallback(text, request.language)
 
     async def _acknowledge_sound(self) -> AsyncGenerator[bytes]:
+        """Assist's own acknowledge sound, for satellites without one of their own. Its path is
+        not a public API: ha-integration's test_tts checks it is still there."""
         from homeassistant.components.assist_pipeline.const import ACKNOWLEDGE_PATH  # noqa: PLC0415
 
         yield await self.hass.async_add_executor_job(ACKNOWLEDGE_PATH.read_bytes)

@@ -2,8 +2,9 @@
 
 Regression tests for the Home Assistant details the entity relies on: text-to-speech is
 synthesized in a task that inherits the pipeline run's context (our conversation entity's
-``CURRENT_SPEECH``), the plain ``default_options`` property is read for every stream, and the
-graph version in the options takes part in the cache key. If any of them changes, these fail.
+``CURRENT_SPEECH``), the plain ``default_options`` property is read for every stream, the
+graph version in the options takes part in the cache key, and Assist's own acknowledge sound is
+at ``assist_pipeline.const.ACKNOWLEDGE_PATH``. If any of them changes, these fail.
 """
 
 from __future__ import annotations
@@ -85,7 +86,7 @@ async def long_runtime() -> AsyncIterator[Runtime]:
         yield rt
 
 
-async def speak_turn(hass: HomeAssistant) -> tuple[str, bytes]:
+async def speak_turn(hass: HomeAssistant, output: str | None = "wav") -> tuple[str, bytes]:
     """One voice turn through STT, our agent and our text-to-speech; the answer and its audio."""
     data: PipelineData = hass.data["assist_pipeline"]
     pipeline = await data.pipeline_store.async_create_item(
@@ -120,7 +121,7 @@ async def speak_turn(hass: HomeAssistant) -> tuple[str, bytes]:
         pipeline_id=pipeline.id,
         start_stage=PipelineStage.STT,
         end_stage=PipelineStage.TTS,
-        tts_audio_output="wav",
+        tts_audio_output=output,
     )
     answer = event(events, PipelineEventType.INTENT_END)["intent_output"]["response"]
     stream = tts.async_get_stream(
@@ -243,3 +244,22 @@ async def test_without_a_turn_uses_the_fallback_voice(
         assert [c async for c in response.data_gen] == [b"other voice"]
     assert stream.message == "hello"
     assert create.call_args.args[1:3] == ("tts.other", "en-US")
+
+
+async def test_an_acknowledged_turn_plays_home_assistants_own_sound(hass: HomeAssistant) -> None:
+    """Confirmed with a sound (Client output's ack), the turn has no speech: the entity plays the
+    acknowledge sound of Assist, read from ``ACKNOWLEDGE_PATH`` (not a public API: if it moves,
+    this fails)."""
+    from homeassistant.components.assist_pipeline.const import ACKNOWLEDGE_PATH  # noqa: PLC0415
+
+    acknowledged = speaking_graph("done")
+    acknowledged["nodes"] = [n for n in acknowledged["nodes"] if n["id"] != "voice"]
+    acknowledged["edges"] = [
+        *(e for e in acknowledged["edges"] if "voice" not in e["from"] + e["to"]),
+        {"from": "agent.response", "to": "out.ack"},
+    ]
+    async for runtime in _runtime({}, acknowledged):
+        await setup_speaking(hass, runtime)
+        answer, audio = await speak_turn(hass, output=None)
+        assert answer == "done"
+        assert audio == ACKNOWLEDGE_PATH.read_bytes()
