@@ -467,6 +467,83 @@ function addMissingFixed(): string[] {
   return missing.map((s) => s.type);
 }
 
+// Copy and paste of nodes (⌘C/⌘V, ⌘D duplicates). The clipboard is in localStorage, not the
+// system one (an iframe in Home Assistant may not write it), so it works across graphs and tabs.
+// The client input and output are never copied: a graph has each once.
+const CLIPBOARD_KEY = "flowpilot.clipboard";
+const PASTE_STEP = 40;
+
+interface Clip {
+  nodes: { id: string; type: string; config: Record<string, unknown>; position: { x: number; y: number } }[];
+  edges: { source: string; sourceHandle: string; target: string; targetHandle: string; type: string }[];
+}
+
+let pastes = 0; // each paste of the same copy lands a step further
+
+function clipOf(ids: string[]): Clip | null {
+  const chosen = nodes.value.filter((n) => ids.includes(n.id) && !specs.value.get(n.data?.type ?? "")?.fixed);
+  if (!chosen.length) return null;
+  const taken = new Set(chosen.map((n) => n.id));
+  return {
+    nodes: chosen.map((n) => ({
+      id: n.id,
+      type: n.data!.type,
+      config: JSON.parse(JSON.stringify(n.data!.config ?? {})),
+      position: { x: n.position.x, y: n.position.y },
+    })),
+    edges: edges.value
+      .filter((e) => taken.has(e.source) && taken.has(e.target)) // wires inside the copy only
+      .map((e) => ({ source: e.source, sourceHandle: e.sourceHandle!, target: e.target, targetHandle: e.targetHandle!, type: e.data?.type ?? "" })),
+  };
+}
+
+function place(clip: Clip, offset: number): string[] {
+  const ids = new Map<string, string>();
+  for (const n of clip.nodes) {
+    const spec = specs.value.get(n.type);
+    if (!spec || spec.fixed) continue; // not installed in this runtime
+    const id = uniqueNodeId(n.type);
+    ids.set(n.id, id);
+    nodes.value = [
+      ...nodes.value,
+      { id, type: "fp", position: { x: n.position.x + offset, y: n.position.y + offset }, data: { type: n.type, config: n.config } },
+    ];
+  }
+  const wires = clip.edges
+    .filter((e) => ids.has(e.source) && ids.has(e.target))
+    .map((e) => makeEdge(ids.get(e.source)!, e.sourceHandle, ids.get(e.target)!, e.targetHandle, e.type));
+  if (wires.length) edges.value = [...edges.value, ...wires];
+  return [...ids.values()];
+}
+
+/** Copy nodes (and the wires between them); how many were copied. */
+export function copyNodes(ids: string[]): number {
+  const clip = clipOf(ids);
+  if (!clip) return 0;
+  localStorage.setItem(CLIPBOARD_KEY, JSON.stringify(clip));
+  pastes = 0;
+  return clip.nodes.length;
+}
+
+/** Paste what was copied; the ids of the new nodes. */
+export function pasteNodes(): string[] {
+  let clip: Clip;
+  try {
+    clip = JSON.parse(localStorage.getItem(CLIPBOARD_KEY) ?? "null") as Clip;
+  } catch {
+    return [];
+  }
+  if (!clip?.nodes?.length) return [];
+  pastes += 1;
+  return place(clip, PASTE_STEP * pastes);
+}
+
+/** A copy of the nodes next to them, without touching the clipboard. */
+export function duplicateNodes(ids: string[]): string[] {
+  const clip = clipOf(ids);
+  return clip ? place(clip, PASTE_STEP) : [];
+}
+
 export function removeNode(id: string) {
   const node = nodes.value.find((n) => n.id === id);
   if (node && specs.value.get(node.data?.type ?? "")?.fixed) return; // never deleted

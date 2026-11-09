@@ -18,6 +18,9 @@ import { type Locale, locale, setLocale, t } from "./i18n";
 import {
   addNode,
   api,
+  copyNodes,
+  duplicateNodes,
+  pasteNodes,
   connect,
   createGraph,
   debug,
@@ -64,6 +67,7 @@ const {
 // The inspector follows selectedId; keep the canvas selection in step when it is set elsewhere
 // (debug timeline, a node added from the palette, a renamed node).
 watch(selectedId, async (id) => {
+  if (!id) return; // nothing chosen in the inspector: the canvas keeps its own selection (⌘A, a paste)
   await nextTick(); // a node added just now is not on the canvas yet
   const current = getSelectedNodes.value;
   if (current.length === 1 && current[0].id === id) return;
@@ -197,7 +201,43 @@ async function onDeploy() {
 // Ctrl+S / ⌘S deploys, like the Deploy button (the browser's "save page" is not useful here).
 const deployShortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘S" : "Ctrl+S";
 
+function typing(): boolean {
+  const el = document.activeElement as HTMLElement | null;
+  return !!el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+}
+
+/** ⌘A / ⌘C / ⌘V / ⌘D on the canvas: select all, copy, paste and duplicate nodes. */
+async function onClipboardKey(event: KeyboardEvent): Promise<boolean> {
+  const key = event.key.toLowerCase();
+  if (!["a", "c", "v", "d"].includes(key) || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return false;
+  if (!api.value || typing() || document.querySelector("dialog[open], .modal")) return false;
+  if (key === "a") {
+    addSelectedNodes(nodes.value.map((n) => findNode(n.id)).filter((n) => n !== undefined));
+    selectedId.value = null;
+    return true;
+  }
+  const chosen = getSelectedNodes.value.map((n) => n.id);
+  if (key === "c") {
+    if (window.getSelection()?.toString()) return false; // copying text the user selected
+    const n = copyNodes(chosen);
+    if (n) flash(t("clipboard.copied", { n }));
+    return n > 0;
+  }
+  const created = key === "v" ? pasteNodes() : duplicateNodes(chosen);
+  if (key === "d") event.preventDefault(); // not the browser's bookmark, even with nothing selected
+  if (!created.length) return key === "d";
+  await nextTick();
+  removeSelectedNodes(getSelectedNodes.value);
+  addSelectedNodes(created.map((id) => findNode(id)).filter((n) => n !== undefined));
+  selectedId.value = created.length === 1 ? created[0] : null;
+  return true;
+}
+
 async function onKeydown(event: KeyboardEvent) {
+  if (await onClipboardKey(event)) {
+    event.preventDefault();
+    return;
+  }
   if (event.key.toLowerCase() !== "s" || !(event.ctrlKey || event.metaKey) || event.altKey) return;
   if (!api.value) return;
   event.preventDefault();
