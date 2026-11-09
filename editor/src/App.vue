@@ -375,9 +375,11 @@ function legendTypes() {
 }
 
 .shell {
+  /* as tall as Home Assistant's header (--header-height), so the bar lines up with its sidebar */
+  --bar-height: 56px;
   display: grid;
   grid-template-columns: 250px 1fr 320px;
-  grid-template-rows: 48px 1fr;
+  grid-template-rows: var(--bar-height) 1fr;
   grid-template-areas:
     "bar bar bar"
     "left canvas right";
@@ -385,7 +387,7 @@ function legendTypes() {
 }
 
 .shell.debugging {
-  grid-template-rows: 48px 1fr 220px;
+  grid-template-rows: var(--bar-height) 1fr 220px;
   grid-template-areas:
     "bar bar bar"
     "left canvas right"
@@ -638,7 +640,7 @@ function legendTypes() {
   .shell,
   .shell.debugging {
     grid-template-columns: 1fr;
-    grid-template-rows: 48px 1fr 240px;
+    grid-template-rows: var(--bar-height) 1fr 240px;
     grid-template-areas:
       "bar"
       "canvas"
