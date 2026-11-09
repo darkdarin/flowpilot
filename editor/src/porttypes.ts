@@ -1,17 +1,21 @@
 // Port types in the editor, as the runtime's validation sees them (flowpilot_core.validate):
-// a port takes one type or a union ("a/1|b/1"); ports of a node with the same `var` carry one
+// a port takes one type, a union ("a/1|b/1") or any type ("*", inputs only); ports of a node with the same `var` carry one
 // type, the one connected to its inputs, and an output with it gives that type.
 
 import { computed } from "vue";
 import type { PortInfo } from "./api";
 import { catalog, edges, nodes, specs, type FpEdge, type FpNode } from "./store";
 
+/** A port type that takes every payload type (flowpilot_sdk.ANY). */
+export const ANY = "*";
+
 export function members(type: string): string[] {
+  if (type === ANY) return catalog.value?.types.map((t) => t.id) ?? [];
   return type.split("|");
 }
 
 export function isUnion(port: PortInfo): boolean {
-  return port.type.includes("|");
+  return port.type === ANY || port.type.includes("|");
 }
 
 /** How a payload type travels when a union port carries it. */
@@ -88,7 +92,7 @@ export function connectProblem(source: string, sourceHandle: string, target: str
   if (src.var && !given) return "unresolved";
   const types = given ? [given] : members(src.type);
   const accepted = members(dst.type);
-  if (!types.every((t) => accepted.includes(t))) return "type";
+  if (dst.type !== ANY && !types.every((t) => accepted.includes(t))) return "type";
   const bound = dst.var ? bindings.get(`${target}|${dst.var}`) : undefined;
   if (bound && given && bound !== given) return "generic";
   const srcKind = isUnion(src) ? (given ? kindOf(given) : undefined) : src.kind;
@@ -101,5 +105,5 @@ export function connectProblem(source: string, sourceHandle: string, target: str
 export function portKind(nodeId: string, port: PortInfo, side: "inputs" | "outputs"): string {
   if (!isUnion(port)) return port.kind;
   const type = portType(nodeId, port, side);
-  return type.includes("|") ? "any" : (kindOf(type) ?? port.kind);
+  return type === ANY || type.includes("|") ? "any" : (kindOf(type) ?? port.kind);
 }

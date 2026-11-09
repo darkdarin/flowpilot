@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from flowpilot_core import GraphError, NodeRegistry, parse_graph, validate_graph
-from flowpilot_sdk import TEXT, NodeSpec, PortSpec, union
+from flowpilot_sdk import ANY, TEXT, NodeSpec, PortSpec, union
 
 from .conftest import make_node
 
@@ -43,6 +43,7 @@ SPECS = [
     spec("delta_sink", inputs={"delta": PortSpec(DELTA, required=False)}),
     # gives one of two types without saying which: what it feeds must take both
     spec("either", outputs={"out": PortSpec(union(UTTERANCE, DELTA))}),
+    spec("any_sink", inputs={"x": PortSpec(ANY, required=False)}),
 ]
 SPECS[0] = NodeSpec(
     type="t.source", version="1.0.0", title="source", category="input", outputs=SPECS[0].outputs
@@ -130,3 +131,21 @@ def test_port_types_are_checked() -> None:
         PortSpec("text.delta/1|nonsense")
     with pytest.raises(ValueError, match="no input does"):
         spec("bad", outputs={"x": PortSpec(TEXT, var="T")})
+
+
+def test_an_any_input_takes_everything(registry: NodeRegistry) -> None:
+    for port, type_id in (("utterance", UTTERANCE), ("delta", DELTA), ("audio", AUDIO)):
+        data = graph([(f"src.{port}", "a.x")], ("a", "any_sink"))
+        vg = validate_graph(parse_graph(data), registry)
+        assert vg.port_types[("in", "a", "x")] == type_id
+    # a union or a generic output fits too
+    assert codes(graph([("e.out", "a.x")], ("e", "either"), ("a", "any_sink")), registry) == set()
+    data = graph([("src.delta", "f.a"), ("f.value", "a.x")], ("f", "first"), ("a", "any_sink"))
+    assert validate_graph(parse_graph(data), registry).port_types[("in", "a", "x")] == DELTA
+
+
+def test_any_is_for_inputs_only() -> None:
+    port = PortSpec(ANY)
+    assert port.is_union and {DELTA, AUDIO} <= set(port.types)
+    with pytest.raises(ValueError, match="cannot take any type"):
+        spec("bad_any", outputs={"x": PortSpec(ANY)})

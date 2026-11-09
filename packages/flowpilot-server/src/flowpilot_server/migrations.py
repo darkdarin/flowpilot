@@ -39,7 +39,8 @@ def migrate_graph(data: Any) -> Any:
     """``data`` brought up to date; the same object when there is nothing to change."""
     if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
         return data
-    return _one_text_input(_agent_remember(_split_turn_filter(_rename_nodes(data))))
+    data = _one_text_input(_agent_remember(_split_turn_filter(_rename_nodes(data))))
+    return _one_probe_input(data)
 
 
 def _split_turn_filter(data: dict[str, Any]) -> dict[str, Any]:
@@ -147,6 +148,56 @@ def _one_text_input(data: dict[str, Any]) -> dict[str, Any]:
                 ui_nodes[copy_id] = {**at, "y": at["y"] + 230 * n}
     data["edges"] = [e for i, e in enumerate(data["edges"]) if i not in dropped]
     _LOGGER.info("graph %s: probes and converters now have one text input", data.get("id"))
+    return data
+
+
+# 0.1.23 → 0.1.24: the Debug probe has one input of any type, ``value``, instead of ``audio`` and
+# ``text``.
+_OLD_PROBE_INPUTS = ("text", "audio")
+
+
+def _one_probe_input(data: dict[str, Any]) -> dict[str, Any]:
+    """Wires to a probe's ``text`` or ``audio`` go to ``value``; a probe with both keeps the text
+    and gets a copy for the audio."""
+    probes = {
+        n["id"]
+        for n in data["nodes"]
+        if isinstance(n, dict) and n.get("type") == "debug.probe" and isinstance(n.get("id"), str)
+    }
+
+    def old_input(edge: Any) -> tuple[str, str] | None:
+        if not isinstance(edge, dict) or not isinstance(edge.get("to"), str):
+            return None
+        node, _, port = edge["to"].rpartition(".")
+        return (node, port) if node in probes and port in _OLD_PROBE_INPUTS else None
+
+    if not any(old_input(e) for e in data.get("edges") or []):
+        return data
+    data = copy.deepcopy(data)
+    taken = {n["id"] for n in data["nodes"] if isinstance(n, dict) and isinstance(n.get("id"), str)}
+    wired: dict[str, list[tuple[int, str]]] = {}
+    for i, edge in enumerate(data["edges"]):
+        if (found := old_input(edge)) is not None:
+            wired.setdefault(found[0], []).append((i, found[1]))
+    by_id = {n["id"]: n for n in data["nodes"] if isinstance(n, dict) and n.get("id") in probes}
+    ui_nodes = (data.get("ui") or {}).get("nodes") or {}
+    for node_id, edges in wired.items():
+        node = by_id[node_id]
+        node.pop("version", None)
+        edges.sort(key=lambda pair: _OLD_PROBE_INPUTS.index(pair[1]))
+        (first, _), *rest = edges
+        data["edges"][first] = {**data["edges"][first], "to": f"{node_id}.value"}
+        for i, port in rest:
+            copy_id = f"{node_id}_{port}"
+            while copy_id in taken:
+                copy_id += "_"
+            taken.add(copy_id)
+            data["nodes"].append({k: v for k, v in node.items() if k != "id"} | {"id": copy_id})
+            data["edges"][i] = {**data["edges"][i], "to": f"{copy_id}.value"}
+            if isinstance(ui_nodes.get(node_id), dict) and {"x", "y"} <= set(ui_nodes[node_id]):
+                at = ui_nodes[node_id]
+                ui_nodes[copy_id] = {**at, "y": at["y"] - 230}  # above: text copies go below
+    _LOGGER.info("graph %s: Debug probes now have one input of any type", data.get("id"))
     return data
 
 

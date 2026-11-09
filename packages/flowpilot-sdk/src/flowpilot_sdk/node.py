@@ -18,7 +18,7 @@ from .payloads import AudioFormat
 from .skills import Skills
 from .streams import InputStream, OutputStream
 from .text import LANGUAGE_RE, NodeText
-from .types import PRIVILEGED_TYPES, union, union_members, validate_type_id
+from .types import ANY, PRIVILEGED_TYPES, union, union_members, validate_type_id
 
 # Any text: what speech-to-text heard, an utterance, a text stream, an agent's answer. A port of
 # this type takes whichever is connected; with ``var`` the node passes the same type on.
@@ -40,9 +40,9 @@ class PortSpec:
 
     ``type`` is one payload type id, or a union of them (``"a/1|b/1"``, e.g. ``TEXT``): such a
     port takes any of them, and its kind is that of the type connected (``kind`` applies to
-    one-type ports). ``var`` makes the node generic: its ports with the same ``var`` carry the
-    same type in a graph, the one connected to its inputs; an output with ``var`` has the type
-    of the inputs with it.
+    one-type ports). ``ANY`` takes every type, on inputs only. ``var`` makes the node generic:
+    its ports with the same ``var`` carry the same type in a graph, the one connected to its
+    inputs; an output with ``var`` has the type of the inputs with it.
     """
 
     type: str
@@ -54,7 +54,7 @@ class PortSpec:
     var: str | None = None
 
     def __post_init__(self) -> None:
-        members = union_members(self.type)
+        members = () if self.type == ANY else union_members(self.type)
         for member in members:
             validate_type_id(member)
         if len(set(members)) != len(members):
@@ -71,7 +71,8 @@ class PortSpec:
 
     @property
     def is_union(self) -> bool:
-        return len(self.types) > 1
+        """Whether the port takes several types (a union or ``ANY``)."""
+        return self.type == ANY or len(self.types) > 1
 
 
 # JSON Schema keyword for a config property that names something a host provides, e.g.
@@ -158,6 +159,8 @@ class NodeSpec:
             if not PORT_NAME_RE.match(name):
                 raise ValueError(f"invalid port name {name!r} in {self.type}")
         for name, port in self.outputs.items():
+            if port.type == ANY:
+                raise ValueError(f"{self.type}: output {name!r} cannot take any type")
             for member in port.types:
                 grant = PRIVILEGED_TYPES.get(member)
                 if grant is not None and grant not in self.grants:

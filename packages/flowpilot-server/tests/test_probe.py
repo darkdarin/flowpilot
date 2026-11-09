@@ -42,7 +42,7 @@ def graph(**record: Any) -> dict[str, Any]:
         ],
         "edges": [
             {"from": "in.audio", "to": "stt.audio"},
-            {"from": "in.audio", "to": "rec.audio"},
+            {"from": "in.audio", "to": "rec.value"},
             {"from": "stt.utterance", "to": "agent.utterance"},
             {"from": "agent.response", "to": "out.response"},
         ],

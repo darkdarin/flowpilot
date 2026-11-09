@@ -3,31 +3,36 @@
 A debug tap: it runs only while someone watches the graph in live debug, so the household's words
 and voices reach the trace and the disk only when you look.
 
-Its inputs are wired next to the regular consumers of outputs (an output feeds several inputs), and
-it reads each connected one as the data comes, so it never holds a turn up:
+Its one input takes any type (``ANY``) and is wired next to the regular consumers of an output (an
+output feeds several inputs); it reads the data as it comes, so it never holds a turn up:
 
-- ``audio`` is saved as one WAV per turn and node, written in a thread when the stream ends, in the
+- audio is saved as one WAV per turn and node, written in a thread when the stream ends, in the
   runtime's data under ``nodes/debug.probe/``, named ``<UTC time>.<graph>.<node>.<turn>.wav``; the
   oldest are deleted beyond the node's ``keep``. Recordings stay on this machine: traces carry only
   the file name, the editor plays them through its authenticated API, and the app keeps them out of
   backups. Reported as ``record.saved``.
-- text inputs are reported as ``tap.text`` (port, text, items; partial transcripts are counted) and
-  kept only in the live debug history.
+- text is reported as ``tap.text`` (port, type, text, items; partial transcripts are counted), and
+  anything else as its fields in JSON, kept only in the live debug history.
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import json
 import re
 import wave
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
 from flowpilot_sdk import (
+    ANY,
     TEXT,
     AudioFormat,
+    InputStream,
     NodeContext,
     NodeSpec,
     PortSpec,
@@ -38,7 +43,11 @@ from flowpilot_sdk import (
 )
 
 TYPE = "debug.probe"
+PORT = "value"
+AUDIO = "audio.pcm/1"
+TEXT_TYPES = frozenset(TEXT.split("|"))
 MAX_CHARS = 2000
+MAX_ITEMS = 20  # of a stream of other data: shown in JSON, one line each
 FILE_RE = re.compile(
     r"^(?P<time>\d{8}T\d{6}Z)\.(?P<graph>[a-z0-9][a-z0-9_-]*)\.(?P<node>[a-z0-9][a-z0-9_]*)"
     r"\.(?P<turn>[A-Za-z0-9]+)\.wav$"
@@ -53,27 +62,41 @@ def _cut(text: str) -> str:
     return text if len(text) <= MAX_CHARS else text[: MAX_CHARS - 1] + "…"
 
 
+def _plain(value: Any) -> Any:
+    """A payload as JSON-friendly data: dataclass fields, bytes as their size."""
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return {f.name: _plain(getattr(value, f.name)) for f in dataclasses.fields(value)}
+    if isinstance(value, bytes | bytearray):
+        return f"<{len(value)} bytes>"
+    if isinstance(value, Mapping):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, list | tuple | set | frozenset):
+        return [_plain(v) for v in value]
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    return str(value)
+
+
+def _json(value: Any) -> str:
+    return json.dumps(_plain(value), ensure_ascii=False, sort_keys=False)
+
+
 class DebugProbe:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type=TYPE,
         translations=node_translations(__package__, TYPE),
-        version="2.0.0",
+        version="3.0.0",
         title="Debug probe",
         category="debug",
         debug_tap=True,
         inputs={
-            "audio": PortSpec(
-                "audio.pcm/1",
-                required=False,
-                description="Audio, saved to play back: one recording per turn.",
-            ),
-            "text": PortSpec(
-                TEXT,
+            PORT: PortSpec(
+                ANY,
                 required=False,
                 description=(
-                    "Any text: recognized speech (the final text and how many partial ones came), "
-                    "an utterance, a text stream (joined, with the number of pieces) or an "
-                    "agent's answer."
+                    "Anything: audio is saved to play back (one recording per turn), text is shown "
+                    "(recognized speech with the number of partial results, a text stream joined), "
+                    "other data as its fields."
                 ),
             ),
         },
@@ -102,8 +125,8 @@ class DebugProbe:
         turn_timeout_s=660.0,
         description=(
             "For debugging: connect it next to any output to see what went through, right on the "
-            "node for the selected turn in live debug: audio to play back, text to read. Works "
-            "only while live debug is on; recordings stay on this machine."
+            "node for the selected turn in live debug: audio to play back, text and other data to "
+            "read. Works only while live debug is on; recordings stay on this machine."
         ),
     )
 
@@ -128,32 +151,32 @@ class DebugProbe:
         return None
 
     async def run_turn(self, turn: TurnSession) -> None:
-        await asyncio.gather(
-            *(
-                self._record(turn) if name == "audio" else self._show(turn, name)
-                for name in self.spec.inputs
-                if turn.input(name).connected
-            )
-        )
-
-    async def _show(self, turn: TurnSession, name: str) -> None:
-        stream = turn.input(name)
+        stream = turn.input(PORT)
+        if not stream.connected:
+            return
         try:
             header = await stream.header()
         except StreamError as err:
-            turn.trace("tap.text", port=name, error=err.reason)
+            turn.trace("tap.text", port=PORT, error=err.reason)
             return
         if header is None:
             return
-        # which kind of text came: the editor shows it next to the text
-        attrs: dict[str, Any] = {"port": name, "type": header.type}
+        if header.type == AUDIO:
+            await self._record(turn, stream, header.meta)
+        else:
+            await self._show(turn, stream, header.type)
+
+    async def _show(self, turn: TurnSession, stream: InputStream[Any], type_id: str) -> None:
+        # which kind of data came: the editor shows it next to the text
+        attrs: dict[str, Any] = {"port": PORT, "type": type_id}
         try:
-            if type_kind(header.type) == "value":
+            if type_kind(type_id) == "value":
                 value = await stream.value()
                 if value is None:
                     return
-                attrs |= {"text": _cut(value.text), "items": 1}
-            elif header.type == "text.transcript/1":
+                text = value.text if type_id in TEXT_TYPES else _json(value)
+                attrs |= {"text": _cut(text), "items": 1}
+            elif type_id == "text.transcript/1":
                 final, last, partials, items = "", "", 0, 0
                 async for item in stream:
                     items += 1
@@ -163,19 +186,26 @@ class DebugProbe:
                     else:
                         partials += 1
                 attrs |= {"text": _cut(final or last), "items": items, "partials": partials}
-            else:
+            elif type_id in TEXT_TYPES:
                 pieces = [item.text async for item in stream]
                 attrs |= {"text": _cut("".join(pieces)), "items": len(pieces)}
+            else:
+                lines, items = [], 0
+                async for item in stream:  # keep reading: the source must not wait for us
+                    items += 1
+                    if items <= MAX_ITEMS:
+                        lines.append(_json(item))
+                if items > MAX_ITEMS:
+                    lines.append(f"… {items - MAX_ITEMS} more")
+                attrs |= {"text": _cut("\n".join(lines)), "items": items}
         except StreamError as err:
             attrs |= {"error": err.reason}
         turn.trace("tap.text", **attrs)
 
-    async def _record(self, turn: TurnSession) -> None:
-        audio = turn.input("audio")
-        header = await audio.header()
-        if header is None:
-            return
-        fmt = AudioFormat.from_meta(header.meta)
+    async def _record(
+        self, turn: TurnSession, audio: InputStream[Any], meta: Mapping[str, Any]
+    ) -> None:
+        fmt = AudioFormat.from_meta(meta)
         frame = fmt.bytes_per_sample
         limit = int(self._max_seconds * fmt.sample_rate) * frame
         pcm = bytearray()

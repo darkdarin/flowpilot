@@ -136,10 +136,45 @@ def test_probes_and_converters_get_one_text_input() -> None:
     }
     assert "version" not in nodes["probe"]
     assert {(e["from"], e["to"]) for e in migrated["edges"]} == {
-        ("a.delta", "probe.text"),
-        ("a.response", "probe_response.text"),
-        ("in.audio", "probe.audio"),
+        ("a.delta", "probe.value"),
+        ("a.response", "probe_response.value"),
+        ("in.audio", "probe_audio.value"),  # then the probe took one input of any type
         ("stt.transcript", "conv.text"),  # the converter keeps its first input
     }
     assert migrated["ui"]["nodes"]["probe_response"] == {"x": 10, "y": 250}
+    assert migrate_graph(migrated) is migrated
+
+
+def test_a_probe_has_one_input_of_any_type() -> None:
+    data = {
+        "schema_version": 1,
+        "id": "g",
+        "nodes": [
+            {"id": "both", "type": "debug.probe", "version": "^2.0", "config": {"keep": 3}},
+            {"id": "sound", "type": "debug.probe"},
+            {"id": "both_audio", "type": "debug.answer"},  # the copy's name is taken
+        ],
+        "edges": [
+            {"from": "in.audio", "to": "both.audio"},
+            {"from": "a.response", "to": "both.text"},
+            {"from": "in.audio", "to": "sound.audio"},
+            {"from": "a.response", "to": "out.text"},
+        ],
+        "ui": {"nodes": {"both": {"x": 10, "y": 300}}},
+    }
+    migrated = migrate_graph(data)
+    nodes = {n["id"]: n for n in migrated["nodes"]}
+    assert nodes["both"] == {"id": "both", "type": "debug.probe", "config": {"keep": 3}}
+    assert nodes["both_audio_"] == {
+        "id": "both_audio_",
+        "type": "debug.probe",
+        "config": {"keep": 3},
+    }
+    assert {(e["from"], e["to"]) for e in migrated["edges"]} == {
+        ("a.response", "both.value"),  # the text stays, the audio moves to a copy
+        ("in.audio", "both_audio_.value"),
+        ("in.audio", "sound.value"),
+        ("a.response", "out.text"),  # not a probe
+    }
+    assert migrated["ui"]["nodes"]["both_audio_"] == {"x": 10, "y": 70}
     assert migrate_graph(migrated) is migrated

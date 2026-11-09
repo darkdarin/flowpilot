@@ -16,8 +16,9 @@ export function typeColor(typeId: string): string {
 
 const TEXT_TYPES = new Set(["text.transcript/1", "text.utterance/1", "text.delta/1", "agent.response/1"]);
 
-/** `text.transcript/1` → `transcript`; a union of text types → `text`, of others → `any` */
+/** `text.transcript/1` → `transcript`; a union of text types → `text`, of others or `*` → `any` */
 export function typeShort(typeId: string): string {
+  if (typeId === "*") return "any";
   if (typeId.includes("|")) return typeId.split("|").every((t) => TEXT_TYPES.has(t)) ? "text" : "any";
   return typeId.replace(/\/\d+$/, "").split(".").pop() ?? typeId;
 }

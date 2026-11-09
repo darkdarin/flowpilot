@@ -40,9 +40,9 @@ def graph(text: str) -> dict[str, Any]:
         "edges": [
             {"from": "say.response", "to": "out.response"},
             {"from": "say.delta", "to": "out.delta"},
-            {"from": "say.delta", "to": "delta.text"},
-            {"from": "in.utterance", "to": "utterance.text"},
-            {"from": "say.response", "to": "response.text"},
+            {"from": "say.delta", "to": "delta.value"},
+            {"from": "in.utterance", "to": "utterance.value"},
+            {"from": "say.response", "to": "response.value"},
         ],
     }
 
@@ -104,3 +104,18 @@ async def test_long_text_is_cut(tmp_path: Path) -> None:
     async for session, url in runtime(tmp_path, graph("x" * (MAX_CHARS + 50))):
         _, texts = await tapped(session, url, debug=True)
         assert len(texts["response"]["text"]) == MAX_CHARS
+
+
+async def test_shows_other_data_as_json() -> None:
+    from flowpilot_core.conformance import InputFeed, run_node_once
+    from flowpilot_core.runtime import RuntimeNodeContext
+    from flowpilot_sdk import SpeakerMatch, SpeakerStatus
+
+    probe = DebugProbe()
+    await probe.start(RuntimeNodeContext("tap", {}, {}, frozenset()))
+    match = SpeakerMatch(SpeakerStatus.UNKNOWN, reason="too short", score=0.25)
+    run = await run_node_once(probe, {"value": InputFeed(items=[match], meta={}, end="end")})
+    assert run.error is None, run.error
+    (event,) = [e for e in run.trace.events if e.event == "tap.text"]
+    assert event.attrs["type"] == "identity.speaker/1" and event.attrs["items"] == 1
+    assert '"reason": "too short"' in event.attrs["text"] and '"score": 0.25' in event.attrs["text"]

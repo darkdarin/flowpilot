@@ -92,6 +92,14 @@ def union(*type_ids: str) -> str:
     return "|".join(type_ids)
 
 
+# A port type for inputs that take every payload type, e.g. a debug tap. Like a union port, it
+# has the kind of the type connected. Outputs cannot have it: they say what they give.
+ANY = "*"
+
+
 def union_members(port_type: str) -> tuple[str, ...]:
-    """The types a port type stands for: one, or the members of a union."""
+    """The types a port type stands for: one, the members of a union, or every registered type
+    for ``ANY``."""
+    if port_type == ANY:
+        return tuple(_REGISTRY)
     return tuple(port_type.split("|"))
