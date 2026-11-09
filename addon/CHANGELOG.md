@@ -4,6 +4,25 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.30
+
+### App
+
+- **Confirm with the satellite's own sound.** Client output has a new input, ack: when
+  something comes there, the turn is confirmed with a sound instead of words, and the client
+  is told what was done: turned on, turned off or just done. Quick commands put it there from
+  the action Home Assistant ran, so a Yandex Station plays its own "on" or "off" sound.
+- **Sound signal and Voice or text turn are gone.** Client output's ack does what Sound signal
+  did, and a Condition on spoken turns does what Voice or text turn did. Graphs are migrated:
+  a Voice or text turn becomes a Condition (spoken → yes, typed → no), and what played a Sound
+  signal goes to Client output's ack.
+
+### Integration
+
+- **Acknowledge sound.** An answer confirmed with a sound marks the speech with what was done
+  (in its `extra_data`), so satellites with their own sounds can play them; others hear Home
+  Assistant's acknowledge sound instead of words. Update together with the app.
+
 ## 0.1.29
 
 ### App
