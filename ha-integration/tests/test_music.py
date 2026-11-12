@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
+import pytest
 from homeassistant.components.homeassistant.exposed_entities import async_expose_entity
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -17,6 +20,7 @@ from pytest_homeassistant_custom_component.common import (
     mock_integration,
 )
 
+from custom_components.flowpilot import music
 from custom_components.flowpilot.client import HostRequest
 from custom_components.flowpilot.host import build_host_ops
 from custom_components.flowpilot.music import rank
@@ -54,6 +58,9 @@ class FakeMusicAssistant:
         self.searches: list[dict[str, Any]] = []
         self.played: list[dict[str, Any]] = []
         self.results: dict[str, Any] = SPLIN
+        self.starting = asyncio.Event()  # set: play_media returns (the music started)
+        self.starting.set()
+        self.fail: Exception | None = None
         hass.services.async_register(
             "music_assistant", "search", self.search, supports_response=SupportsResponse.ONLY
         )
@@ -75,6 +82,9 @@ class FakeMusicAssistant:
 
     async def play(self, call: ServiceCall) -> None:
         self.played.append({**call.data, "context_user": call.context.user_id})
+        await self.starting.wait()
+        if self.fail is not None:
+            raise self.fail
 
 
 async def setup(hass: HomeAssistant) -> tuple[Any, FakeMusicAssistant, dict[str, str]]:
@@ -183,3 +193,27 @@ async def test_only_this_song_when_asked(hass: HomeAssistant) -> None:
     await call(host, {"query": "сплин выхода нет", "radio_mode": False}, device_id=ids["satellite"])
     await call(host, {}, device_id=ids["satellite"])  # the library mix goes on by itself
     assert [p["radio_mode"] for p in ma.played] == [False, False]
+
+
+async def test_a_slow_start_does_not_hold_the_turn(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Spotify can make Music Assistant wait half a minute: the tool answers that the music is
+    starting, the music goes on, and a later failure is logged."""
+    monkeypatch.setattr(music, "START_WAIT_S", 0.05)
+    host, ma, ids = await setup(hass)
+    ma.starting.clear()
+    result = await call(host, {"query": "сплин выхода нет"}, device_id=ids["satellite"])
+    assert result["error"] is False and result["data"]["status"] == music.STARTING
+    assert result["data"]["playing"] == "Выхода нет"
+    ma.fail = HomeAssistantError("Spotify Rate Limiter")
+    ma.starting.set()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert "did not play spotify://track/splin" in caplog.text
+
+
+async def test_a_quick_failure_reaches_the_model(hass: HomeAssistant) -> None:
+    host, ma, ids = await setup(hass)
+    ma.fail = HomeAssistantError("player is off")
+    result = await call(host, {"query": "сплин выхода нет"}, device_id=ids["satellite"])
+    assert result["error"] is True and "player is off" in result["data"]["message"]

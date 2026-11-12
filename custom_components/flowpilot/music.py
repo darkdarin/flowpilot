@@ -6,10 +6,17 @@ heard the request (a satellite), else the only one. Only players exposed to Assi
 What: the model passes what was asked, spelling fixed and split into artist and title; Music
 Assistant searches every provider (Spotify, radio, ...) and the best match plays at once. Weak
 matches come back as choices for the model. Nothing asked for: the library's endless mix.
+
+Starting can take long: Music Assistant fetches some of Spotify (its own playlists, an artist's top
+tracks, radio) with its shared client ID, which Spotify often makes wait 10-45 s. The tool waits a
+few seconds for the start, then answers that the music is starting and lets it go on: the turn
+does not hang, and a failure later is logged.
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
 from difflib import SequenceMatcher
 from typing import Any
@@ -23,6 +30,8 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import llm
 
+_LOGGER = logging.getLogger(__name__)
+
 MA_DOMAIN = "music_assistant"
 TOOL_NAME = "flowpilot__play_music"
 MEDIA_TYPES = ["track", "album", "artist", "playlist", "radio"]
@@ -31,13 +40,17 @@ GOOD_MATCH = 0.6
 TYPE_BONUS = {"track": 0.03, "artist": 0.02, "album": 0.0, "playlist": -0.01, "radio": 0.0}
 # Music Assistant's own endless mix of the library, for "play some music".
 LIBRARY_MIX = "infinite mix (library)"
+# How long the tool waits for the music to start before it answers that it is starting
+START_WAIT_S = 3.0
+STARTING = "starting: the music begins in a few seconds"
 
 DESCRIPTION = (
     "Play music with Music Assistant: a song, an artist, an album, a playlist or a radio "
     "station, from any music source. Fix the spelling of names you recognize and pass the artist "
     "and the title separately when you know them. Leave everything empty for 'play some music' "
     "(an endless mix); if the person's music taste is remembered, pass it instead. Without a "
-    "player, music plays where the request was heard."
+    "player, music plays where the request was heard. A status 'starting' means it is on its "
+    "way: say what will play, e.g. 'Включаю Сплин', not that it failed."
 )
 PARAMETERS: dict[str, Any] = {
     "type": "object",
@@ -230,8 +243,8 @@ async def play_music(
         mix = await _library_mix(hass, entries[0])
         if mix is None:
             raise HomeAssistantError("nothing to play: ask what music to play")
-        await _play(hass, player, mix["uri"], "playlist", radio=False, context=context)
-        return {"playing": mix["name"], "type": "playlist", "player": player.name}
+        started = await _play(hass, player, mix["uri"], "playlist", radio=False, context=context)
+        return {"playing": mix["name"], "type": "playlist", "player": player.name, **started}
 
     data: dict[str, Any] = {
         "config_entry_id": entries[0],
@@ -260,12 +273,15 @@ async def play_music(
             for _, k, i in ranked[:4]
         ]
         return {"error": "no good match, ask which one", "choices": choices}
-    await _play(hass, player, str(best["uri"]), kind, radio=radio_for(kind, args), context=context)
+    started = await _play(
+        hass, player, str(best["uri"]), kind, radio=radio_for(kind, args), context=context
+    )
     return {
         "playing": best.get("name"),
         "artist": _artists(best) or None,
         "type": kind,
         "player": player.name,
+        **started,
     }
 
 
@@ -303,12 +319,28 @@ async def _library_mix(hass: HomeAssistant, entry_id: str) -> dict[str, Any] | N
 
 async def _play(
     hass: HomeAssistant, player: State, uri: str, kind: str, *, radio: bool, context: Any
-) -> None:
-    await hass.services.async_call(
-        MA_DOMAIN,
-        "play_media",
-        {"media_id": uri, "media_type": kind, "enqueue": "replace", "radio_mode": radio},
-        target={"entity_id": player.entity_id},
-        blocking=True,
-        context=context,
+) -> dict[str, Any]:
+    """Start playing; ``{}`` once it started, ``{"status": STARTING}`` when it is still starting
+    after ``START_WAIT_S`` (it goes on, a failure is logged). A failure before that raises."""
+    task = hass.async_create_background_task(
+        hass.services.async_call(
+            MA_DOMAIN,
+            "play_media",
+            {"media_id": uri, "media_type": kind, "enqueue": "replace", "radio_mode": radio},
+            target={"entity_id": player.entity_id},
+            blocking=True,
+            context=context,
+        ),
+        f"flowpilot play_music {uri}",
     )
+    done, _ = await asyncio.wait({task}, timeout=START_WAIT_S)
+    if done:
+        task.result()  # a failure goes to the model
+        return {}
+
+    def finished(task: asyncio.Task[Any]) -> None:
+        if not task.cancelled() and (err := task.exception()) is not None:
+            _LOGGER.warning("Music Assistant did not play %s on %s: %s", uri, player.name, err)
+
+    task.add_done_callback(finished)
+    return {"status": STARTING}
