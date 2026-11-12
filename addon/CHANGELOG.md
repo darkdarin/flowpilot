@@ -4,6 +4,21 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.32
+
+### App
+
+- No changes, no need to update.
+
+### Integration
+
+- **Music no longer leaves the speaker thinking.** Music Assistant fetches some of Spotify (its
+  own playlists, an artist's top tracks, radio) with a shared key that Spotify often makes wait
+  half a minute. The agent's music tool waited for the start, gave up after 20 seconds, and the
+  turn ended in silence while the music began later by itself. Now it waits up to 3 seconds,
+  then the agent says what will play and the music starts as soon as Spotify gives it; a start
+  that fails later is logged in Home Assistant.
+
 ## 0.1.31
 
 ### App

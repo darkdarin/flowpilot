@@ -1,6 +1,6 @@
 [project]
 name = "flowpilot-audio"
-version = "0.1.31"
+version = "0.1.32"
 description = "FlowPilot audio processing: gain and automatic gain control for speech"
 readme = "README.md"
 license = "Apache-2.0"
