@@ -8,6 +8,7 @@ import { computed, ref, watch } from "vue";
 import { t } from "../i18n";
 import { currentTurn, type LogEntry } from "../store";
 import { fmtMs } from "../timing";
+import AudioPlayer from "./AudioPlayer.vue";
 import JsonBlock from "./JsonBlock.vue";
 import SoundIcon from "./SoundIcon.vue";
 
@@ -69,6 +70,15 @@ function isSound(e: Entry): boolean {
   );
 }
 
+/** The recording an entry names (a .wav file), with its length when the entry has it. */
+function recording(e: Entry): { file: string; seconds?: number } | null {
+  const attrs = e.kind === "log" ? e.log.attrs : e.attrs;
+  const file = Object.values(attrs).find((v): v is string => typeof v === "string" && v.endsWith(".wav"));
+  if (!file) return null;
+  const seconds = Number(attrs.seconds);
+  return { file, ...(Number.isFinite(seconds) ? { seconds } : {}) };
+}
+
 function kindLabel(kind: string): string {
   const key = `log.${kind}` as Parameters<typeof t>[0];
   const text = t(key);
@@ -128,7 +138,7 @@ function logClass(log: LogEntry): string {
             <span v-if="entry.kind === 'log' && entry.log.attrs.ms !== undefined" class="took">{{ fmtMs(Number(entry.log.attrs.ms)) }}</span>
           </p>
           <p v-if="entry.kind === 'log'" class="summary">{{ entry.log.summary }}</p>
-          <p v-if="isSound(entry)" class="sound-line"><SoundIcon /> {{ t("data.sound") }}</p>
+          <AudioPlayer v-if="recording(entry)" class="player" :file="recording(entry)!.file" :seconds="recording(entry)!.seconds" />
           <JsonBlock v-if="entry.kind === 'log' && entry.log.detail" :text="entry.log.detail" />
           <JsonBlock v-else-if="entry.kind === 'log'" :value="entry.log.attrs" />
           <JsonBlock v-else :value="entry.attrs" />
@@ -297,13 +307,8 @@ function logClass(log: LogEntry): string {
   box-shadow: inset 2px 0 0 var(--focus);
 }
 
-.sound-line {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin: 0 0 6px;
-  font-size: 12px;
-  color: var(--muted);
+.player {
+  margin: 0 0 8px;
 }
 
 .at,
