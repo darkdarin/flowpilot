@@ -4,6 +4,24 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.38
+
+Update both: the app speaks answers that touched no device; the integration tells it how many
+devices a command touched (the app also works with the integration of 0.1.37, by intent).
+
+### App
+
+- **Quick commands answer "what time is it" in words.** Home Assistant answers it as done; with
+  Confirm with a sound: Always, the station beeped instead of telling the time. A sound now
+  confirms only a command that touched devices, as Home Assistant's own pipeline does.
+- **Live debug: the timeline leaves out nodes that took no part in the turn** (the other
+  branch of a condition). Failed, cancelled and timed-out nodes stay.
+
+### Integration
+
+- **Quick commands learn how many devices a command touched**, so an answer without devices
+  (the time, the weather, a timer) is spoken instead of confirmed with a sound.
+
 ## 0.1.37
 
 Update the app only.
