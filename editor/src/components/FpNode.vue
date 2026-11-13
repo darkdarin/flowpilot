@@ -46,18 +46,15 @@ function shown(port: PortInfo, side: "inputs" | "outputs"): string {
 // output shows the turn instead: to the first sound, and the whole turn.
 const timing = computed(() => (debug.enabled ? currentTimings.value[props.id] : undefined));
 const onPath = computed(() => Boolean(timing.value?.onPath));
-// Took part in the turn: something went out of one of its outputs. A node off the turn's path (the
-// other branch of a condition, a voice-only node in a typed turn) only waited for its inputs to end:
-// its run time says nothing, so it shows none.
-const tookPart = computed(() => {
-  const outputs = spec.value?.outputs ?? [];
-  return !outputs.length || outputs.some((p) => (portRun(p.name)?.state ?? "absent") !== "absent");
-});
+const FAILURES: Record<string, "status.error" | "status.timeout" | "status.cancelled"> = {
+  error: "status.error",
+  timeout: "status.timeout",
+  cancelled: "status.cancelled",
+};
 const runBadge = computed(() => {
   const r = run.value;
   if (!r) return null;
   if (r.status === "running") return { text: t("status.running"), title: "" };
-  if (!tookPart.value && r.status === "ok" && props.id !== sinkId.value) return null;
   const tt = currentTurnTiming.value;
   if (props.id === sinkId.value && tt) {
     const lines = [
@@ -75,19 +72,22 @@ const runBadge = computed(() => {
     ].filter(Boolean);
     return { text: parts.join(" · ") || fmtMs(r.durationMs ?? 0), title: lines.join("\n") };
   }
+  // Other nodes: only their reaction and delay. Their run time is the turn's in a streaming graph
+  // and says nothing; a node that took no part has neither and shows nothing, unless it failed.
   const tm = timing.value;
   const lines = [
     tm?.reaction !== undefined ? `${t("debug.reaction")}: ${fmtMs(tm.reaction)} — ${t("debug.reactionHint")}` : "",
     tm?.delay !== undefined ? `${t("debug.delay")}: ${fmtMs(tm.delay)} — ${t("debug.delayHint")}` : "",
     tm?.onPath ? t("debug.onPath") : "",
-    r.durationMs !== undefined ? `${t("node.ran")}: ${fmtMs(r.durationMs)}` : "",
     r.error ?? "",
   ].filter(Boolean);
   const parts = [
     tm?.reaction !== undefined ? `⚡ ${fmtMs(tm.reaction)}` : "",
     tm?.delay !== undefined ? `+${fmtMs(tm.delay)}` : "",
   ].filter(Boolean);
-  return { text: parts.join(" · ") || fmtMs(r.durationMs ?? 0), title: lines.join("\n") };
+  const failure = FAILURES[r.status];
+  if (!parts.length && !failure) return null;
+  return { text: parts.join(" · ") || t(failure!), title: lines.join("\n") };
 });
 
 // A debug tap idles (greyed out, nothing reaches it) until live debug is on; then it shows what it
