@@ -100,16 +100,17 @@ function logClass(log: LogEntry): string {
         <ol v-else class="entries">
           <li v-for="e in shown" :key="e.key" :class="e.kind === 'log' ? logClass(e.log) : e.kind">
             <button class="row" :class="{ sel: picked === e.key }" @click="picked = e.key">
-              <span class="at"><SoundIcon v-if="isSound(e)" />{{ fmtMs(e.t) }}</span>
+              <span class="at">{{ fmtMs(e.t) }}</span>
               <span v-if="!oneNode" class="node" :title="t('journal.addToFilter')" @click.stop="pick(e.node)">{{ e.node }}</span><span v-else />
               <template v-if="e.kind === 'log'">
                 <span class="kind">{{ kindLabel(e.log.kind) }}</span>
-                <span class="text">{{ e.log.summary }}</span>
+                <span class="text"><SoundIcon v-if="isSound(e)" /> {{ e.log.summary }}</span>
                 <span v-if="e.log.attrs.ms !== undefined" class="took">{{ fmtMs(Number(e.log.attrs.ms)) }}</span>
               </template>
               <template v-else>
                 <span class="kind">{{ e.event }}</span>
                 <span class="text attrs">
+                  <SoundIcon v-if="isSound(e)" />
                   <span v-for="(value, key) in e.attrs" :key="key"><span class="k">{{ key }}</span> {{ value ?? "—" }}</span>
                 </span>
               </template>
@@ -121,12 +122,13 @@ function logClass(log: LogEntry): string {
       <div class="detail">
         <template v-if="entry">
           <p class="where">
-            <span class="at"><SoundIcon v-if="isSound(entry)" />{{ fmtMs(entry.t) }}</span>
+            <span class="at">{{ fmtMs(entry.t) }}</span>
             <code>{{ entry.node }}</code>
             <span class="kind" :class="entry.kind === 'log' ? logClass(entry.log) : 'note'">{{ entry.kind === "log" ? kindLabel(entry.log.kind) : entry.event }}</span>
             <span v-if="entry.kind === 'log' && entry.log.attrs.ms !== undefined" class="took">{{ fmtMs(Number(entry.log.attrs.ms)) }}</span>
           </p>
           <p v-if="entry.kind === 'log'" class="summary">{{ entry.log.summary }}</p>
+          <p v-if="isSound(entry)" class="sound-line"><SoundIcon /> {{ t("data.sound") }}</p>
           <JsonBlock v-if="entry.kind === 'log' && entry.log.detail" :text="entry.log.detail" />
           <JsonBlock v-else-if="entry.kind === 'log'" :value="entry.log.attrs" />
           <JsonBlock v-else :value="entry.attrs" />
@@ -288,10 +290,13 @@ function logClass(log: LogEntry): string {
   box-shadow: inset 2px 0 0 var(--focus);
 }
 
-.at {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
+.sound-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .at,
