@@ -7,8 +7,12 @@ conditions are settings, combined with "all" or "any":
   area of the speaker's device (Home Assistant names it; in a voice turn only once speech is
   recognized, so put such a condition after speech-to-text);
 - about what comes on the optional ``check`` input (any type, often the same output as
-  ``value``): data came or not; for text, words in any of their forms or a regular expression;
-  for who speaks (``identity.principal``), the people or whether they are known.
+  ``value``): data came or not; for text, words in any of their forms or a regular expression,
+  and its language; for who speaks (``identity.principal``), the people or whether they are known.
+
+The language is what the text on check says of itself: speech recognition's (``Utterance``,
+``Transcript``), an agent's answer (``Response``, or the header of its text stream, known as the
+stream opens, before its words); the turn's language when the text does not say.
 
 While the conditions are open the node keeps what comes on ``value`` and passes it on once the
 branch is decided: a condition on a text stream waits for the whole text. Privileged: it may pass
@@ -45,12 +49,14 @@ from flowpilot_sdk import (
     node_translations,
     type_kind,
 )
+from flowpilot_sdk.language import language_base, stream_language
 
 from .names import _forms, words
 
 TYPE = "logic.condition"
 WHERE_OP = "ha.turn.where"
 PRINCIPAL = "identity.principal/1"
+DELTA = "text.delta/1"
 TEXT_TYPES = TEXT.split("|")
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 DAY_TITLES = {day: day.capitalize() for day in DAYS}
@@ -59,7 +65,12 @@ _END = object()
 
 # the settings that are conditions (the rest say how to combine them)
 TURN_CONDITIONS = ("turn", "time_from", "days", "areas")
-CHECK_CONDITIONS = ("present", "words", "pattern", "people", "known")
+CHECK_CONDITIONS = ("present", "words", "pattern", "languages", "people", "known")
+# languages offered for the language condition (editors show their names)
+LANGUAGES = [
+    "ru", "en", "uk", "be", "kk", "de", "fr", "es", "it", "pt", "pl", "tr", "ar", "he", "zh",
+    "ja", "ko",
+]  # fmt: skip
 
 
 def _when(types: list[str] | str) -> dict[str, Any]:
@@ -82,7 +93,8 @@ class Condition:
                 required=False,
                 description=(
                     "What the conditions look at, when they look at data: anything (came or not), "
-                    "text (words, a pattern) or who speaks. Often the same output as value."
+                    "text (words, a pattern, its language) or who speaks. Often the same output as "
+                    "value."
                 ),
             ),
         },
@@ -163,6 +175,18 @@ class Condition:
                     "type": "string",
                     **_when(TEXT_TYPES),
                 },
+                "languages": {
+                    "title": "Language",
+                    "description": (
+                        "The text is in one of these languages: what speech recognition heard, "
+                        "what an agent answers in (known as its answer begins); the turn's "
+                        "language when the text does not say."
+                    ),
+                    "type": "array",
+                    "items": {"enum": LANGUAGES, "format": "language"},
+                    "uniqueItems": True,
+                    **_when(TEXT_TYPES),
+                },
                 "people": {
                     "title": "People",
                     "description": "Who speaks is one of these people.",
@@ -183,7 +207,8 @@ class Condition:
         },
         description=(
             "Sends what comes in one way or the other: by the turn (spoken or typed, the time, the "
-            "area) and by what comes on check (data or not, words in the text, who speaks)."
+            "area) and by what comes on check (data or not, words in the text, its language, "
+            "who speaks)."
         ),
     )
 
@@ -268,7 +293,8 @@ class Condition:
         if areas := cfg.get("areas"):
             tests.append(("area", lambda: self._in_area(turn, list(areas))))
         if any(cfg.get(key) for key in CHECK_CONDITIONS):
-            tests.append(("check", lambda: self._check_fits(turn)))
+            seen: list[str] = []  # what the check saw, for the reason
+            tests.append(("check", lambda: self._check_fits(turn, seen)))
         if not tests:
             return True, "no conditions"
         want_all = cfg.get("match", "all") != "any"
@@ -277,7 +303,8 @@ class Condition:
             ok = test()
             if asyncio.iscoroutine(ok):
                 ok = await ok
-            reasons.append(f"{name} {'✓' if ok else '✗'}")
+            detail = f" ({'; '.join(seen)})" if name == "check" and seen else ""
+            reasons.append(f"{name} {'✓' if ok else '✗'}{detail}")
             if want_all and not ok:
                 return False, ", ".join(reasons)
             if not want_all and ok:
@@ -313,7 +340,7 @@ class Condition:
         area = where.get("area_id") if isinstance(where, Mapping) else None
         return area in areas
 
-    async def _check_fits(self, turn: TurnSession) -> bool:
+    async def _check_fits(self, turn: TurnSession, seen: list[str]) -> bool:
         cfg = self._config
         check: InputStream[Any] = turn.input("check")
         try:
@@ -324,20 +351,34 @@ class Condition:
         if present := cfg.get("present"):
             results.append((header is not None) == (present == "yes"))
         wants_text = bool(cfg.get("words") or cfg.get("pattern"))
+        wanted_languages = list(cfg.get("languages") or [])
         wants_who = bool(cfg.get("people") or cfg.get("known"))
-        if wants_text or wants_who:
-            if header is None:
+        if wants_text or wanted_languages:
+            if header is not None and header.type not in TEXT_TYPES:
+                raise ValueError(f"text conditions need text on check, not {header.type}")
+            text: str | None = None
+            said = stream_language(header) if header is not None else None
+            # a stream that says its language in its header is decided without its words
+            if header is not None and (wants_text or (said is None and header.type != DELTA)):
+                text, of_items = await _text_of(check, header.type)
+                said = said or of_items
+            if wanted_languages:
+                language = said or turn.context.language
+                seen.append(f"language {language or '?'}" + ("" if said else " of the turn"))
+                base = language_base(language)
+                results.append(base is not None and base in wanted_languages)
+            if wants_text and text is None:
                 results.append(False)  # nothing to look at
-            elif wants_text:
-                if header.type not in TEXT_TYPES:
-                    raise ValueError(f"text conditions need text on check, not {header.type}")
-                text, language = await _text_of(check, header.type)
+            elif text is not None:
                 if cfg.get("words"):
-                    language = language or turn.context.language
-                    results.append(_has_words(text, list(cfg["words"]), language))
+                    words_language = said or turn.context.language
+                    results.append(_has_words(text, list(cfg["words"]), words_language))
                 if self._pattern is not None:
                     results.append(self._pattern.search(text) is not None)
-            if wants_who and header is not None:
+        if wants_who:
+            if header is None:
+                results.append(False)  # nothing to look at
+            else:
                 if header.type != PRINCIPAL:
                     raise ValueError(
                         f"conditions on who speaks need it on check, not {header.type}"

@@ -13,6 +13,7 @@ from flowpilot_sdk import (
     Assurance,
     HostUnavailable,
     Principal,
+    Response,
     TextDelta,
     Transcript,
     Utterance,
@@ -74,6 +75,57 @@ async def test_a_text_stream_on_check_is_read_whole_and_value_is_kept_meanwhile(
         await started(words=["свет"]), {"value": value(*transcript), "check": value(*transcript)}
     )
     assert branch == "yes"
+
+
+async def test_language_of_the_text_on_check() -> None:
+    english = Utterance("What is your name", "en-US")
+    feeds = {"value": value(english), "check": value(english)}
+    assert (await route(await started(languages=["en"]), feeds))[0] == "yes"
+    assert (await route(await started(languages=["ru", "uk"]), feeds))[0] == "no"
+    # the text does not say: the turn's language
+    unsaid = Utterance("Как тебя зовут")
+    feeds = {"value": value(unsaid), "check": value(unsaid)}
+    node = await started(languages=["ru"])
+    assert (await route(node, feeds, context={"language": "ru-RU"}))[0] == "yes"
+    assert (await route(node, feeds, context={"language": "en"}))[0] == "no"
+    # an agent's whole answer
+    answer = Response("My name is Jarvis", language="en")
+    feeds = {"value": value(answer), "check": value(answer)}
+    assert (await route(await started(languages=["en"]), feeds))[0] == "yes"
+
+
+async def test_language_of_an_answer_stream_is_decided_as_it_opens() -> None:
+    """The agent's stream says its language in its header: the branch is chosen at once, before
+    the words, so text-to-speech after the condition starts as soon as the answer does."""
+    deltas = [TextDelta("My name "), TextDelta("is Jarvis.")]
+    english = {"language": "en"}
+    node = await started(languages=["ru"])
+    run = await run_node_once(
+        node,
+        {
+            "value": InputFeed(items=deltas, meta=english, end="hang"),
+            "check": InputFeed(items=deltas, meta=english, end="hang"),
+        },
+        context={"language": "ru"},
+        cancel_after_s=0.3,
+    )
+    out = run.outputs["no"]
+    assert out.header is not None and out.header.meta == english  # the language goes on
+    assert out.items == deltas  # passed on while the answer is still coming
+    assert run.outputs["yes"].header is None
+    (decided,) = [e for e in run.trace.events if e.event == "logic.condition"]
+    assert decided.attrs["why"] == "check ✗ (language en)"
+
+
+async def test_language_of_a_stream_that_does_not_say_is_the_turns() -> None:
+    deltas = [TextDelta("Привет")]
+    node = await started(languages=["ru"])
+    feeds = {"value": value(*deltas), "check": value(*deltas)}
+    branch, _ = await route(node, feeds, context={"language": "ru"})
+    assert branch == "yes"
+    run = await run_node_once(node, feeds, context={"language": "ru"})
+    (decided,) = [e for e in run.trace.events if e.event == "logic.condition"]
+    assert decided.attrs["why"] == "check ✓ (language ru of the turn)"
 
 
 async def test_data_came_or_not() -> None:

@@ -39,7 +39,12 @@ const kind = computed(() => {
 // A list of choices (people, areas, days): each one a toggle; nothing chosen, nothing set.
 const multiOptions = computed<{ id: string; name: string }[]>(() => {
   const items = props.schema.items ?? {};
-  if (items.enum) return items.enum.map((v) => ({ id: String(v), name: props.optionTitles?.[String(v)] ?? String(v) }));
+  if (items.enum) {
+    return items.enum.map((v) => ({
+      id: String(v),
+      name: items.format === "language" ? languageName(String(v)) : (props.optionTitles?.[String(v)] ?? String(v)),
+    }));
+  }
   const kind = items["x-flowpilot-options"];
   return kind ? (hostOptions.value.options[kind] ?? []).map((o) => ({ id: o.id, name: o.name || o.id })) : [];
 });

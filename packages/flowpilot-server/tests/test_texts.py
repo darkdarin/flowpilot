@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 import pytest
 
 from flowpilot_core.conformance import missing_descriptions
@@ -14,6 +17,13 @@ SPECS = [spec for t in REGISTRY.types() if (spec := REGISTRY.spec(t)) is not Non
 LANGUAGES = ["ru"]
 
 
+def labelled_values(prop: Mapping[str, Any]) -> set[str]:
+    """Values of a list that need labels; language codes are named by the editor."""
+    if (prop.get("items") or prop).get("format") == "language":
+        return set()
+    return {str(v) for v in enum_values(prop)}
+
+
 def test_all_plugins_are_loaded() -> None:
     assert {"wyoming.stt", "wyoming.tts", "vad.segmenter", "text.first"} <= set(REGISTRY.types())
 
@@ -24,8 +34,8 @@ def test_english_texts(spec: NodeSpec) -> None:
     assert missing_descriptions(spec) == []
     for name, prop in (spec.config_schema.get("properties") or {}).items():
         assert prop.get("title"), f"setting {name} has no title"
-        if enum_values(prop):  # every value of a list is labelled
-            assert set(prop.get(ENUM_TITLES_KEY) or {}) == {str(v) for v in enum_values(prop)}, name
+        if labelled_values(prop):  # every value of a list is labelled
+            assert set(prop.get(ENUM_TITLES_KEY) or {}) == labelled_values(prop), name
 
 
 @pytest.mark.parametrize("language", LANGUAGES)
@@ -40,7 +50,7 @@ def test_translations_are_complete(spec: NodeSpec, language: str) -> None:
     assert set(text.config) == props
     for name, field in text.config.items():
         assert field.title and field.description, f"setting {name}"
-        values = {str(v) for v in enum_values(spec.config_schema["properties"][name])}
+        values = labelled_values(spec.config_schema["properties"][name])
         assert set(field.options) == values, f"labels of {name}"
 
 
