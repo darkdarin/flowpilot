@@ -26,6 +26,13 @@ from custom_components.flowpilot.host import build_host_ops
 from custom_components.flowpilot.music import rank
 
 
+@pytest.fixture(autouse=True)
+def _no_known_providers() -> Any:
+    music._providers.clear()
+    yield
+    music._providers.clear()
+
+
 def item(name: str, uri: str, *artists: str) -> dict[str, Any]:
     return {"name": name, "uri": uri, "artists": [{"name": a} for a in artists]}
 
@@ -61,6 +68,10 @@ class FakeMusicAssistant:
         self.starting = asyncio.Event()  # set: play_media returns (the music started)
         self.starting.set()
         self.fail: Exception | None = None
+        self.library_tracks = [item("Выхода нет", "library://track/1", "Сплин")]
+        self.order: list[str] = []  # stops and plays, in order
+        self.hass = hass
+        hass.services.async_register("media_player", "media_stop", self.stop)
         hass.services.async_register(
             "music_assistant", "search", self.search, supports_response=SupportsResponse.ONLY
         )
@@ -77,10 +88,28 @@ class FakeMusicAssistant:
         return self.results
 
     async def library(self, call: ServiceCall) -> dict[str, Any]:
+        if call.data["media_type"] == "track":
+            return {"items": self.library_tracks}
         mix = item("Infinite Mix (library)", "library://playlist/7")
         return {"items": [item("Infinite Mix (favorites)", "library://playlist/8"), mix]}
 
+    async def stop(self, call: ServiceCall) -> None:
+        ids = call.data["entity_id"]
+        for entity_id in [ids] if isinstance(ids, str) else ids:
+            self.order.append(f"stop {entity_id}")
+            # Music Assistant lets go of the player a moment after the stop returns
+            self.hass.async_create_task(self.idle(entity_id))
+
+    async def idle(self, entity_id: str) -> None:
+        for _ in range(3):
+            await asyncio.sleep(0)
+        self.order.append(f"idle {entity_id}")
+        state = self.hass.states.get(entity_id)
+        self.hass.states.async_set(entity_id, "idle", state.attributes if state else None)
+
     async def play(self, call: ServiceCall) -> None:
+        ids = call.data["entity_id"]
+        self.order.append(f"play {ids if isinstance(ids, str) else ids[0]}")
         self.played.append({**call.data, "context_user": call.context.user_id})
         await self.starting.wait()
         if self.fail is not None:
@@ -132,7 +161,7 @@ async def setup(hass: HomeAssistant) -> tuple[Any, FakeMusicAssistant, dict[str,
 
 
 async def call(host: Any, arguments: dict[str, Any], **turn: Any) -> dict[str, Any]:
-    args = {"name": "flowpilot__play_music", "arguments": arguments, **turn}
+    args = {"name": "flowpilot__play_music", "arguments": arguments, "language": "ru", **turn}
     result: dict[str, Any] = await host["ha.llm.call"](HostRequest(None, args))
     return result
 
@@ -178,7 +207,53 @@ async def test_nothing_asked_plays_the_library_mix(hass: HomeAssistant) -> None:
     host, ma, ids = await setup(hass)
     result = await call(host, {}, device_id=ids["satellite"])
     assert result["data"]["playing"] == "Infinite Mix (library)"
-    assert ma.played[0]["media_id"] == "library://playlist/7" and not ma.searches
+    assert ma.played[0]["media_id"] == "library://playlist/7"
+    assert result["say"] == "Включаю Infinite Mix (library)"
+
+
+async def test_my_music_is_the_deezer_flow(hass: HomeAssistant) -> None:
+    """Deezer's Flow is in no search and no library: it is the provider's own playlist."""
+    host, ma, ids = await setup(hass)
+    ma.results = {"tracks": [item("Выхода нет", "deezer--UGbw9F82://track/1", "Сплин")]}
+    result = await call(host, {}, device_id=ids["satellite"])
+    assert result["error"] is False, result
+    assert ma.played[0]["media_id"] == "deezer--UGbw9F82://playlist/flow"
+    assert ma.played[0]["media_type"] == "playlist" and result["say"] == "Включаю Flow"
+    searches = len(ma.searches)
+    await call(host, {}, device_id=ids["satellite"])
+    assert len(ma.searches) == searches  # the providers are known now
+
+
+async def test_an_empty_library_has_no_mix_to_play(hass: HomeAssistant) -> None:
+    """Music Assistant answers "no playable items" and drops the queue that was playing."""
+    host, ma, ids = await setup(hass)
+    ma.library_tracks = []
+    result = await call(host, {}, device_id=ids["satellite"])
+    assert result["error"] is True and "nothing to play" in result["data"]["message"]
+    assert not ma.played
+
+
+async def test_the_answer_has_words_for_the_person(hass: HomeAssistant) -> None:
+    host, _, ids = await setup(hass)
+    result = await call(host, {"query": "сплин выхода нет"}, device_id=ids["satellite"])
+    assert result["say"] == "Включаю Сплин — Выхода нет" and "say" not in result["data"]
+    weak = await call(host, {"query": "что-то совсем другое"}, device_id=ids["satellite"])
+    assert "say" not in weak  # the model asks which one
+
+
+async def test_playing_music_is_stopped_before_the_new_one(hass: HomeAssistant) -> None:
+    """Replacing music that plays loses the new music on a Sendspin player: Music Assistant
+    clears the player's output once the old music stops, after the new one started."""
+    host, ma, ids = await setup(hass)
+    hass.states.async_set(ids["station"], "playing", {"friendly_name": "Яндекс Станция Миди"})
+    await call(host, {"query": "сплин выхода нет"}, device_id=ids["satellite"])
+    await hass.async_block_till_done(wait_background_tasks=True)
+    station = ids["station"]
+    assert ma.order == [f"stop {station}", f"idle {station}", f"play {station}"]
+    ma.order.clear()
+    await call(host, {"query": "сплин выхода нет"}, device_id=ids["satellite"])  # idle now
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert ma.order == [f"play {ids['station']}"]
 
 
 async def test_a_weak_match_comes_back_as_choices(hass: HomeAssistant) -> None:

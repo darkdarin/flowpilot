@@ -341,9 +341,12 @@ def build_host_ops(
                 found = await music.play_music(hass, api.llm_context, dict(arguments))
             except (HomeAssistantError, ValueError) as err:
                 return {"error": True, "data": {"error": type(err).__name__, "message": str(err)}}
+            # "say": the words for the person, so the agent can answer without asking the model
+            words = found.pop("say", None)
             return {
                 "error": "error" in found,
                 "data": json.loads(json.dumps(found, cls=JSONEncoder)),
+                **({"say": words} if words else {}),
             }
         tool_input = llm.ToolInput(tool_name=name, tool_args=dict(arguments))
         try:

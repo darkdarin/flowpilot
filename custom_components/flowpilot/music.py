@@ -5,17 +5,23 @@ Where: the player the user named, else the Music Assistant player in the area of
 heard the request (a satellite), else the only one. Only players exposed to Assist are used.
 What: the model passes what was asked, spelling fixed and split into artist and title; Music
 Assistant searches every provider (Spotify, radio, ...) and the best match plays at once. Weak
-matches come back as choices for the model. Nothing asked for: the library's endless mix.
+matches come back as choices for the model. Nothing asked for: the person's own stream of a
+provider that has one (Deezer Flow), else the library's endless mix.
 
-Starting can take long: Music Assistant fetches some of Spotify (its own playlists, an artist's top
-tracks, radio) with its shared client ID, which Spotify often makes wait 10-45 s. The tool waits a
-few seconds for the start, then answers that the music is starting and lets it go on: the turn
-does not hang, and a failure later is logged.
+Starting can take long (an artist's mix is fetched track by track; Spotify makes Music Assistant's
+shared client ID wait 10-45 s). The tool waits a moment for a quick failure, then answers that the
+music is starting and lets it go on: the turn does not hang, and a failure later is logged. The
+answer carries ``say``, the words for the person, so the agent need not ask the model for them.
+
+Music that already plays is stopped first, and the new music starts once Music Assistant has let
+go of the player: replacing it at once loses the new music on some players (Music Assistant 2.10
+clears the player's output once the old music stops, after the new one started).
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 from difflib import SequenceMatcher
@@ -23,12 +29,13 @@ from typing import Any
 
 from homeassistant.components.homeassistant.exposed_entities import async_should_expose
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.core import HomeAssistant, State
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import llm
+from homeassistant.helpers.event import async_track_state_change_event
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,17 +47,29 @@ GOOD_MATCH = 0.6
 TYPE_BONUS = {"track": 0.03, "artist": 0.02, "album": 0.0, "playlist": -0.01, "radio": 0.0}
 # Music Assistant's own endless mix of the library, for "play some music".
 LIBRARY_MIX = "infinite mix (library)"
-# How long the tool waits for the music to start before it answers that it is starting
-START_WAIT_S = 3.0
+# How long the tool waits for the music to start (or fail at once) before it answers that it is
+# starting
+START_WAIT_S = 1.0
 STARTING = "starting: the music begins in a few seconds"
+# How long playing music may take to stop before the new music starts anyway
+STOP_WAIT_S = 2.0
+# A provider's own endless stream of the person's music, by provider domain
+PERSONAL_STREAM = {"deezer": "playlist/flow"}
+# Provider instances seen in search results (``deezer--UGbw9F82``), by Music Assistant entry
+_providers: dict[str, set[str]] = {}
+SAY = {
+    "ru": "Включаю {}",
+    "en": "Playing {}",
+}
 
 DESCRIPTION = (
     "Play music with Music Assistant: a song, an artist, an album, a playlist or a radio "
     "station, from any music source. Fix the spelling of names you recognize and pass the artist "
-    "and the title separately when you know them. Leave everything empty for 'play some music' "
-    "(an endless mix); if the person's music taste is remembered, pass it instead. Without a "
-    "player, music plays where the request was heard. A status 'starting' means it is on its "
-    "way: say what will play, e.g. 'Включаю Сплин', not that it failed."
+    "and the title separately when you know them. Leave everything empty for 'play some music', "
+    "'my music' or 'my wave': the person's own endless stream plays (Deezer Flow, or the "
+    "library mix). Without a player, music plays where the request was heard. A status "
+    "'starting' means it is on its way: say what will play, e.g. 'Включаю Сплин', not that it "
+    "failed."
 )
 PARAMETERS: dict[str, Any] = {
     "type": "object",
@@ -239,12 +258,26 @@ async def play_music(
     context = llm_context.context
     asked = any(args.get(k) for k in ("query", "artist", "title"))
 
+    language = llm_context.language or hass.config.language
+
     if not asked:
-        mix = await _library_mix(hass, entries[0])
+        mix = await _own_stream(hass, entries[0])
         if mix is None:
             raise HomeAssistantError("nothing to play: ask what music to play")
-        started = await _play(hass, player, mix["uri"], "playlist", radio=False, context=context)
-        return {"playing": mix["name"], "type": "playlist", "player": player.name, **started}
+        try:
+            started = await _play(
+                hass, player, mix["uri"], "playlist", radio=False, context=context
+            )
+        except HomeAssistantError:
+            _providers.pop(entries[0], None)  # a provider may be gone: look again next time
+            raise
+        return {
+            "playing": mix["name"],
+            "type": "playlist",
+            "player": player.name,
+            **started,
+            "say": say(language, mix["name"]),
+        }
 
     data: dict[str, Any] = {
         "config_entry_id": entries[0],
@@ -259,6 +292,7 @@ async def play_music(
         MA_DOMAIN, "search", data, blocking=True, return_response=True, context=context
     )
     results: dict[str, Any] = dict(response) if isinstance(response, dict) else {}
+    _seen(entries[0], results)
     if args.get("media_type") in (None, "playlist"):
         # the household's own playlists (and Music Assistant's mixes) are not in a provider search
         own = await _library(hass, entries[0], "playlist", str(data["name"]))
@@ -276,13 +310,22 @@ async def play_music(
     started = await _play(
         hass, player, str(best["uri"]), kind, radio=radio_for(kind, args), context=context
     )
+    by = _artists(best)
+    name = str(best.get("name") or "")
     return {
         "playing": best.get("name"),
-        "artist": _artists(best) or None,
+        "artist": by or None,
         "type": kind,
         "player": player.name,
         **started,
+        "say": say(language, f"{by} — {name}" if by and kind in ("track", "album") else name),
     }
+
+
+def say(language: str | None, what: str) -> str:
+    """What to tell the person once the music is on its way: 'Включаю Сплин — Выхода нет'."""
+    base = (language or "").split("-")[0].casefold()
+    return SAY.get(base, SAY["en"]).format(what).strip()
 
 
 async def _library(
@@ -291,7 +334,12 @@ async def _library(
     response = await hass.services.async_call(
         MA_DOMAIN,
         "get_library",
-        {"config_entry_id": entry_id, "media_type": media_type, "search": search, "limit": 10},
+        {
+            "config_entry_id": entry_id,
+            "media_type": media_type,
+            **({"search": search} if search else {}),
+            "limit": 10,
+        },
         blocking=True,
         return_response=True,
     )
@@ -309,7 +357,35 @@ def radio_for(kind: str, args: dict[str, Any]) -> bool:
     return bool(asked) if asked is not None else kind in RADIO_BY_DEFAULT
 
 
-async def _library_mix(hass: HomeAssistant, entry_id: str) -> dict[str, Any] | None:
+def _seen(entry_id: str, results: dict[str, Any]) -> None:
+    """Remember the provider instances of the results (the scheme of their URIs)."""
+    for items in results.values():
+        for item in items if isinstance(items, list) else []:
+            uri = str(item.get("uri") or "") if isinstance(item, dict) else ""
+            scheme = uri.partition("://")[0]
+            if scheme and scheme != "library":
+                _providers.setdefault(entry_id, set()).add(scheme)
+
+
+async def _own_stream(hass: HomeAssistant, entry_id: str) -> dict[str, Any] | None:
+    """The person's own endless music: a provider's personal stream (Deezer Flow), else the
+    library mix when the library has tracks, else None."""
+    if not _providers.get(entry_id):
+        # no search yet since Home Assistant started: any search shows the providers
+        response = await hass.services.async_call(
+            MA_DOMAIN,
+            "search",
+            {"config_entry_id": entry_id, "name": "music", "limit": 1},
+            blocking=True,
+            return_response=True,
+        )
+        _seen(entry_id, dict(response) if isinstance(response, dict) else {})
+    for instance in sorted(_providers.get(entry_id, ())):
+        domain = instance.partition("--")[0]
+        if path := PERSONAL_STREAM.get(domain):
+            return {"name": "Flow", "uri": f"{instance}://{path}"}
+    if not await _library(hass, entry_id, "track", ""):
+        return None  # the mix of an empty library has nothing to play
     items = await _library(hass, entry_id, "playlist", "Infinite Mix")
     for item in items:
         if _norm(str(item.get("name") or "")) == _norm(LIBRARY_MIX):
@@ -322,17 +398,20 @@ async def _play(
 ) -> dict[str, Any]:
     """Start playing; ``{}`` once it started, ``{"status": STARTING}`` when it is still starting
     after ``START_WAIT_S`` (it goes on, a failure is logged). A failure before that raises."""
-    task = hass.async_create_background_task(
-        hass.services.async_call(
+
+    async def start() -> None:
+        if (state := hass.states.get(player.entity_id)) is not None and state.state == "playing":
+            await _stop(hass, player.entity_id, context)
+        await hass.services.async_call(
             MA_DOMAIN,
             "play_media",
             {"media_id": uri, "media_type": kind, "enqueue": "replace", "radio_mode": radio},
             target={"entity_id": player.entity_id},
             blocking=True,
             context=context,
-        ),
-        f"flowpilot play_music {uri}",
-    )
+        )
+
+    task = hass.async_create_background_task(start(), f"flowpilot play_music {uri}")
     done, _ = await asyncio.wait({task}, timeout=START_WAIT_S)
     if done:
         task.result()  # a failure goes to the model
@@ -344,3 +423,31 @@ async def _play(
 
     task.add_done_callback(finished)
     return {"status": STARTING}
+
+
+async def _stop(hass: HomeAssistant, entity_id: str, context: Any) -> None:
+    """Stop the music and wait until the player no longer plays (``STOP_WAIT_S`` at most)."""
+    stopped = asyncio.Event()
+
+    @callback
+    def changed(event: Any) -> None:
+        new = event.data.get("new_state")
+        if new is None or new.state != "playing":
+            stopped.set()
+
+    unsubscribe = async_track_state_change_event(hass, [entity_id], changed)
+    try:
+        await hass.services.async_call(
+            "media_player",
+            "media_stop",
+            target={"entity_id": entity_id},
+            blocking=True,
+            context=context,
+        )
+        if (state := hass.states.get(entity_id)) is None or state.state != "playing":
+            return
+        with contextlib.suppress(TimeoutError):
+            async with asyncio.timeout(STOP_WAIT_S):
+                await stopped.wait()
+    finally:
+        unsubscribe()
