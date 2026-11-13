@@ -4,6 +4,30 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.33
+
+Update both: the agent's quicker answer to music needs the app and the integration.
+
+### App
+
+- **"Play Metallica" is answered sooner.** When the agent starts music, the music tool now gives
+  the words to say ("Включаю Metallica") and the agent says them at once instead of asking the
+  model again: about 1.5 seconds less.
+- The agent no longer tries to confirm music or a question with the satellite's sound, which
+  cost a wasted request to the model.
+
+### Integration
+
+- **New music no longer stays paused.** Asking for music while other music played could leave
+  the new music paused in Music Assistant while the speaker said it was playing (seen with a
+  Yandex Station over Sendspin). The music tool now stops what plays and starts the new music
+  once Music Assistant has let go of the player.
+- **"Play my music" plays your Deezer Flow.** With nothing particular asked for, the music tool
+  plays the provider's own endless stream (Deezer Flow) and otherwise the library mix, which is
+  now played only when the library has tracks: an empty mix stopped the music that played.
+- The music tool waits 1 second instead of 3 for the start before the agent answers; a start that
+  fails at once still reaches the agent.
+
 ## 0.1.32
 
 ### App
