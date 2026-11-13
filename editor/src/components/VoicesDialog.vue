@@ -8,7 +8,7 @@ import type { HostOption, Recording, Voices, VoiceTest } from "../api";
 import { micAvailable, startRecording, toWav } from "../audio";
 import { t } from "../i18n";
 import { play, playing } from "../playback";
-import { api, flash, voicesOpen } from "../store";
+import { api, flash, nodes, voicesOpen } from "../store";
 
 const voices = ref<Voices | null>(null);
 const busy = ref<string | null>(null); // what is being done: a person's id, "test", "model"
@@ -99,7 +99,9 @@ async function pickFrom(user: string) {
     return;
   }
   try {
-    recordings.value = (await api.value!.recordings()).recordings;
+    // what people said: the client's audio (or a Debug probe's recording), not speech it made
+    const source = new Set(nodes.value.filter((n) => n.data?.type === "client.source").map((n) => n.id));
+    recordings.value = (await api.value!.recordings()).recordings.filter((r) => r.port === null || source.has(r.node));
     picking.value = user;
   } catch (err) {
     flash((err as Error).message, "error");

@@ -223,11 +223,12 @@ export interface TraceMsg {
  */
 export const ROOT = location.pathname.replace(/\/editor(\/.*)?$/, "");
 
-/** A debug recording kept by a Debug probe. */
+/** A recording of what a node passed on in live debug (a Debug probe's had no port). */
 export interface Recording {
   file: string;
   graph: string;
   node: string;
+  port: string | null;
   turn_id: string;
   created: string;
   seconds: number;

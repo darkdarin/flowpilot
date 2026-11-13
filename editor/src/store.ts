@@ -50,13 +50,36 @@ export interface TurnRun {
   nodes: Record<string, NodeRun>;
   ports: Record<string, PortRun>;
   hostCalls: { node: string; op: string; t: number }[];
-  recordings: { node: string; file: string; seconds: number }[];
-  /** what Show text taps saw, by node and input port */
-  texts: Record<string, Record<string, TapText>>;
+  /** what every node passed on (trace event "port.data", live debug only), in order */
+  outputs: OutputData[];
   /** nodes' journals (trace event "log", live debug only), by node, in order */
   logs: Record<string, LogEntry[]>;
   /** what nodes reported about the turn in their own trace events (levels, counts), by node */
-  notes: Record<string, { event: string; attrs: TraceMsg["attrs"] }[]>;
+  notes: Record<string, { event: string; t: number; attrs: TraceMsg["attrs"] }[]>;
+}
+
+/** What one output of a node passed on in a watched turn. */
+export interface OutputData {
+  node: string;
+  port: string;
+  type: string;
+  /** when its first item went out (ms from the turn's start) */
+  t: number;
+  items: number;
+  state: string;
+  /** text types: the text (recognized speech: its final text) */
+  text?: string;
+  partials?: number;
+  /** other data, as JSON */
+  json?: string;
+  /** items of a stream left out of the JSON */
+  more?: number;
+  /** audio: the recording and its length */
+  file?: string;
+  seconds?: number;
+  /** it passed on what this output ("node.port") sent */
+  same?: string;
+  error?: string;
 }
 
 export interface LogEntry {
@@ -65,15 +88,6 @@ export interface LogEntry {
   summary: string;
   detail?: string;
   attrs: TraceMsg["attrs"];
-}
-
-export interface TapText {
-  /** which kind of text came (a probe's text input takes any) */
-  type?: string;
-  text: string;
-  items: number;
-  partials?: number;
-  error?: string;
 }
 
 const SAVE_DELAY_MS = 600;
@@ -645,7 +659,7 @@ function onTrace(msg: TraceMsg | { type: string; graph?: string }) {
   let turn = debug.turns.find((t) => t.id === ev.turn_id);
   if (!turn) {
     if (ev.event !== "turn.start") return; // backlog tail of a turn we never saw starting
-    turn = { id: ev.turn_id, status: "running", nodes: {}, ports: {}, hostCalls: [], recordings: [], texts: {}, logs: {}, notes: {} };
+    turn = { id: ev.turn_id, status: "running", nodes: {}, ports: {}, hostCalls: [], outputs: [], logs: {}, notes: {} };
     debug.turns.unshift(turn);
     debug.turns.splice(MAX_TURNS);
     turn = debug.turns[0];
@@ -699,27 +713,36 @@ function onTrace(msg: TraceMsg | { type: string; graph?: string }) {
     case "host.call":
       turn.hostCalls.push({ node, op: String(ev.attrs.op), t: ev.t_ms });
       break;
-    case "record.saved":
-      if (!turn.recordings.some((r) => r.file === ev.attrs.file)) {
-        turn.recordings.push({ node, file: String(ev.attrs.file), seconds: Number(ev.attrs.seconds) });
-      }
+    case "port.data": {
+      const port = String(ev.attrs.port);
+      if (turn.outputs.some((o) => o.node === node && o.port === port)) break; // a resent backlog
+      const a = ev.attrs;
+      const opt = <T,>(key: string, cast: (v: unknown) => T) => (a[key] != null ? { [key]: cast(a[key]) } : {});
+      turn.outputs.push({
+        node,
+        port,
+        type: String(a.type ?? ""),
+        t: turn.ports[`${node}.${port}`]?.firstMs ?? ev.t_ms,
+        items: Number(a.items ?? 0),
+        state: String(a.state ?? "end"),
+        ...opt("text", String),
+        ...opt("partials", Number),
+        ...opt("json", String),
+        ...opt("more", Number),
+        ...opt("file", String),
+        ...opt("seconds", Number),
+        ...opt("same", String),
+        ...opt("error", String),
+      });
       break;
-    case "tap.text":
-      (turn.texts[node] ??= {})[String(ev.attrs.port)] = {
-        text: String(ev.attrs.text ?? ""),
-        items: Number(ev.attrs.items ?? 0),
-        ...(ev.attrs.partials != null ? { partials: Number(ev.attrs.partials) } : {}),
-        ...(ev.attrs.error ? { error: String(ev.attrs.error) } : {}),
-        ...(ev.attrs.type ? { type: String(ev.attrs.type) } : {}),
-      };
-      break;
+    }
     default: {
       // a node's own event (audio.agc levels, vad.end, ...): shown on the node in live debug
       if (!node || ev.event.startsWith("turn.") || ev.event.startsWith("port.")) break;
       const notes = (turn.notes[node] ??= []);
       const same = (n: { event: string; attrs: TraceMsg["attrs"] }) =>
         n.event === ev.event && JSON.stringify(n.attrs) === JSON.stringify(ev.attrs);
-      if (!notes.some(same)) notes.push({ event: ev.event, attrs: ev.attrs }); // a resent backlog
+      if (!notes.some(same)) notes.push({ event: ev.event, t: ev.t_ms, attrs: ev.attrs }); // a resent backlog
       break;
     }
   }

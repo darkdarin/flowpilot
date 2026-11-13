@@ -1,10 +1,10 @@
-// Recordings of Debug probe nodes: played, downloaded and deleted through the authenticated API
-// (an <audio> element cannot send the Authorization header). One recording plays at a time, whether
-// started from the debug drawer or from the node itself.
+// Recordings of what nodes passed on (live debug's journal): played and downloaded through the
+// authenticated API (an <audio> element cannot send the Authorization header). One recording plays
+// at a time.
 
 import { ref } from "vue";
 import { t } from "./i18n";
-import { api, debug, flash } from "./store";
+import { api, flash } from "./store";
 
 export const playing = ref<string | null>(null);
 let player: HTMLAudioElement | null = null;
@@ -48,14 +48,4 @@ export async function download(file: string) {
   link.download = file;
   link.click();
   URL.revokeObjectURL(link.href);
-}
-
-export async function removeRecording(file: string) {
-  if (playing.value === file) stopPlaying();
-  try {
-    await api.value!.deleteRecording(file);
-  } catch {
-    /* already gone */
-  }
-  for (const turn of debug.turns) turn.recordings = turn.recordings.filter((r) => r.file !== file);
 }
