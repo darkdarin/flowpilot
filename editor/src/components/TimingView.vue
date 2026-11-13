@@ -8,10 +8,19 @@ import { currentTurn, nodes, selectedId, specs } from "../store";
 import { currentTurnTiming, describeMoment, fmtAt, fmtMs, sinkId, currentTimings as timings } from "../timing";
 import { categoryColor } from "../types";
 
+// Nodes that took part: something came to them or went out of them. A node off the turn's path
+// (the other branch of a condition) only waited for its inputs to end; a failed one stays, as the
+// failure is what to look at.
+const FAILED = new Set(["error", "timeout", "cancelled"]);
 const rows = computed(() => {
   const turn = currentTurn.value;
   if (!turn) return [];
+  const tm = timings.value;
   return Object.entries(turn.nodes)
+    .filter(([id, run]) => {
+      const node = tm[id];
+      return node?.inFirst !== undefined || node?.outFirst !== undefined || FAILED.has(run.status);
+    })
     .map(([id, run]) => {
       const type = nodes.value.find((n) => n.id === id)?.data?.type ?? "";
       return { id, run, category: specs.value.get(type)?.category ?? "logic" };
