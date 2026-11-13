@@ -1,105 +1,67 @@
-// Delays in a turn, from what flowed on the wires. In a streaming graph every node runs for the
-// whole turn, so a node's run time says little; what tells where time goes is when data reached a
-// node and when the node passed something on.
+// The selected turn's timings for the canvas and the debug panel (see flow.ts for what they mean).
 
 import { computed } from "vue";
-import { currentTurn, edges, type FpEdge, type FpNode, type TurnRun } from "./store";
+import { momentOf, nodeTimings, sinkOf, sourceOf, turnTiming, type NodeTiming, type TurnTiming, type Wire } from "./flow";
+import { t } from "./i18n";
+import { currentTurn, edges, nodes } from "./store";
 
-export interface NodeTiming {
-  /** the first item on any input arrived (ms from the turn's start) */
-  inFirst?: number;
-  /** the last input ended */
-  inEnd?: number;
-  /** the node's first output item */
-  outFirst?: number;
-  /** the node's last output ended */
-  outEnd?: number;
-  /** first input → first output: how quickly the node answers */
-  reaction?: number;
-  /** last input ended → last output ended: what the node still did after it got everything */
-  tail?: number;
-}
+export type { NodeTiming, TurnTiming };
 
-export interface TurnTiming {
-  /** the client's speech ended (voice turns) */
-  speechEnd?: number;
-  /** what the turn waited from: the end of speech, or the typed text */
-  from?: number;
-  /** the first text of the answer reached the client */
-  firstText?: number;
-  /** the first speech reached the client */
-  firstSound?: number;
-}
+const wires = computed<Wire[]>(() =>
+  edges.value.map((e) => ({ source: e.source, sourceHandle: e.sourceHandle ?? "", target: e.target, targetHandle: e.targetHandle ?? "" })),
+);
 
-function minOf(values: (number | undefined)[]): number | undefined {
-  const known = values.filter((v): v is number => v !== undefined);
-  return known.length ? Math.min(...known) : undefined;
-}
+const types = computed<Record<string, string>>(() =>
+  Object.fromEntries(nodes.value.map((n) => [n.id, String(n.data?.type ?? "")])),
+);
 
-function maxOf(values: (number | undefined)[]): number | undefined {
-  const known = values.filter((v): v is number => v !== undefined);
-  return known.length ? Math.max(...known) : undefined;
-}
-
-/** Ports that carried something: their first item and end times. */
-function flowed(turn: TurnRun, key: string): { first?: number; end?: number } {
-  const port = turn.ports[key];
-  if (!port || !port.items || port.firstMs === undefined) return {};
-  return { first: port.firstMs, end: port.endMs };
-}
-
-export function nodeTimings(turn: TurnRun, edges: FpEdge[]): Record<string, NodeTiming> {
-  const result: Record<string, NodeTiming> = {};
-  for (const id of Object.keys(turn.nodes)) {
-    const ins = edges.filter((e) => e.target === id).map((e) => flowed(turn, `${e.source}.${e.sourceHandle}`));
-    const outs = Object.keys(turn.ports)
-      .filter((key) => key.startsWith(`${id}.`))
-      .map((key) => flowed(turn, key));
-    const timing: NodeTiming = {
-      inFirst: minOf(ins.map((p) => p.first)),
-      inEnd: maxOf(ins.map((p) => p.end)),
-      outFirst: minOf(outs.map((p) => p.first)),
-      outEnd: maxOf(outs.map((p) => p.end)),
-    };
-    if (timing.inFirst !== undefined && timing.outFirst !== undefined) {
-      timing.reaction = Math.max(0, timing.outFirst - timing.inFirst);
-    }
-    if (timing.inEnd !== undefined && timing.outEnd !== undefined && timing.outEnd >= timing.inEnd) {
-      timing.tail = timing.outEnd - timing.inEnd;
-    }
-    result[id] = timing;
-  }
-  return result;
-}
+/** The client's output node: it shows the turn's times instead of its own. */
+export const sinkId = computed(() => sinkOf(types.value));
 
 /** Timings of the selected turn's nodes, shared by the canvas and the debug panel. */
 export const currentTimings = computed(() =>
-  currentTurn.value ? nodeTimings(currentTurn.value, edges.value) : ({} as Record<string, NodeTiming>),
+  currentTurn.value ? nodeTimings(currentTurn.value, wires.value, sinkId.value) : ({} as Record<string, NodeTiming>),
 );
 
-export function turnTiming(turn: TurnRun, nodes: FpNode[], edges: FpEdge[]): TurnTiming {
-  const typeOf = (id: string) => nodes.find((n) => n.id === id)?.data?.type;
-  const source = nodes.find((n) => n.data?.type === "client.source")?.id;
-  const sink = nodes.find((n) => n.data?.type === "client.sink")?.id;
-  const timing: TurnTiming = {};
-  if (source) {
-    timing.speechEnd = flowed(turn, `${source}.audio`).end;
-    timing.from = timing.speechEnd ?? flowed(turn, `${source}.utterance`).first;
-  }
-  if (sink) {
-    const into = (port: string) =>
-      minOf(
-        edges
-          .filter((e) => e.target === sink && e.targetHandle === port && typeOf(e.source))
-          .map((e) => flowed(turn, `${e.source}.${e.sourceHandle}`).first),
-      );
-    timing.firstText = minOf([into("delta"), into("response")]);
-    timing.firstSound = into("speech");
-  }
-  return timing;
-}
+/** The selected turn's times: the whole turn, to the first sound and text, the path to them. */
+export const currentTurnTiming = computed<TurnTiming | undefined>(() =>
+  currentTurn.value ? turnTiming(currentTurn.value, wires.value, sourceOf(types.value), sinkId.value) : undefined,
+);
 
 export function fmtMs(value: number): string {
   if (value >= 10000) return `${(value / 1000).toFixed(1)} s`;
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ms`;
+}
+
+/** A moment of the turn as the timeline's hover shows it: "1 850 ms". */
+export function fmtAt(value: number): string {
+  return `${Math.round(value).toLocaleString("ru-RU")} ms`;
+}
+
+/** What a node was doing at ``at`` (ms from the turn's start), as lines for the timeline's hover. */
+export function describeMoment(id: string, at: number): string[] {
+  const turn = currentTurn.value;
+  if (!turn) return [];
+  const m = momentOf(turn, wires.value, id, at);
+  if (!m) return [];
+  const lines = [t(`moment.${m.state}`, { status: m.status, at: m.endMs !== undefined ? fmtAt(m.endMs) : "" })];
+  for (const out of m.outputs) {
+    if (out.first === undefined) continue;
+    if (out.first <= at && (out.end === undefined || at < out.end)) {
+      lines.push(t("moment.outFlowing", { port: out.port, at: fmtAt(out.first) }));
+    } else if (out.end !== undefined && out.end <= at) {
+      lines.push(t("moment.outDone", { port: out.port, at: fmtAt(out.end), n: out.items }));
+    } else {
+      lines.push(t("moment.outLater", { port: out.port, at: fmtAt(out.first) }));
+    }
+  }
+  for (const input of m.inputs) {
+    if (input.first === undefined) continue;
+    if (at < input.first) lines.push(t("moment.inWaiting", { port: input.port, from: input.from, at: fmtAt(input.first) }));
+    else if (input.end === undefined || at < input.end) lines.push(t("moment.inFlowing", { port: input.port, from: input.from, at: fmtAt(input.first) }));
+    else lines.push(t("moment.inDone", { port: input.port, at: fmtAt(input.end) }));
+  }
+  if (m.host) lines.push(t("moment.host", { op: m.host.op, at: fmtAt(m.host.t) }));
+  if (m.log) lines.push(t("moment.log", { text: m.log.summary, at: fmtAt(m.log.t) }));
+  return lines;
 }

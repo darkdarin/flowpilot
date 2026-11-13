@@ -19,7 +19,7 @@ import {
   type FpNodeData,
 } from "../store";
 import { fieldOptionTitles, fieldTitle, nodeDescription, nodeTitle, portDescription } from "../texts";
-import { currentTimings, fmtMs } from "../timing";
+import { currentTimings, currentTurnTiming, fmtMs, sinkId } from "../timing";
 import type { PortInfo } from "../api";
 import { portKind, portType } from "../porttypes";
 import { categoryColor, typeColor, typeShort } from "../types";
@@ -42,26 +42,45 @@ const run = computed(() => (debug.enabled ? currentTurn.value?.nodes[props.id] :
 function shown(port: PortInfo, side: "inputs" | "outputs"): string {
   return portType(props.id, port, side);
 }
-// the node's reaction (first input → first output) says more than its run time when audio
-// streams: every node then runs for the whole turn
+// A node shows its reaction (first input → first output) and its delay (the time it added
+// itself), not its run time: in a streaming graph every node runs for the whole turn. The client's
+// output shows the turn instead: to the first sound, and the whole turn.
 const timing = computed(() => (debug.enabled ? currentTimings.value[props.id] : undefined));
+const onPath = computed(() => Boolean(timing.value?.onPath));
 const runBadge = computed(() => {
   const r = run.value;
   if (!r) return null;
+  if (r.status === "running") return { text: t("status.running"), title: "" };
+  const tt = currentTurnTiming.value;
+  if (props.id === sinkId.value && tt) {
+    const lines = [
+      tt.firstSound !== undefined ? `${t("debug.toFirstSound")}: ${fmtMs(tt.firstSound)}` : "",
+      tt.firstText !== undefined ? `${t("debug.toFirstText")}: ${fmtMs(tt.firstText)}` : "",
+      tt.speechEnd !== undefined && tt.effective !== undefined
+        ? `${t("debug.afterSpeech")}: ${fmtMs(Math.max(0, tt.effective - tt.speechEnd))}`
+        : "",
+      tt.total !== undefined ? `${t("debug.total")}: ${fmtMs(tt.total)}` : "",
+      t("debug.effectiveHint"),
+    ].filter(Boolean);
+    const parts = [
+      tt.effective !== undefined ? `▶ ${fmtMs(tt.effective)}` : "",
+      tt.total !== undefined ? `Σ ${fmtMs(tt.total)}` : "",
+    ].filter(Boolean);
+    return { text: parts.join(" · ") || fmtMs(r.durationMs ?? 0), title: lines.join("\n") };
+  }
   const tm = timing.value;
   const lines = [
-    tm?.reaction !== undefined ? `${t("debug.reaction")}: ${fmtMs(tm.reaction)}` : "",
-    tm?.tail !== undefined ? `${t("debug.tail")}: ${fmtMs(tm.tail)}` : "",
+    tm?.reaction !== undefined ? `${t("debug.reaction")}: ${fmtMs(tm.reaction)} — ${t("debug.reactionHint")}` : "",
+    tm?.delay !== undefined ? `${t("debug.delay")}: ${fmtMs(tm.delay)} — ${t("debug.delayHint")}` : "",
+    tm?.onPath ? t("debug.onPath") : "",
     r.durationMs !== undefined ? `${t("node.ran")}: ${fmtMs(r.durationMs)}` : "",
     r.error ?? "",
   ].filter(Boolean);
-  const text =
-    r.status === "running"
-      ? t("status.running")
-      : tm?.reaction !== undefined
-        ? `⚡ ${fmtMs(tm.reaction)}`
-        : fmtMs(r.durationMs ?? 0);
-  return { text, title: lines.join("\n") };
+  const parts = [
+    tm?.reaction !== undefined ? `⚡ ${fmtMs(tm.reaction)}` : "",
+    tm?.delay !== undefined ? `+${fmtMs(tm.delay)}` : "",
+  ].filter(Boolean);
+  return { text: parts.join(" · ") || fmtMs(r.durationMs ?? 0), title: lines.join("\n") };
 });
 
 // A debug tap idles (greyed out, nothing reaches it) until live debug is on; then it shows what it
@@ -169,7 +188,7 @@ const summary = computed(() => {
 <template>
   <div
     class="fp-node"
-    :class="{ unknown: !spec, problem: problems.length, idle, [`run-${run?.status}`]: run }"
+    :class="{ unknown: !spec, problem: problems.length, idle, [`run-${run?.status}`]: run, 'on-path': onPath }"
     :style="{ '--cat': categoryColor(spec?.category ?? 'logic') }"
   >
     <header>
@@ -357,6 +376,12 @@ header::before {
 
 .run-running {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--warn) 60%, transparent), var(--shadow);
+}
+
+/* on the path to the answer's first sound: its delay is part of what the person waited */
+.on-path .badge.run {
+  outline: 1.5px solid var(--focus);
+  outline-offset: -1.5px;
 }
 
 .run-error,

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 // Live debug drawer: recent turns and a waterfall of node runs for the selected turn.
-import { computed, onBeforeUnmount } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import { t } from "../i18n";
 import { download, play, playing, removeRecording, stopPlaying } from "../playback";
-import { currentTurn, debug, edges, nodes, selectedId, specs } from "../store";
-import { currentTimings as timings, fmtMs, turnTiming } from "../timing";
+import { currentTurn, debug, nodes, selectedId, specs } from "../store";
+import { currentTurnTiming, describeMoment, fmtAt, fmtMs, currentTimings as timings } from "../timing";
 import { categoryColor } from "../types";
 
 const rows = computed(() => {
@@ -19,32 +19,50 @@ const rows = computed(() => {
 });
 
 
-/** The turn's answer delays: from the end of speech (or the typed text) to text and sound. */
+/** The turn's times: the whole turn, to the first sound and text (and after the end of speech). */
 const headline = computed(() => {
-  const turn = currentTurn.value;
-  if (!turn) return null;
-  const tt = turnTiming(turn, nodes.value, edges.value);
-  if (tt.from === undefined || (tt.firstText === undefined && tt.firstSound === undefined)) return null;
-  const after = (v: number | undefined) => (v === undefined ? undefined : fmtMs(Math.max(0, v - tt.from!)));
+  const tt = currentTurnTiming.value;
+  if (!tt) return null;
   return {
-    label: t(tt.speechEnd !== undefined ? "debug.speechToText" : "debug.textToText"),
-    text: after(tt.firstText),
-    sound: after(tt.firstSound),
+    total: tt.total !== undefined ? fmtMs(tt.total) : undefined,
+    sound: tt.firstSound !== undefined ? fmtMs(tt.firstSound) : undefined,
+    text: tt.firstText !== undefined ? fmtMs(tt.firstText) : undefined,
+    afterSpeech:
+      tt.speechEnd !== undefined && tt.effective !== undefined
+        ? fmtMs(Math.max(0, tt.effective - tt.speechEnd))
+        : undefined,
   };
 });
 
-function nodeTitle(id: string, run: { durationMs?: number; error?: string }): string {
-  const tm = timings.value[id] ?? {};
-  const at = (v: number | undefined) => (v === undefined ? "—" : fmtMs(v));
-  const details = t("debug.nodeTiming", {
-    inFirst: at(tm.inFirst),
-    outFirst: at(tm.outFirst),
-    inEnd: at(tm.inEnd),
-    outEnd: at(tm.outEnd),
-    run: at(run.durationMs),
-  });
-  return run.error ? `${run.error}\n${details}` : details;
+/** The hover: a line across the timeline at one moment, and what the node under it did then. */
+const rowsEl = ref<HTMLElement | null>(null);
+const cursor = ref<{ x: number; at: number; row?: string; top: number; flip: boolean } | null>(null);
+
+function onMove(ev: MouseEvent) {
+  const box = rowsEl.value;
+  const track = box?.querySelector<HTMLElement>(".track");
+  if (!box || !track) return;
+  const tr = track.getBoundingClientRect();
+  const br = box.getBoundingClientRect();
+  if (ev.clientX < tr.left || ev.clientX > tr.right) {
+    cursor.value = null;
+    return;
+  }
+  const row = (ev.target as HTMLElement).closest<HTMLElement>(".row");
+  cursor.value = {
+    x: ev.clientX - br.left,
+    at: ((ev.clientX - tr.left) / tr.width) * span.value,
+    row: row?.dataset.id,
+    top: row ? row.offsetTop : ev.clientY - br.top,
+    flip: ev.clientX - tr.left > tr.width * 0.6,
+  };
 }
+
+const hover = computed(() => {
+  const c = cursor.value;
+  if (!c) return null;
+  return { ...c, lines: c.row ? describeMoment(c.row, c.at) : [] };
+});
 
 const span = computed(() => {
   const turn = currentTurn.value;
@@ -142,11 +160,20 @@ function status(s: string) {
           </button>
         </span>
       </div>
-      <p v-if="headline" class="headline">
-        {{ headline.label }}
-        <b v-if="headline.text">{{ headline.text }}</b>
-        <template v-if="headline.sound"> · {{ t("debug.toSound") }} <b>{{ headline.sound }}</b></template>
+      <p v-if="headline" class="headline" :title="t('debug.effectiveHint')">
+        <template v-if="headline.sound">{{ t("debug.toFirstSound") }} <b>{{ headline.sound }}</b></template>
+        <template v-if="headline.afterSpeech"> ({{ t("debug.afterSpeech") }} <b>{{ headline.afterSpeech }}</b>)</template>
+        <template v-if="headline.text"> · {{ t("debug.toFirstText") }} <b>{{ headline.text }}</b></template>
+        <template v-if="headline.total"> · {{ t("debug.total") }} <b>{{ headline.total }}</b></template>
       </p>
+      <div class="legend">
+        <span><i class="lg alive" />{{ t("legend.alive") }}</span>
+        <span><i class="lg wait" />{{ t("legend.reaction") }}</span>
+        <span><i class="lg flow" />{{ t("legend.flow") }}</span>
+        <span><i class="lg in-end" />{{ t("legend.inEnd") }}</span>
+        <span><i class="lg host" />{{ t("legend.host") }}</span>
+        <span><i class="lg path" />{{ t("legend.path") }}</span>
+      </div>
       <div class="head">
         <span />
         <div class="axis">
@@ -155,17 +182,19 @@ function status(s: string) {
           <span>{{ ms(span) }}</span>
         </div>
         <span class="col" :title="t('debug.reactionHint')">{{ t("debug.reaction") }}</span>
-        <span class="col" :title="t('debug.tailHint')">{{ t("debug.tail") }}</span>
+        <span class="col" :title="t('debug.delayHint')">{{ t("debug.delay") }}</span>
       </div>
+      <div ref="rowsEl" class="rows" @mousemove="onMove" @mouseleave="cursor = null">
       <button
         v-for="row in rows"
         :key="row.id"
         class="row"
-        :class="{ sel: selectedId === row.id }"
+        :class="{ sel: selectedId === row.id, 'on-path': timings[row.id]?.onPath }"
+        :data-id="row.id"
         @click="selectedId = row.id"
       >
         <code class="nid">{{ row.id }}</code>
-        <span class="track" :title="nodeTitle(row.id, row.run)">
+        <span class="track">
           <span
             class="alive"
             :style="{
@@ -201,8 +230,23 @@ function status(s: string) {
           />
         </span>
         <span class="dur" :title="t('debug.reactionHint')">{{ timings[row.id]?.reaction !== undefined ? ms(timings[row.id].reaction!) : "" }}</span>
-        <span class="dur" :title="t('debug.tailHint')">{{ timings[row.id]?.tail !== undefined ? ms(timings[row.id].tail!) : "" }}</span>
+        <span class="dur" :title="timings[row.id]?.onPath ? t('debug.onPath') : t('debug.delayHint')">{{ timings[row.id]?.delay !== undefined ? `+${ms(timings[row.id].delay!)}` : "" }}</span>
       </button>
+      <template v-if="hover">
+        <span class="cursor" :style="{ left: `${hover.x}px` }" />
+        <div
+          class="tip"
+          :class="{ flip: hover.flip, below: hover.top < 60 }"
+          :style="{ left: `${hover.x}px`, top: `${hover.top}px` }"
+        >
+          <b class="tip-at">{{ t("debug.at", { at: fmtAt(hover.at) }) }}</b>
+          <template v-if="hover.row">
+            <code class="tip-node">{{ hover.row }}</code>
+            <span v-for="(line, i) in hover.lines" :key="i" class="tip-line">{{ line }}</span>
+          </template>
+        </div>
+      </template>
+      </div>
     </div>
 
     <div v-if="hasJournal" class="journal">
@@ -638,5 +682,156 @@ function status(s: string) {
   height: 18px;
   background: var(--text);
   border-radius: 1px;
+}
+
+/* the path to the answer's first sound: its nodes' delays add up to the time to it */
+.row.on-path .nid {
+  color: var(--focus);
+  font-weight: 600;
+}
+
+.row.on-path .bar {
+  box-shadow: 0 0 0 1.5px var(--focus);
+}
+
+.row.on-path .dur:last-child {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* what the marks of the timeline mean */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0 0 6px 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.lg {
+  display: inline-block;
+  position: relative;
+  width: 16px;
+  height: 10px;
+}
+
+.lg.alive::before,
+.lg.wait::before,
+.lg.flow::before,
+.lg.path::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-radius: 2px;
+}
+
+.lg.alive::before {
+  top: 2px;
+  height: 6px;
+  background: var(--line);
+}
+
+.lg.wait::before {
+  top: 4px;
+  height: 2px;
+  background: var(--muted);
+}
+
+.lg.flow::before {
+  top: 0;
+  height: 10px;
+  background: var(--muted);
+  opacity: 0.85;
+}
+
+.lg.path::before {
+  top: 0;
+  height: 10px;
+  background: var(--muted);
+  box-shadow: 0 0 0 1.5px var(--focus);
+}
+
+.lg.in-end {
+  width: 6px;
+  border-left: 1.5px dashed var(--muted);
+}
+
+.lg.host {
+  width: 6px;
+}
+
+.lg.host::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: -1px;
+  width: 2px;
+  height: 12px;
+  background: var(--text);
+  border-radius: 1px;
+}
+
+/* the hover: one moment across every node, like a chart's crosshair */
+.rows {
+  position: relative;
+}
+
+.cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px solid var(--focus);
+  pointer-events: none;
+}
+
+.tip {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 420px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-raised);
+  box-shadow: var(--shadow);
+  font-size: 11.5px;
+  line-height: 1.35;
+  pointer-events: none;
+  transform: translate(10px, calc(-100% - 4px));
+}
+
+.tip.flip {
+  transform: translate(calc(-100% - 10px), calc(-100% - 4px));
+}
+
+.tip.below {
+  transform: translate(10px, 28px);
+}
+
+.tip.flip.below {
+  transform: translate(calc(-100% - 10px), 28px);
+}
+
+.tip-at {
+  font-variant-numeric: tabular-nums;
+}
+
+.tip-node {
+  color: var(--muted);
+}
+
+.tip-line {
+  white-space: normal;
 }
 </style>
