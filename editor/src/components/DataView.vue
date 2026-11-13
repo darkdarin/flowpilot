@@ -16,10 +16,28 @@ interface Port {
   /** an input: the output wired to it ("node.port") */
   from?: string;
   data?: OutputData;
+  /** the data passes on what this output ("node.port") sent: shown is that output's value */
+  via?: string;
 }
 
-const dataOf = (node: string, port: string) =>
+const find = (node: string, port: string) =>
   currentTurn.value?.outputs.find((o) => o.node === node && o.port === port);
+
+/** What an output passed on, with "the same as" followed to the output that sent it (a chain of
+ * First present and conditions included); ``via`` is that output. */
+function dataOf(node: string, port: string): { data?: OutputData; via?: string } {
+  let data = find(node, port);
+  let via: string | undefined;
+  for (let hop = 0; data?.same && hop < 10; hop++) {
+    via = data.same;
+    const dot = via.lastIndexOf(".");
+    const source = find(via.slice(0, dot), via.slice(dot + 1));
+    if (!source) break;
+    // the source's value with this output's own count of items
+    data = { ...source, node: data.node, port: data.port, items: data.items, same: source.same };
+  }
+  return { data: data && { ...data, same: undefined }, via };
+}
 
 /** The turn's nodes in the order they started, with how many of their ports carried something. */
 const nodeList = computed(() => {
@@ -42,12 +60,12 @@ const ports = computed<Port[]>(() => {
   const inputs = spec.inputs.map((p): Port => {
     const wire = edges.value.find((e) => e.target === id && e.targetHandle === p.name);
     const from = wire ? `${wire.source}.${wire.sourceHandle}` : undefined;
-    const data = wire ? dataOf(wire.source, wire.sourceHandle ?? "") : undefined;
-    return { side: "in", name: p.name, type: data?.type ?? p.type, from, data };
+    const { data, via } = wire ? dataOf(wire.source, wire.sourceHandle ?? "") : {};
+    return { side: "in", name: p.name, type: data?.type ?? p.type, from, data, via };
   });
   const outputs = spec.outputs.map((p): Port => {
-    const data = dataOf(id, p.name);
-    return { side: "out", name: p.name, type: data?.type ?? p.type, data };
+    const { data, via } = dataOf(id, p.name);
+    return { side: "out", name: p.name, type: data?.type ?? p.type, data, via };
   });
   return [...inputs, ...outputs];
 });
@@ -69,7 +87,6 @@ const port = computed(() =>
 function summary(p: Port): string {
   if (p.side === "in" && !p.from) return t("data.notWired");
   if (!p.data) return t("data.nothing");
-  if (p.data.same) return t("journal.same", { from: p.data.same });
   if (p.data.seconds !== undefined) return `${p.data.seconds.toFixed(1)} s`;
   if (p.data.text !== undefined) return p.data.text || "—";
   return p.data.items > 1 ? t("journal.items", { n: p.data.items }) : "{…}";
@@ -113,6 +130,7 @@ function summary(p: Port): string {
         <p class="where">
           <code>{{ selectedId }}.{{ port.name }}</code>
           <template v-if="port.from"> ← <code>{{ port.from }}</code></template>
+          <template v-if="port.via"> ← <code>{{ port.via }}</code></template>
           <span v-if="port.data && port.data.items > 1" class="items">{{ t("journal.items", { n: port.data.items }) }}</span>
         </p>
         <OutputValue v-if="port.data" :out="port.data" />
