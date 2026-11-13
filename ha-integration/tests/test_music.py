@@ -29,8 +29,10 @@ from custom_components.flowpilot.music import rank
 @pytest.fixture(autouse=True)
 def _no_known_providers() -> Any:
     music._providers.clear()
+    music._last_mix.clear()
     yield
     music._providers.clear()
+    music._last_mix.clear()
 
 
 def item(name: str, uri: str, *artists: str) -> dict[str, Any]:
@@ -222,6 +224,38 @@ async def test_my_music_is_the_deezer_flow(hass: HomeAssistant) -> None:
     searches = len(ma.searches)
     await call(host, {}, device_id=ids["satellite"])
     assert len(ma.searches) == searches  # the providers are known now
+
+
+async def test_other_music_is_another_mix_not_a_search(hass: HomeAssistant) -> None:
+    """ "Включи другую музыку" found a song called "Другая музыка": it is no search, but another
+    mix than the one that plays, even when the model passes those words as the query."""
+    host, ma, ids = await setup(hass)
+    ma.results = {"tracks": [item("Другая музыка", "deezer--UGbw9F82://track/9", "Кто-то")]}
+    await call(host, {}, device_id=ids["satellite"])  # the person's Flow
+    assert ma.played[-1]["media_id"] == "deezer--UGbw9F82://playlist/flow"
+    searches = len(ma.searches)
+    for args in ({"query": "другую музыку"}, {"different": True}, {"query": "что-нибудь другое"}):
+        before = ma.played[-1]["media_id"]
+        result = await call(host, args, device_id=ids["satellite"])
+        assert result["error"] is False, result
+        played = ma.played[-1]["media_id"]
+        assert played != "deezer--UGbw9F82://track/9", args  # not the song of that name
+        assert played != before, args  # another mix than the one that played
+        # after Flow a mix of the library; after that, Flow again
+        flow = before.endswith("/playlist/flow")
+        assert played.startswith("library://playlist/") if flow else played.endswith("/flow")
+    assert len(ma.searches) == searches
+    # after a library mix or a song, other music is the person's Flow again
+    await call(host, {"query": "сплин выхода нет"}, device_id=ids["satellite"])
+    await call(host, {"different": True}, device_id=ids["satellite"])
+    assert ma.played[-1]["media_id"] == "deezer--UGbw9F82://playlist/flow"
+
+
+async def test_just_music_is_no_search(hass: HomeAssistant) -> None:
+    host, ma, ids = await setup(hass)
+    result = await call(host, {"query": "музыку"}, device_id=ids["satellite"])
+    assert result["error"] is False and ma.played[0]["media_id"] == "library://playlist/7"
+    assert all(s["name"] != "музыку" for s in ma.searches)  # only the look for providers
 
 
 async def test_an_empty_library_has_no_mix_to_play(hass: HomeAssistant) -> None:

@@ -13,6 +13,10 @@ shared client ID wait 10-45 s). The tool waits a moment for a quick failure, the
 music is starting and lets it go on: the turn does not hang, and a failure later is logged. The
 answer carries ``say``, the words for the person, so the agent need not ask the model for them.
 
+"Other music" ("включи другую музыку", "что-нибудь другое") is not a search: another mix plays,
+not the one this tool started last on the player (the person's stream, the library mix, a library
+playlist). The model says so with ``different``; a query of only such words counts as it too.
+
 Music that already plays is stopped first, and the new music starts once Music Assistant has let
 go of the player: replacing it at once loses the new music on some players (Music Assistant 2.10
 clears the player's output once the old music stops, after the new one started).
@@ -23,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import random
 import re
 from difflib import SequenceMatcher
 from typing import Any
@@ -57,6 +62,50 @@ STOP_WAIT_S = 2.0
 PERSONAL_STREAM = {"deezer": "playlist/flow"}
 # Provider instances seen in search results (``deezer--UGbw9F82``), by Music Assistant entry
 _providers: dict[str, set[str]] = {}
+# The mix this tool started last, by player: "other music" is not that one
+_last_mix: dict[str, str] = {}
+# Words of a request for "other music" rather than for something by name
+OTHER_WORDS = {
+    "другой",
+    "другая",
+    "другую",
+    "другое",
+    "другие",
+    "иной",
+    "иную",
+    "иное",
+    "новую",
+    "новая",
+    "смени",
+    "поменяй",
+    "other",
+    "different",
+    "else",
+    "another",
+    "new",
+}
+GENERIC_WORDS = OTHER_WORDS | {
+    "музыка",
+    "музыку",
+    "музычку",
+    "песню",
+    "песня",
+    "песни",
+    "что",
+    "нибудь",
+    "то",
+    "что-нибудь",
+    "что-то",
+    "какую",
+    "какой",
+    "music",
+    "something",
+    "some",
+    "song",
+    "songs",
+    "track",
+    "play",
+}
 SAY = {
     "ru": "Включаю {}",
     "en": "Playing {}",
@@ -67,7 +116,8 @@ DESCRIPTION = (
     "station, from any music source. Fix the spelling of names you recognize and pass the artist "
     "and the title separately when you know them. Leave everything empty for 'play some music', "
     "'my music' or 'my wave': the person's own endless stream plays (Deezer Flow, or the "
-    "library mix). Without a player, music plays where the request was heard. A status "
+    "library mix). For 'other music' or 'something else' set different, do not search for "
+    "those words. Without a player, music plays where the request was heard. A status "
     "'starting' means it is on its way: say what will play, e.g. 'Включаю Сплин', not that it "
     "failed."
 )
@@ -91,6 +141,14 @@ PARAMETERS: dict[str, Any] = {
         "player": {
             "type": "string",
             "description": "Where to play, only if the user named a device or a room.",
+        },
+        "different": {
+            "type": "boolean",
+            "description": (
+                "True for 'other music', 'something else', 'change the music' ('включи другую "
+                "музыку', 'что-нибудь другое'): another mix than the one playing, not a search. "
+                "Leave query empty then."
+            ),
         },
         "radio_mode": {
             "type": "boolean",
@@ -256,12 +314,21 @@ async def play_music(
         raise HomeAssistantError("Music Assistant is not set up")
     player = pick_player(hass, args.get("player"), llm_context.device_id)
     context = llm_context.context
-    asked = any(args.get(k) for k in ("query", "artist", "title"))
+    different = bool(args.get("different")) or _asks_for_other(args)
+    asked = (
+        not different
+        and any(args.get(k) for k in ("query", "artist", "title"))
+        and not _only_generic(args)
+    )
 
     language = llm_context.language or hass.config.language
 
     if not asked:
-        mix = await _own_stream(hass, entries[0])
+        mix = (
+            await _other_mix(hass, entries[0], _last_mix.get(player.entity_id))
+            if different
+            else await _own_stream(hass, entries[0])
+        )
         if mix is None:
             raise HomeAssistantError("nothing to play: ask what music to play")
         try:
@@ -271,6 +338,7 @@ async def play_music(
         except HomeAssistantError:
             _providers.pop(entries[0], None)  # a provider may be gone: look again next time
             raise
+        _last_mix[player.entity_id] = str(mix["uri"])
         return {
             "playing": mix["name"],
             "type": "playlist",
@@ -310,6 +378,7 @@ async def play_music(
     started = await _play(
         hass, player, str(best["uri"]), kind, radio=radio_for(kind, args), context=context
     )
+    _last_mix[player.entity_id] = str(best["uri"])  # "other music" next: not this
     by = _artists(best)
     name = str(best.get("name") or "")
     return {
@@ -320,6 +389,53 @@ async def play_music(
         **started,
         "say": say(language, f"{by} — {name}" if by and kind in ("track", "album") else name),
     }
+
+
+def _words_of(args: dict[str, Any]) -> list[str]:
+    text = " ".join(str(args.get(k) or "") for k in ("query", "artist", "title"))
+    return _norm(text).split()
+
+
+def _only_generic(args: dict[str, Any]) -> bool:
+    """The request names nothing ("музыку", "что-нибудь"): it is no search."""
+    words = _words_of(args)
+    return bool(words) and all(w in GENERIC_WORDS for w in words)
+
+
+def _asks_for_other(args: dict[str, Any]) -> bool:
+    """A request of only generic words that asks for something else ("другую музыку")."""
+    words = _words_of(args)
+    return _only_generic(args) and any(w in OTHER_WORDS for w in words)
+
+
+async def _other_mix(hass: HomeAssistant, entry_id: str, last: str | None) -> dict[str, Any] | None:
+    """Another mix than ``last``: after the person's stream, the library mix or a playlist of the
+    library (at random); after anything else, the person's stream."""
+    own = await _own_stream(hass, entry_id)
+    if own is not None and own["uri"] != last and _is_personal(str(own["uri"])):
+        return own
+    candidates = [own] if own is not None else []
+    candidates += await _library(hass, entry_id, "playlist", "")
+    others: list[dict[str, Any]] = []
+    for candidate in candidates:
+        uri = str(candidate.get("uri") or "")
+        if (
+            uri
+            and uri != last
+            and not _is_personal(uri)
+            and uri not in {str(o["uri"]) for o in others}
+        ):
+            others.append(candidate)
+    if not others:
+        return own if own is not None and own["uri"] != last else None
+    mix = next((c for c in others if _norm(str(c.get("name") or "")) == _norm(LIBRARY_MIX)), None)
+    # the library mix first, then a playlist at random
+    return mix if mix is not None and random.random() < 0.5 else random.choice(others)
+
+
+def _is_personal(uri: str) -> bool:
+    """A provider's own stream of the person (Deezer Flow)."""
+    return any(uri.endswith(f"://{path}") for path in PERSONAL_STREAM.values())
 
 
 def say(language: str | None, what: str) -> str:
