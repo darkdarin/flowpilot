@@ -251,6 +251,59 @@ async def test_other_music_is_another_mix_not_a_search(hass: HomeAssistant) -> N
     assert ma.played[-1]["media_id"] == "deezer--UGbw9F82://playlist/flow"
 
 
+ROCK = {
+    "artists": [item("Рокки", "deezer--x://artist/rocky")],
+    "tracks": [item("Рок", "deezer--x://track/rok", "Кто-то")],
+    "playlists": [item("Rock Classics", "deezer--x://playlist/rock")],
+    "radio": [item("Rock FM", "tunein://radio/rock")],
+}
+
+
+async def test_a_genre_plays_a_playlist_of_it_not_an_artist(hass: HomeAssistant) -> None:
+    """ "Включи рок" played the artist "Рокки": a genre plays a playlist of it."""
+    host, ma, ids = await setup(hass)
+    ma.results = ROCK
+    asked = ({"query": "рок"}, {"genre": "rock"}, {"query": "русский рок"}, {"query": "рок-музыку"})
+    for args in asked:
+        result = await call(host, args, device_id=ids["satellite"])
+        assert result["error"] is False, (args, result)
+        assert ma.played[-1]["media_id"] == "deezer--x://playlist/rock", args
+        assert ma.played[-1]["media_type"] == "playlist"
+        assert result["say"] == "Включаю Rock Classics"
+    # the search looked for playlists and radio only
+    looked = [s for s in ma.searches if s["name"] != "music"]  # not the look for providers
+    assert all(s.get("media_type") == ["playlist", "radio"] for s in looked)
+    # a band with a genre-like name is still found by name
+    ma.results = SPLIN
+    await call(host, {"artist": "Сплин", "title": "Выхода нет"}, device_id=ids["satellite"])
+    assert ma.played[-1]["media_id"] == "spotify://track/splin"
+
+
+async def test_a_genre_plays_the_playlist_named_closest_to_it(hass: HomeAssistant) -> None:
+    """As the owner's Music Assistant answered: "90s Pop Rock" came first, "Рок" later."""
+    host, ma, ids = await setup(hass)
+    playlists = ["90s Pop Rock", "Rock Essentials", "Рок балади", "Рок"]
+    ma.results = {
+        "playlists": [item(n, f"deezer--x://playlist/{i}") for i, n in enumerate(playlists)]
+    }
+    await call(host, {"query": "рок"}, device_id=ids["satellite"])
+    assert ma.played[-1]["media_id"] == "deezer--x://playlist/3"  # named just the genre
+    ma.results = {
+        "playlists": [item(n, f"deezer--x://playlist/{i}") for i, n in enumerate(playlists[:2])]
+    }
+    await call(host, {"genre": "rock"}, device_id=ids["satellite"])
+    assert ma.played[-1]["media_id"] == "deezer--x://playlist/1"  # starts with it
+
+
+async def test_a_genre_without_a_playlist_of_it_asks(hass: HomeAssistant) -> None:
+    host, ma, ids = await setup(hass)
+    ma.results = {"artists": [item("Рокки", "deezer--x://artist/rocky")], "playlists": []}
+    result = await call(host, {"query": "рок"}, device_id=ids["satellite"])
+    assert result["error"] is True and "ask what to play" in result["data"]["error"]
+    assert all(c["name"] != "Рокки" for c in result["data"]["choices"])  # no artist among them
+    assert not ma.played
+
+
 async def test_just_music_is_no_search(hass: HomeAssistant) -> None:
     host, ma, ids = await setup(hass)
     result = await call(host, {"query": "музыку"}, device_id=ids["satellite"])

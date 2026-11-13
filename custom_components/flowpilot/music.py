@@ -17,6 +17,10 @@ answer carries ``say``, the words for the person, so the agent need not ask the 
 not the one this tool started last on the player (the person's stream, the library mix, a library
 playlist). The model says so with ``different``; a query of only such words counts as it too.
 
+A genre ("включи рок", "джаз") is no search for a name either: "рок" matched the artist "Рокки".
+A playlist or a radio station with the genre in its name plays (the library's first), never an
+artist or a song. The model says so with ``genre``; a query of only a known genre counts as it too.
+
 Music that already plays is stopped first, and the new music starts once Music Assistant has let
 go of the player: replacing it at once loses the new music on some players (Music Assistant 2.10
 clears the player's output once the old music stops, after the new one started).
@@ -64,6 +68,44 @@ PERSONAL_STREAM = {"deezer": "playlist/flow"}
 _providers: dict[str, set[str]] = {}
 # The mix this tool started last, by player: "other music" is not that one
 _last_mix: dict[str, str] = {}
+# Genres by how they are said (normalized), with the English name providers use in playlists
+GENRES: dict[str, str] = {
+    "рок": "rock", "rock": "rock", "поп": "pop", "попса": "pop", "pop": "pop", "джаз": "jazz",
+    "jazz": "jazz", "рэп": "rap", "реп": "rap", "rap": "rap", "хип хоп": "hip hop",
+    "хипхоп": "hip hop", "hip hop": "hip hop", "классика": "classical", "классику": "classical",
+    "классическая": "classical", "классическую": "classical", "classical": "classical",
+    "электроника": "electronic", "электронику": "electronic", "электронная": "electronic",
+    "электронную": "electronic", "electronic": "electronic", "метал": "metal", "металл": "metal",
+    "metal": "metal", "блюз": "blues", "blues": "blues", "кантри": "country",
+    "country": "country", "регги": "reggae", "reggae": "reggae", "инди": "indie",
+    "indie": "indie", "панк": "punk", "punk": "punk", "шансон": "chanson", "фолк": "folk",
+    "folk": "folk", "соул": "soul", "soul": "soul", "фанк": "funk", "funk": "funk",
+    "диско": "disco", "disco": "disco", "техно": "techno", "techno": "techno", "хаус": "house",
+    "house": "house", "лаунж": "lounge", "lounge": "lounge", "эмбиент": "ambient",
+    "ambient": "ambient", "lofi": "lo fi", "lo fi": "lo fi", "лоуфай": "lo fi",
+    "r b": "r&b", "rnb": "r&b", "рнб": "r&b", "альтернатива": "alternative",
+    "альтернативу": "alternative",
+    "alternative": "alternative", "гранж": "grunge", "grunge": "grunge",
+}  # fmt: skip
+# Words that may come with a genre: "рок-музыку", "русский рок"
+GENRE_EXTRA = {
+    "музыка",
+    "музыку",
+    "музыки",
+    "music",
+    "русский",
+    "русскую",
+    "русская",
+    "russian",
+    "старый",
+    "старую",
+    "новый",
+    "новую",
+    "хороший",
+    "хорошую",
+}
+GENRE_TYPES = ["playlist", "radio"]
+
 # Words of a request for "other music" rather than for something by name
 OTHER_WORDS = {
     "другой",
@@ -117,7 +159,8 @@ DESCRIPTION = (
     "and the title separately when you know them. Leave everything empty for 'play some music', "
     "'my music' or 'my wave': the person's own endless stream plays (Deezer Flow, or the "
     "library mix). For 'other music' or 'something else' set different, do not search for "
-    "those words. Without a player, music plays where the request was heard. A status "
+    "those words; for a genre ('рок', 'джаз') set genre, not query. Without a player, music "
+    "plays where the request was heard. A status "
     "'starting' means it is on its way: say what will play, e.g. 'Включаю Сплин', not that it "
     "failed."
 )
@@ -141,6 +184,13 @@ PARAMETERS: dict[str, Any] = {
         "player": {
             "type": "string",
             "description": "Where to play, only if the user named a device or a room.",
+        },
+        "genre": {
+            "type": "string",
+            "description": (
+                "A genre when no artist or song is named ('включи рок', 'джаз'), in English, "
+                "e.g. 'rock': a playlist or radio of it plays, not an artist with a similar name."
+            ),
         },
         "different": {
             "type": "boolean",
@@ -323,6 +373,10 @@ async def play_music(
 
     language = llm_context.language or hass.config.language
 
+    genre = genre_of(args)
+    if genre is not None and not different:
+        return await _play_genre(hass, entries[0], player, genre, args, language, context)
+
     if not asked:
         mix = (
             await _other_mix(hass, entries[0], _last_mix.get(player.entity_id))
@@ -388,6 +442,92 @@ async def play_music(
         "player": player.name,
         **started,
         "say": say(language, f"{by} — {name}" if by and kind in ("track", "album") else name),
+    }
+
+
+def genre_of(args: dict[str, Any]) -> tuple[str, str] | None:
+    """The genre asked for, as (how it was said, its English name): the model's ``genre``, or a
+    query of only a known genre ("рок", "рок-музыку", "русский рок") with no artist or song."""
+    if args.get("artist") or args.get("title"):
+        return None
+    if said := str(args.get("genre") or "").strip():
+        key = _norm(said)
+        return said, GENRES.get(key, key)
+    words = [w for w in _norm(str(args.get("query") or "")).split() if w not in GENRE_EXTRA]
+    if not words:
+        return None
+    key = " ".join(words)
+    return (key, GENRES[key]) if key in GENRES else None
+
+
+async def _play_genre(
+    hass: HomeAssistant,
+    entry_id: str,
+    player: State,
+    genre: tuple[str, str],
+    args: dict[str, Any],
+    language: str | None,
+    context: Any,
+) -> dict[str, Any]:
+    """A playlist or radio station with the genre in its name: the library's own first, then the
+    providers' (by their order). Never an artist or a song of a similar name."""
+    said, english = genre
+    # as it was said first (a Russian "рок" finds Russian playlists), then in English
+    names = list(dict.fromkeys(n for n in (_norm(said), _norm(english)) if n))
+    found: list[tuple[str, dict[str, Any]]] = []
+    for name in names:
+        found += [("playlist", i) for i in await _library(hass, entry_id, "playlist", name)]
+    library = len(found)
+    for name in names:
+        response = await hass.services.async_call(
+            MA_DOMAIN,
+            "search",
+            {"config_entry_id": entry_id, "name": name, "media_type": GENRE_TYPES, "limit": 10},
+            blocking=True,
+            return_response=True,
+            context=context,
+        )
+        results: dict[str, Any] = dict(response) if isinstance(response, dict) else {}
+        _seen(entry_id, results)
+        for bucket, kind in (("playlists", "playlist"), ("radio", "radio")):
+            items = results.get(bucket)
+            found += (
+                [(kind, i) for i in items if isinstance(i, dict)] if isinstance(items, list) else []
+            )
+
+    def fit(item: dict[str, Any]) -> int | None:
+        """0: named just the genre ("Рок"), 1: starts with it ("Rock Essentials"), 2: has it
+        ("90s Rock"), None: not of the genre."""
+        name = _norm(str(item.get("name") or ""))
+        if name in names:
+            return 0
+        if any(name.startswith(f"{n} ") for n in names):
+            return 1
+        if any(f" {n} " in f" {name} " for n in names):
+            return 2
+        return None
+
+    # the library's own first; then how well the name fits; then the providers' order, playlists
+    # before radio and the genre as it was said before English
+    scored = [
+        (position >= library, f, position, kind, item)
+        for position, (kind, item) in enumerate(found)
+        if item.get("uri") and (f := fit(item)) is not None
+    ]
+    if not scored:
+        choices = [{"type": k, "name": i.get("name")} for k, i in found[:4]]
+        return {"error": f"no playlist or radio of {english} found, ask what to play",
+                "choices": choices}  # fmt: skip
+    *_, kind, best = min(scored, key=lambda t: t[:3])
+    started = await _play(hass, player, str(best["uri"]), kind, radio=False, context=context)
+    _last_mix[player.entity_id] = str(best["uri"])
+    return {
+        "playing": best.get("name"),
+        "type": kind,
+        "genre": english,
+        "player": player.name,
+        **started,
+        "say": say(language, str(best.get("name") or said)),
     }
 
 
