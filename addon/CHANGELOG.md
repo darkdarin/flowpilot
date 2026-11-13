@@ -4,6 +4,29 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.35
+
+Update the app only.
+
+### App
+
+- **The answer follows the language that was spoken.** Soniox speech-to-text hears what
+  language a request is in (Detect the language, on by default; the chosen language becomes a
+  hint) and tells it on with the text.
+- **The agent says what language it answers in**, for text-to-speech and conditions. Answer
+  language: Of the question (what speech recognition heard, known at once) or By the answer's
+  text (by its alphabet; the first words wait for it).
+- **Text-to-speech speaks the answer's language.** Soniox and Deepgram speak the language of the
+  agent's answer when their settings do not fix one; Wyoming, without a chosen voice, takes a
+  voice of the service in that language when the answer is not in the turn's language.
+- **A language condition in Condition.** Route by the language of the text on check: a
+  request, or an agent's answer, decided as the answer begins, before its words. For example,
+  Russian to a Russian voice and anything else to a multilingual one.
+
+### Integration
+
+No changes, no need to update.
+
 ## 0.1.34
 
 Update both: the home's state in the agent's prompt needs the app and the integration.
