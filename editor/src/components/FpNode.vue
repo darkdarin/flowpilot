@@ -222,7 +222,7 @@ const summary = computed(() => {
       </div>
       <div class="col out">
         <div v-for="p in spec.outputs" :key="p.name" class="port" :style="{ '--pin': typeColor(shown(p, 'outputs')) }">
-          <span v-if="portRun(p.name)" class="count" :class="portRun(p.name)!.state">
+          <span v-if="portRun(p.name)" class="count" :class="`state-${portRun(p.name)!.state}`">
             {{ portRun(p.name)!.state === "absent" ? "–" : portRun(p.name)!.items }}
           </span>
           <span class="type">{{ typeShort(shown(p, 'outputs')) }}</span>
@@ -419,12 +419,13 @@ header::before {
   font-variant-numeric: tabular-nums;
 }
 
-.count.absent {
+/* state-*: a bare "error" would take the node's error text style */
+.count.state-absent {
   background: transparent;
   color: var(--faint);
 }
 
-.count.error {
+.count.state-error {
   background: color-mix(in srgb, var(--danger) 25%, transparent);
 }
 
