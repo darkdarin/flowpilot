@@ -98,7 +98,7 @@ function logClass(log: LogEntry): string {
       <div class="list">
         <p v-if="!shown.length" class="note">{{ filter.length ? t("journal.nodeEmpty") : t("journal.empty") }}</p>
         <ol v-else class="entries">
-          <li v-for="e in shown" :key="e.key" :class="e.kind === 'log' ? logClass(e.log) : e.kind">
+          <li v-for="e in shown" :key="e.key" :class="e.kind === 'log' ? logClass(e.log) : 'report'">
             <button class="row" :class="{ sel: picked === e.key }" @click="picked = e.key">
               <span class="at">{{ fmtMs(e.t) }}</span>
               <span v-if="!oneNode" class="node" :title="t('journal.addToFilter')" @click.stop="pick(e.node)">{{ e.node }}</span><span v-else />
@@ -124,7 +124,7 @@ function logClass(log: LogEntry): string {
           <p class="where">
             <span class="at">{{ fmtMs(entry.t) }}</span>
             <code>{{ entry.node }}</code>
-            <span class="kind" :class="entry.kind === 'log' ? logClass(entry.log) : 'note'">{{ entry.kind === "log" ? kindLabel(entry.log.kind) : entry.event }}</span>
+            <span class="kind" :class="entry.kind === 'log' ? logClass(entry.log) : 'report'">{{ entry.kind === "log" ? kindLabel(entry.log.kind) : entry.event }}</span>
             <span v-if="entry.kind === 'log' && entry.log.attrs.ms !== undefined" class="took">{{ fmtMs(Number(entry.log.attrs.ms)) }}</span>
           </p>
           <p v-if="entry.kind === 'log'" class="summary">{{ entry.log.summary }}</p>
@@ -268,10 +268,12 @@ function logClass(log: LogEntry): string {
   display: grid;
   /* the node column stays, empty, when one node is shown */
   grid-template-columns: 52px auto auto minmax(0, 1fr) auto;
-  align-items: baseline;
+  /* one height for every entry, whatever is in it */
+  align-items: center;
   gap: 7px;
   width: 100%;
-  padding: 4px 6px;
+  height: 28px;
+  padding: 0 6px;
   border: 0;
   border-radius: 5px;
   background: transparent;
@@ -279,6 +281,11 @@ function logClass(log: LogEntry): string {
   text-align: left;
   font-size: 12px;
   cursor: pointer;
+}
+
+.row > * {
+  line-height: 18px;
+  white-space: nowrap;
 }
 
 .row:hover,
@@ -337,9 +344,16 @@ function logClass(log: LogEntry): string {
 }
 
 .attrs {
-  display: inline-flex;
-  gap: 10px;
   color: var(--muted);
+}
+
+.attrs > span {
+  margin-right: 10px;
+}
+
+.attrs > .sound,
+.text > .sound {
+  margin-right: 4px;
 }
 
 .attrs .k {
