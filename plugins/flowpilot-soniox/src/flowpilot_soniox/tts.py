@@ -271,7 +271,7 @@ class SonioxTts:
             await session.connect()  # in parallel with the agent's first words
             async for piece in text:
                 timing.text()
-                await session.add_text(piece.text)
+                await session.add_text(piece.text.replace("*", ""))  # speech marks: Silero only
             await session.finish()
         finally:
             await session.close()

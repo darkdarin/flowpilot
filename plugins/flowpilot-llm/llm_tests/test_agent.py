@@ -126,6 +126,36 @@ async def test_the_answer_tells_its_language(
     assert run.outputs["response"].items[0].language == spoken
 
 
+async def test_speech_markup_goes_to_the_voice_only(fake: tuple[FakeOpenAI, str]) -> None:
+    """Silero v5_6_ru reads *word* as a question's intonation centre and **word** as emphasis: the
+    model is told to write them, they go to text-to-speech, chats and the dialogue get none."""
+    api, url = fake
+    api.answer = "Он *пришёл*? Это **очень** важно."
+    node = await agent(url, speech_markup="silero")
+    try:
+        run = await run_node_once(node, said("он пришёл"))
+    finally:
+        await node.stop()
+    assert run.error is None, run.error
+    assert "single asterisks" in api.requests[0]["messages"][0]["content"]
+    assert "".join(d.text for d in run.outputs["delta"].items) == api.answer
+    (response,) = run.outputs["response"].items
+    assert response.text == "Он пришёл? Это очень важно."
+    assert response.speech_text == api.answer
+    # without the setting the model is told nothing of it
+    node = await agent(url)
+    try:
+        await run_node_once(node, said("он пришёл"))
+    finally:
+        await node.stop()
+    system = (
+        api.requests[-1]["messages"][0]["content"]
+        if api.requests[-1]["messages"][0]["role"] == "system"
+        else ""
+    )
+    assert "asterisks" not in system
+
+
 async def test_a_short_answer_by_text_still_comes(fake: tuple[FakeOpenAI, str]) -> None:
     """Fewer letters than it takes to be sure: the whole answer goes out at its end."""
     api, url = fake

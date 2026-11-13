@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
@@ -78,6 +79,25 @@ HOME_CALL_TIMEOUT_S = 20.0
 SERVICE_CALL_OP = "ha.service.call"
 # Rounds of tool calls in one turn; the last round must answer in words.
 MAX_TOOL_ROUNDS = 4
+# Speech markup for Silero v5_6_ru voices (the speech_markup setting): the model reads *word* as
+# the intonation centre of a question and **word** as emphasis (habr.com/ru/articles/1094196 and
+# 1015942). The marked answer goes to text-to-speech; chats and the dialogue get it unmarked.
+SILERO_MARKUP_TEXT = (
+    "Your answer is spoken by a voice that reads intonation marks; write them, they are not shown "
+    "to anyone. End every question with '?' and an exclamation with '!'. In a yes/no question "
+    "without a question word, wrap the word the question is about in single asterisks: 'Он "
+    "*пришёл*?', '*Ты* это сделал?'. When one word carries the meaning of a sentence, wrap it in "
+    "double asterisks: 'Это **очень** важно.' At most one marked word per sentence, and only "
+    "where a person would stress it. No other Markdown: no lists, headings, bold or italics."
+)
+_SPEECH_MARKS = re.compile(r"\*{1,2}([^*\n]+?)\*{1,2}")
+
+
+def unmarked(text: str) -> str:
+    """The answer without speech marks, for chats and the dialogue."""
+    return _SPEECH_MARKS.sub(r"\1", text)
+
+
 # Answer language by its text: the first words wait until this many letters, or a sentence ended
 LANGUAGE_LETTERS = 16
 
@@ -373,6 +393,17 @@ class LlmAgent:
                     },
                     "default": "question",
                 },
+                "speech_markup": {
+                    "title": "Speech markup",
+                    "description": (
+                        "Silero: the model marks the intonation of questions (*word*) and the "
+                        "emphasised word (**word**) for Silero v5_6_ru voices; the marks go only "
+                        "to text-to-speech, chats get the answer without them. None: plain text."
+                    ),
+                    "enum": ["none", "silero"],
+                    ENUM_TITLES_KEY: {"none": "None", "silero": "Silero"},
+                    "default": "none",
+                },
                 "history_turns": {
                     "title": "Remembered exchanges",
                     "description": "How many questions and answers of the dialogue to send; 10.",
@@ -583,6 +614,8 @@ class LlmAgent:
         prompt = str(config.get("system_prompt") or "")
         for name, value in values.items():
             prompt = prompt.replace("{" + name + "}", value)
+        if config.get("speech_markup", self._config.get("speech_markup")) == "silero":
+            prompt = f"{prompt}\n\n{SILERO_MARKUP_TEXT}".strip()
         return prompt
 
     async def _speaker(self, turn: TurnSession) -> str | None:
@@ -1071,10 +1104,14 @@ class LlmAgent:
         )
         if not answer:
             raise LlmError("the model gave an empty answer")
+        spoken = answer  # with the speech marks, when asked for (speech_markup)
+        answer = unmarked(answer)
         await dialogue.add(turn.shared, said.text, answer, by=self._node)
         # what this answer did with Home Assistant, for "yes, remember it" in the next turn
         await turn.state.set(LAST_CALLS_KEY, home_calls, ttl_s=LAST_CALLS_S)
-        response = Response(text=answer, language=language)
+        response = Response(
+            text=answer, speech_text=spoken if spoken != answer else None, language=language
+        )
         if acknowledged is not None:  # a sound instead of words, as Home Assistant's pipeline does
             await turn.output("ack").send(replace(response, data={"acknowledge": acknowledged}))
         await turn.output("response").send(response)

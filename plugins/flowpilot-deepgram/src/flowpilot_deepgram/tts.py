@@ -194,7 +194,7 @@ class DeepgramTts:
             await synthesis.connect()  # in parallel with the agent's first words
             async for piece in text:
                 timing.text()
-                await synthesis.speak(piece.text)
+                await synthesis.speak(piece.text.replace("*", ""))  # speech marks: Silero only
             await synthesis.finish()
         finally:
             await synthesis.close()
