@@ -4,6 +4,40 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.34
+
+Update both: the home's state in the agent's prompt needs the app and the integration.
+
+### App
+
+- **The agent acts without asking for the home's state first.** The state of the devices
+  exposed to Assist goes into the agent's prompt, so "turn off the light if it is on" takes one
+  request to the model instead of two. Turn it off in the agent's Tools: Home state in the
+  prompt (on by default); every request is longer with it.
+- **Live debug shows the turn in three tabs.**
+  - **Data**: the turn's nodes, the inputs and outputs of the selected one, and what went
+    through each: text, data as a folding JSON tree (with Raw), sound to play and download. It
+    is collected only while live debug is on; sound is kept for the graph's last 20 watched
+    turns and stays out of backups.
+  - **Journal**: what the nodes wrote (model requests, tools, quick commands) and reported, in
+    time order, with the selected entry's content on the right and a filter of several nodes.
+    Quick commands write each request to Home Assistant, the second try and each action of a
+    learned command as entries of their own; the agent's tool calls are JSON.
+  - **Timeline**: each node's reaction (first input to first output) and delay (the time it
+    added itself), the path to the answer's first sound, whose delays add up to the time to it,
+    the time to the first sound and text and the whole turn on top, and a crosshair that tells
+    what each node did at one moment.
+- **The Debug probe is gone**: the Data tab shows every node's inputs and outputs. Probes and
+  their wires are removed from saved graphs; their recordings stay for voice samples.
+- Text-to-speech nodes (Soniox, Deepgram, Wyoming, Home Assistant) all time their speech the same
+  way, from the first text they got: first sound, last sound, seconds of speech and how much
+  faster than real time.
+
+### Integration
+
+- **The home's state for the agent**: FlowPilot Assist gives the agent Home Assistant's live
+  context (the exposed devices and their states) with its tools, for the setting above.
+
 ## 0.1.33
 
 Update both: the agent's quicker answer to music needs the app and the integration.
