@@ -238,6 +238,20 @@ async def test_tts_picks_a_voice_of_the_turn_language(fake: FakeDeepgram) -> Non
     assert fake.speak_query["speed"] == "1.2"
 
 
+async def test_tts_speaks_the_language_of_the_text(fake: FakeDeepgram) -> None:
+    """The agent's answer says it is English: an English voice, though the turn is Russian."""
+    node = await started(DeepgramTts, {})
+    feed = InputFeed(items=[TextDelta("Hi")], meta={"language": "en"}, end="end")
+    run = await run_node_once(node, {"text": feed}, context={"language": "ru"})
+    assert run.error is None, run.error
+    assert fake.speak_query["model"] == "flux-hannah-en"
+    # a chosen language still wins
+    node = await started(DeepgramTts, {"language": "ru"})
+    run = await run_node_once(node, {"text": feed}, context={"language": "en"})
+    assert run.error is None, run.error
+    assert fake.speak_query["model"].endswith("-ru")
+
+
 async def test_tts_without_text_does_not_flush(fake: FakeDeepgram) -> None:
     node = await started(DeepgramTts, {})
     run = await run_node_once(node, {"text": InputFeed(items=[], meta={}, end="end")})

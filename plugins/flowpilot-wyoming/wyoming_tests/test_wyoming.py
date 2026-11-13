@@ -167,6 +167,29 @@ async def test_tts_streaming_service() -> None:
     assert {"seconds", "realtime"} <= timed.attrs.keys() and timed.attrs["streaming"] is True
 
 
+@pytest.mark.parametrize(
+    ("config", "meta", "turn", "voice"),
+    [
+        ({}, {"language": "ru"}, "en", "anna"),  # answered in another language: its voice
+        ({}, {"language": "ru-RU"}, "ru", None),  # the turn's language: the default voice
+        ({}, {"language": "de"}, "en", None),  # no voice of it: the default voice
+        ({}, {}, "en", None),  # the text does not say
+        ({"voice": "v"}, {"language": "ru"}, "en", "v"),  # a chosen voice stays
+    ],
+)
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_tts_voice_follows_the_language_of_the_text(
+    config: dict[str, Any], meta: dict[str, Any], turn: str, voice: str | None, streaming: bool
+) -> None:
+    rec = Record()
+    async with serve(tts(rec, streaming=streaming)) as uri:
+        node = await started(WyomingTts, {"uri": uri} | config)
+        feed = InputFeed(items=[TextDelta("Привет, как дела?")], meta=meta, end="end")
+        run = await run_node_once(node, {"text": feed}, context={"language": turn})
+    assert run.error is None, run.error
+    assert rec.voices and set(rec.voices) == {voice}
+
+
 async def test_tts_error_event_is_a_node_error() -> None:
     rec = Record()
     async with serve(tts(rec, fail=True)) as uri:

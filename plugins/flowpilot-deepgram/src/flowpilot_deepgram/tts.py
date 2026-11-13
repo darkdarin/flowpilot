@@ -31,6 +31,7 @@ from flowpilot_sdk import (
     node_translations,
 )
 from flowpilot_sdk.helpers import SpeechTiming
+from flowpilot_sdk.language import stream_language
 
 from .common import (
     API_KEY_SETTING,
@@ -78,7 +79,8 @@ class DeepgramTts:
                     "title": "Language",
                     "description": (
                         "Narrows the voices to one language; without a voice, the node speaks "
-                        "the turn's language with its first voice."
+                        "the language of the text (an agent tells the language it answers in), "
+                        "else of the turn, with its first voice."
                     ),
                     "type": "string",
                     "format": "language",
@@ -165,11 +167,13 @@ class DeepgramTts:
 
     async def run_turn(self, turn: TurnSession) -> None:
         text: InputStream[Any] = turn.input("text")
-        if await text.header() is None:
+        header = await text.header()
+        if header is None:
             return
         cfg = await turn.settings(self._config)  # voice or speed for this turn
         rate = int(self._config.get("sample_rate", 24000))
-        voice = self._voice(turn.context.language, cfg)
+        # the text's own language (the agent's answer), else the turn's
+        voice = self._voice(stream_language(header) or turn.context.language, cfg)
         speech = turn.output("speech")
         await speech.open(AudioFormat(sample_rate=rate).as_meta())
         offset = 0

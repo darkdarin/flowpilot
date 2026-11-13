@@ -33,6 +33,7 @@ from flowpilot_sdk import (
     node_translations,
 )
 from flowpilot_sdk.helpers import SpeechTiming, SpeechWriter, split_sentences
+from flowpilot_sdk.language import language_base, stream_language
 
 from .common import (
     DEFAULT_CONNECT_TIMEOUT_S,
@@ -83,7 +84,11 @@ class WyomingTts:
                 "voice": {
                     NODE_OPTIONS_KEY: True,
                     "title": "Voice",
-                    "description": "Voice name; the service's default when not set.",
+                    "description": (
+                        "Voice name. When not set: the service's default voice, or one of its "
+                        "voices of the text's language when an agent answers in another "
+                        "language than the turn's."
+                    ),
                     "type": "string",
                 },
                 "speaker": {
@@ -133,6 +138,8 @@ class WyomingTts:
         self._mode: Literal["auto", "on", "off"] = "auto"
         self._connect_timeout_s = DEFAULT_CONNECT_TIMEOUT_S
         self.service_streams: bool = False
+        # installed voices of the service and their languages, in the service's order
+        self.voices: list[tuple[str, list[str]]] = []
 
     @classmethod
     async def config_options(cls, field: str, config: Mapping[str, Any]) -> list[ConfigOption]:
@@ -161,6 +168,13 @@ class WyomingTts:
         info = await describe(self._address, self._connect_timeout_s)
         if info is not None and info.tts:
             self.service_streams = info.tts[0].supports_synthesize_streaming
+            self.voices = [
+                (v.name, list(v.languages))
+                for p in info.tts
+                if p.installed
+                for v in p.voices
+                if v.installed
+            ]
             ctx.logger.info("Wyoming TTS %s: streaming=%s", info.tts[0].name, self.service_streams)
 
     async def stop(self) -> None:
@@ -170,25 +184,47 @@ class WyomingTts:
     def streaming(self) -> bool:
         return self._mode == "on" or (self._mode == "auto" and self.service_streams)
 
+    def voice_for(self, language: str | None, turn_language: str | None) -> SynthesizeVoice | None:
+        """The chosen voice; without one, a voice of the text's language when it is not the
+        turn's and the service has one, else the service's default voice (``None``)."""
+        base = language_base(language)
+        if self._voice is not None or base is None or base == language_base(turn_language):
+            return self._voice
+        for name, languages in self.voices:
+            if any(language_base(x) == base for x in languages):
+                return SynthesizeVoice(name=name)
+        return None
+
     async def run_turn(self, turn: TurnSession) -> None:
         text: InputStream[Any] = turn.input("text")
-        if await text.header() is None:
+        header = await text.header()
+        if header is None:
             return
+        voice = self.voice_for(stream_language(header), turn.context.language)
         timing = SpeechTiming()
         writer = SpeechWriter(turn.output("speech"), timing)
         if self.streaming:
-            await self._run_streaming(text, writer, timing)
+            await self._run_streaming(text, writer, timing, voice)
         else:
-            await self._run_sentences(text, writer, turn, timing)
-        turn.trace("wyoming.tts", **timing.attrs(), streaming=self.streaming)
+            await self._run_sentences(text, writer, turn, timing, voice)
+        turn.trace(
+            "wyoming.tts",
+            **timing.attrs(),
+            streaming=self.streaming,
+            voice=voice.name if voice is not None else None,
+        )
 
     # --- service supports synthesize streaming ---------------------------------------------------
 
     async def _run_streaming(
-        self, text: InputStream[Any], writer: SpeechWriter, timing: SpeechTiming
+        self,
+        text: InputStream[Any],
+        writer: SpeechWriter,
+        timing: SpeechTiming,
+        voice: SynthesizeVoice | None,
     ) -> None:
         async with connect(self._address, self._connect_timeout_s) as client:
-            await client.write_event(SynthesizeStart(voice=self._voice).event())
+            await client.write_event(SynthesizeStart(voice=voice).event())
             reader = asyncio.create_task(self._read_streamed(client, writer))
             try:
                 full = ""
@@ -198,7 +234,7 @@ class WyomingTts:
                         full += delta.text
                         await client.write_event(SynthesizeChunk(text=delta.text).event())
                     # Full text for services that only understand plain synthesize (HA does too).
-                    await client.write_event(Synthesize(text=full, voice=self._voice).event())
+                    await client.write_event(Synthesize(text=full, voice=voice).event())
                     await client.write_event(SynthesizeStop().event())
                 except OSError as send_error:
                     # The service hung up; the reader has (or will get) its error event.
@@ -227,10 +263,15 @@ class WyomingTts:
     # --- plain synthesize: one request per sentence, in order ------------------------------------
 
     async def _run_sentences(
-        self, text: InputStream[Any], writer: SpeechWriter, turn: TurnSession, timing: SpeechTiming
+        self,
+        text: InputStream[Any],
+        writer: SpeechWriter,
+        turn: TurnSession,
+        timing: SpeechTiming,
+        voice: SynthesizeVoice | None,
     ) -> None:
         queue: asyncio.Queue[str | None] = asyncio.Queue()
-        worker = asyncio.create_task(self._synthesize_queue(queue, writer, turn))
+        worker = asyncio.create_task(self._synthesize_queue(queue, writer, turn, voice))
         try:
             buffer = ""
             async for delta in text:
@@ -249,12 +290,16 @@ class WyomingTts:
                 await worker
 
     async def _synthesize_queue(
-        self, queue: asyncio.Queue[str | None], writer: SpeechWriter, turn: TurnSession
+        self,
+        queue: asyncio.Queue[str | None],
+        writer: SpeechWriter,
+        turn: TurnSession,
+        voice: SynthesizeVoice | None,
     ) -> None:
         while (sentence := await queue.get()) is not None:
             turn.trace("wyoming.tts.sentence", chars=len(sentence))
             async with connect(self._address, self._connect_timeout_s) as client:
-                await client.write_event(Synthesize(text=sentence, voice=self._voice).event())
+                await client.write_event(Synthesize(text=sentence, voice=voice).event())
                 while True:
                     event = raise_on_error(await client.read_event())
                     if AudioStart.is_type(event.type):

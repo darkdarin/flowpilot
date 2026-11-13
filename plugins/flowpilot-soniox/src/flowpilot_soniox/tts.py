@@ -34,6 +34,7 @@ from flowpilot_sdk import (
     node_translations,
 )
 from flowpilot_sdk.helpers import SpeechTiming
+from flowpilot_sdk.language import stream_language
 
 from .common import (
     API_KEY_SETTING,
@@ -120,7 +121,10 @@ class SonioxTts:
                 },
                 "language": {
                     "title": "Language",
-                    "description": "Language of the speech; the language of the turn when not set.",
+                    "description": (
+                        "Language of the speech; when not set, the language of the text (an "
+                        "agent tells the language it answers in), else of the turn."
+                    ),
                     "type": "string",
                     "format": "language",
                     NODE_OPTIONS_KEY: True,
@@ -227,12 +231,16 @@ class SonioxTts:
 
     async def run_turn(self, turn: TurnSession) -> None:
         text: InputStream[Any] = turn.input("text")
-        if await text.header() is None:
+        header = await text.header()
+        if header is None:
             return
         cfg = await turn.settings(self._config)  # voice or speed for this turn
         rate = int(self._config.get("sample_rate", 24000))
-        language = language_base(self._config.get("language")) or language_base(
-            turn.context.language
+        # the chosen language, else the text's own (the agent's answer), else the turn's
+        language = (
+            language_base(self._config.get("language"))
+            or language_base(stream_language(header))
+            or language_base(turn.context.language)
         )
         if self._languages and language not in self._languages:
             language = self._languages[0]

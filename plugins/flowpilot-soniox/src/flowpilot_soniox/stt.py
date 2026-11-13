@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+from collections import Counter
 from collections.abc import Mapping
 from typing import Any, ClassVar
 
@@ -91,11 +92,20 @@ class SonioxStt:
                     "format": "language",
                     NODE_OPTIONS_KEY: True,
                 },
+                "detect_language": {
+                    "title": "Detect the language",
+                    "description": (
+                        "Hear what language is spoken (the chosen one is a hint) and tell it on "
+                        "with the text, so the answer and its voice can follow; on when not set."
+                    ),
+                    "type": "boolean",
+                    "default": True,
+                },
                 "language_hints_strict": {
                     "title": "Only this language",
                     "description": (
-                        "Recognize only the chosen language, not words of others that sound "
-                        "alike; on when not set."
+                        "Without language detection: recognize only the chosen language, not "
+                        "words of others that sound alike; on when not set."
                     ),
                     "type": "boolean",
                     "default": True,
@@ -198,6 +208,10 @@ class SonioxStt:
     async def stop(self) -> None:
         return None
 
+    @property
+    def _detects(self) -> bool:
+        return bool(self._config.get("detect_language", True))
+
     def _session_config(self, fmt: AudioFormat, language: str | None) -> dict[str, Any]:
         cfg = self._config
         config: dict[str, Any] = {
@@ -212,9 +226,14 @@ class SonioxStt:
             "endpoint_sensitivity": float(cfg.get("endpoint_sensitivity", 0.3)),
             "max_endpoint_delay_ms": int(cfg.get("max_endpoint_delay_ms", 1500)),
         }
+        detect = self._detects
+        if detect:
+            config["enable_language_identification"] = True
         if language:
             config["language_hints"] = [language]
-            config["language_hints_strict"] = bool(cfg.get("language_hints_strict", True))
+            config["language_hints_strict"] = not detect and bool(
+                cfg.get("language_hints_strict", True)
+            )
         terms = list(cfg.get("context_terms") or [])
         terms += [w for w in cfg.get("wake_words") or [] if w not in terms]
         context: dict[str, Any] = {"terms": terms} if terms else {}
@@ -254,10 +273,11 @@ class SonioxStt:
                     await sender
         audio.close()  # Soniox decided the command is over: the satellite can stop streaming
         text = recognition.text
-        turn.trace("soniox.stt", **recognition.stats(ended_by, fmt))
-        await turn.output("transcript").send(Transcript(text, final=True, language=language))
+        heard = (recognition.language if self._detects else None) or language
+        turn.trace("soniox.stt", **recognition.stats(ended_by, fmt), language=heard)
+        await turn.output("transcript").send(Transcript(text, final=True, language=heard))
         if text:
-            await turn.output("utterance").send(Utterance(text, language))
+            await turn.output("utterance").send(Utterance(text, heard))
 
 
 class _Recognition:
@@ -268,6 +288,8 @@ class _Recognition:
         self._wake_words = wake_words
         self._language = language
         self._final: list[Token] = []
+        # letters of the final text by the language Soniox heard them in (language detection)
+        self._letters: Counter[str] = Counter()
         self._partial_shown = ""
         self._samples = 0
         self._speech_end_ms = 0
@@ -275,6 +297,11 @@ class _Recognition:
     @property
     def text(self) -> str:
         return self._strip(self._final)[0]
+
+    @property
+    def language(self) -> str | None:
+        """The language most of the text was heard in, with language detection on."""
+        return self._letters.most_common(1)[0][0] if self._letters else None
 
     def _strip(self, tokens: list[Token]) -> tuple[str, bool]:
         if not self._wake_words:
@@ -356,6 +383,8 @@ class _Recognition:
             if text == FIN_TOKEN:
                 return "finalize"
             self._final.append(Token(text, int(token.get("start_ms", 0))))
+            if heard := token.get("language"):
+                self._letters[str(heard)] += sum(c.isalpha() for c in text)
             if text.strip() and "end_ms" in token:
                 self._speech_end_ms = int(token["end_ms"])
         if data.get("finished"):
@@ -372,7 +401,7 @@ class _Recognition:
         if text and text != self._partial_shown:
             self._partial_shown = text
             await self._turn.output("transcript").send(
-                Transcript(text, final=False, language=self._language)
+                Transcript(text, final=False, language=self.language or self._language)
             )
 
     def stats(self, ended_by: str, fmt: AudioFormat) -> dict[str, Any]:

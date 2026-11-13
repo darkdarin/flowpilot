@@ -30,6 +30,7 @@ class FakeSoniox:
         self.stt_config: dict[str, Any] = {}
         self.stt_audio = 0
         self.stt_script = "endpoint"  # endpoint | finalize | error
+        self.languages: dict[str, str] = {}  # the language of a final token, by its text
         self.tts_configs: list[dict[str, Any]] = []
         self.tts_text: dict[str, str] = {}
         self.tts_timeout_first = False
@@ -61,9 +62,11 @@ class FakeSoniox:
                     await ws.send_json({"tokens": [self.final(" свет"), self.final("<end>")]})
         return ws
 
-    @staticmethod
-    def final(text: str, start_ms: int = 1200) -> dict[str, Any]:
-        return {"text": text, "is_final": True, "start_ms": start_ms, "end_ms": start_ms + 300}
+    def final(self, text: str, start_ms: int = 1200) -> dict[str, Any]:
+        token = {"text": text, "is_final": True, "start_ms": start_ms, "end_ms": start_ms + 300}
+        if language := self.languages.get(text.strip()):
+            token["language"] = language
+        return token
 
     async def tts(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
@@ -107,7 +110,11 @@ class FakeSoniox:
         if request.headers.get("Authorization") != f"Bearer {KEY}":
             return web.json_response({"error": "unauthorized"}, status=401)
         voices = [{"id": "Maya", "gender": "female"}, {"id": "Adrian", "gender": "male"}]
-        model = {"id": "tts-rt-v1", "voices": voices, "languages": [{"code": "en"}]}
+        model = {
+            "id": "tts-rt-v1",
+            "voices": voices,
+            "languages": [{"code": "en"}, {"code": "ru"}],
+        }
         return web.json_response({"models": [model]})
 
 
@@ -162,6 +169,41 @@ async def test_stt_ends_on_the_endpoint_and_cuts_the_wake_word(fake: FakeSoniox)
     assert event.attrs["ended_by"] == "end" and event.attrs["wake_word_cut"] is True
 
 
+async def test_stt_tells_the_language_most_of_the_text_was_heard_in(fake: FakeSoniox) -> None:
+    fake.languages = {"Алиса": "ru", "включи": "en", "свет": "en"}
+    node = await started(SonioxStt, {"language": "ru"})
+    run = await run_node_once(node, {"audio": speech(2000)})
+    assert run.error is None, run.error
+    assert fake.stt_config["enable_language_identification"] is True
+    # the chosen language is only a hint: the other language must not be forced into it
+    assert fake.stt_config["language_hints"] == ["ru"]
+    assert fake.stt_config["language_hints_strict"] is False
+    assert run.outputs["utterance"].items[0].language == "en"  # 10 letters to 5
+    assert run.outputs["transcript"].items[-1].language == "en"
+    (event,) = [e for e in run.trace.events if e.event == "soniox.stt"]
+    assert event.attrs["language"] == "en"
+
+
+async def test_stt_without_language_detection_keeps_the_chosen_language(
+    fake: FakeSoniox,
+) -> None:
+    fake.languages = {"включи": "en", "свет": "en"}
+    node = await started(SonioxStt, {"language": "ru", "detect_language": False})
+    run = await run_node_once(node, {"audio": speech(2000)})
+    assert run.error is None, run.error
+    assert "enable_language_identification" not in fake.stt_config
+    assert fake.stt_config["language_hints_strict"] is True
+    assert run.outputs["utterance"].items[0].language == "ru"
+
+
+async def test_stt_without_detected_language_tells_the_hint(fake: FakeSoniox) -> None:
+    run = await run_node_once(
+        await started(SonioxStt, {}), {"audio": speech(2000)}, context={"language": "ru-RU"}
+    )
+    assert run.error is None, run.error
+    assert run.outputs["utterance"].items[0].language == "ru"
+
+
 async def test_stt_finalizes_when_the_audio_ends(fake: FakeSoniox) -> None:
     fake.stt_script = "finalize"
     node = await started(SonioxStt, {})
@@ -195,6 +237,25 @@ async def test_tts_streams_speech(fake: FakeSoniox) -> None:
         "audio_format": "pcm_s16le",
         "sample_rate": 16000,
     }
+
+
+@pytest.mark.parametrize(
+    ("config", "meta", "spoken"),
+    [
+        ({}, {"language": "ru"}, "ru"),  # the agent's answer says its language
+        ({}, {}, "en"),  # else the turn's
+        ({"language": "en"}, {"language": "ru"}, "en"),  # a chosen language wins
+        ({}, {"language": "de"}, "en"),  # a language the model lacks: its first
+    ],
+)
+async def test_tts_speaks_the_language_of_the_text(
+    fake: FakeSoniox, config: dict[str, Any], meta: dict[str, Any], spoken: str
+) -> None:
+    node = await started(SonioxTts, {"voice": "Adrian"} | config)
+    feed = InputFeed(items=[TextDelta("Привет")], meta=meta, end="end")
+    run = await run_node_once(node, {"text": feed}, context={"language": "en"})
+    assert run.error is None, run.error
+    assert fake.tts_configs[0]["language"] == spoken
 
 
 async def test_tts_starts_a_new_stream_after_a_pause(fake: FakeSoniox) -> None:

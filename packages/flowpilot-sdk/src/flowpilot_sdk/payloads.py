@@ -94,7 +94,8 @@ class Utterance:
 @payload_type("text.delta/1")
 @dataclass(frozen=True, slots=True)
 class TextDelta:
-    """A piece of streamed response text."""
+    """A piece of streamed response text. The stream's header may say the text's language
+    (``meta["language"]``, see ``flowpilot_sdk.language``)."""
 
     TYPE_ID: ClassVar[str]
 

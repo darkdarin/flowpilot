@@ -33,6 +33,7 @@ class FakeOpenAI:
         self.requests: list[dict[str, Any]] = []
         self.auth: list[str] = []
         self.fail = False
+        self.answer: str | None = None  # instead of the echo of the question
 
     async def models(self, request: web.Request) -> web.Response:
         return web.json_response({"data": [{"id": "gpt-small"}, {"id": "gpt-big"}]})
@@ -49,7 +50,7 @@ class FakeOpenAI:
         # handler task waiting, which the conformance kit counts against the node
         resp.force_close()
         await resp.prepare(request)
-        answer = f"Ответ на «{body['messages'][-1]['content']}»"
+        answer = self.answer or f"Ответ на «{body['messages'][-1]['content']}»"
         for piece in (answer[:6], answer[6:]):
             chunk = {"choices": [{"delta": {"content": piece}, "index": 0}]}
             await resp.write(f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode())
@@ -99,6 +100,45 @@ async def test_streams_the_answer(fake: tuple[FakeOpenAI, str]) -> None:
     assert api.auth == [f"Bearer {KEY}"]
     (event,) = [e for e in run.trace.events if e.event == "llm.agent"]
     assert event.attrs["first_token_ms"] is not None and event.attrs["chars"] > 0
+
+
+@pytest.mark.parametrize(
+    ("mode", "spoken"),
+    [
+        ({}, "ru"),  # the question's language (speech recognition heard Russian)
+        ({"answer_language": "text"}, "en"),  # by the answer's alphabet
+    ],
+)
+async def test_the_answer_tells_its_language(
+    fake: tuple[FakeOpenAI, str], mode: dict[str, Any], spoken: str
+) -> None:
+    api, url = fake
+    api.answer = "My name is Jarvis. Nice to meet you!"
+    node = await agent(url, **mode)
+    try:
+        run = await run_node_once(node, said("как тебя зовут"))
+    finally:
+        await node.stop()
+    assert run.error is None, run.error
+    delta = run.outputs["delta"]
+    assert delta.header is not None and delta.header.meta["language"] == spoken
+    assert "".join(d.text for d in delta.items) == api.answer  # nothing lost while waiting
+    assert run.outputs["response"].items[0].language == spoken
+
+
+async def test_a_short_answer_by_text_still_comes(fake: tuple[FakeOpenAI, str]) -> None:
+    """Fewer letters than it takes to be sure: the whole answer goes out at its end."""
+    api, url = fake
+    api.answer = "Да"
+    node = await agent(url, answer_language="text")
+    try:
+        run = await run_node_once(node, said("ты тут"))
+    finally:
+        await node.stop()
+    assert run.error is None, run.error
+    delta = run.outputs["delta"]
+    assert delta.header is not None and delta.header.meta["language"] == "ru"
+    assert "".join(d.text for d in delta.items) == "Да"
 
 
 async def test_reports_provider_errors(fake: tuple[FakeOpenAI, str]) -> None:

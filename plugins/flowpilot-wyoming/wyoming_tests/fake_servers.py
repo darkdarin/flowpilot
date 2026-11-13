@@ -47,6 +47,7 @@ class Record:
     synthesize: list[str] = field(default_factory=list)
     chunks: list[str] = field(default_factory=list)
     connections: int = 0
+    voices: list[str | None] = field(default_factory=list)  # of each synthesize request
 
 
 class AsrHandler(AsyncEventHandler):
@@ -141,8 +142,10 @@ class TtsHandler(AsyncEventHandler):
             await self._audio(text, stop=False)
             return True
         if Synthesize.is_type(event.type):
-            text = Synthesize.from_event(event).text
+            request = Synthesize.from_event(event)
+            text = request.text
             self.r.synthesize.append(text)
+            self.r.voices.append(request.voice.name if request.voice else None)
             if self.fail:
                 await self.write_event(Error(text="no voice").event())
                 return False

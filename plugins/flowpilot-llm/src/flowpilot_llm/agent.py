@@ -48,6 +48,7 @@ from flowpilot_sdk import (
     dialogue,
     node_translations,
 )
+from flowpilot_sdk.language import LANGUAGE_META, language_by_script
 from flowpilot_sdk.skills import definition as skill_definition
 
 from .tools import (
@@ -77,6 +78,16 @@ HOME_CALL_TIMEOUT_S = 20.0
 SERVICE_CALL_OP = "ha.service.call"
 # Rounds of tool calls in one turn; the last round must answer in words.
 MAX_TOOL_ROUNDS = 4
+# Answer language by its text: the first words wait until this many letters, or a sentence ended
+LANGUAGE_LETTERS = 16
+
+
+def _language_clear(text: str) -> bool:
+    """Enough of the answer to tell its alphabet."""
+    letters = sum(c.isalpha() for c in text)
+    return letters >= LANGUAGE_LETTERS or (letters > 0 and any(c in ".!?…\n" for c in text))
+
+
 # the state of the home when the turn began, from Home Assistant's live context
 STATE_TEXT = (
     "The state of the home as this request began (you need not ask for it before acting; ask "
@@ -346,6 +357,21 @@ class LlmAgent:
                     "type": "string",
                     "format": "multiline",
                     DYNAMIC_KEY: True,  # e.g. other instructions for a child
+                },
+                "answer_language": {
+                    "title": "Answer language",
+                    "description": (
+                        "The language the answer says it is in, for text-to-speech and "
+                        "conditions. Question: the language speech recognition heard (the "
+                        "turn's when it does not tell), known at once. By the answer's text: by "
+                        "its alphabet, once the first words have come (they wait for it)."
+                    ),
+                    "enum": ["question", "text"],
+                    ENUM_TITLES_KEY: {
+                        "question": "Of the question",
+                        "text": "By the answer's text",
+                    },
+                    "default": "question",
                 },
                 "history_turns": {
                     "title": "Remembered exchanges",
@@ -868,6 +894,27 @@ class LlmAgent:
         first_ms: int | None = None
         pieces: list[str] = []
         delta = turn.output("delta")
+        by_text = self._config.get("answer_language", "question") == "text"
+        prefer = (language, turn.context.language)
+        held: list[str] = []  # the first words, until their language is known (by_text)
+        opened = False
+
+        async def speak(text: str, *, last: bool = False) -> None:
+            """Pass text on; the answer opens with its language in the header."""
+            nonlocal opened
+            if not opened:
+                spoken = language
+                if by_text:
+                    held.append(text)
+                    text = "".join(held)
+                    if not last and not _language_clear(text):
+                        return
+                    held.clear()
+                    spoken = language_by_script(text, prefer) or language
+                await delta.open({LANGUAGE_META: spoken} if spoken else None)
+                opened = True
+            if text:
+                await delta.send(TextDelta(text))
 
         gap = False  # a new round after tool calls: keep its words apart from the earlier ones
 
@@ -879,7 +926,7 @@ class LlmAgent:
                 text = " " + text
             gap = False
             pieces.append(text)
-            await delta.send(TextDelta(text))
+            await speak(text)
 
         used: list[str] = []
         home_calls: list[dict[str, Any]] = []
@@ -998,8 +1045,12 @@ class LlmAgent:
                 told = True
                 log("told", "answered with the tools' words", " ".join(tool_words[said_from:]))
                 break
+        if held:
+            await speak("", last=True)
         await delta.end()
         answer = "".join(pieces).strip()
+        if by_text and answer:
+            language = language_by_script(answer, prefer) or language
         if acknowledged is not None:
             base = (language or "").split("-")[0].casefold()
             acted = [d["speech"] for d in done if d["speech"]]
