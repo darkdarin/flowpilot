@@ -1,19 +1,16 @@
 <script setup lang="ts">
-// The turn's journal in live debug: one list for the whole turn, in time order. What each node
-// passed on, what the nodes wrote (model requests, tools, quick commands) and what they reported
-// (timings, levels). The filter on top takes several nodes, as tags; empty, it shows them all.
+// The turn's journal in live debug: one list for the whole turn, in time order. What the nodes
+// wrote (model requests, tools, quick commands) and what they reported (timings, levels); what
+// went through their inputs and outputs is in the Data tab. The filter on top takes several nodes, as tags; empty, it shows them all.
 // Selecting a node on the canvas or the timeline filters to that node.
 import { computed, ref, watch } from "vue";
 import { t } from "../i18n";
-import { currentTurn, selectedId, type LogEntry, type OutputData } from "../store";
+import { currentTurn, selectedId, type LogEntry } from "../store";
 import { fmtMs } from "../timing";
-import { typeColor, typeShort } from "../types";
 import JsonBlock from "./JsonBlock.vue";
-import OutputValue from "./OutputValue.vue";
 
 type Entry =
   | { kind: "log"; node: string; t: number; log: LogEntry }
-  | { kind: "out"; node: string; t: number; out: OutputData }
   | { kind: "note"; node: string; t: number; event: string; attrs: Record<string, unknown> };
 
 const entries = computed<Entry[]>(() => {
@@ -23,7 +20,6 @@ const entries = computed<Entry[]>(() => {
     ...Object.entries(turn.logs).flatMap(([node, logs]) =>
       logs.map((log): Entry => ({ kind: "log", node, t: log.t, log })),
     ),
-    ...turn.outputs.map((out): Entry => ({ kind: "out", node: out.node, t: out.t, out })),
     ...Object.entries(turn.notes).flatMap(([node, notes]) =>
       notes.map((n): Entry => ({ kind: "note", node, t: n.t, event: n.event, attrs: n.attrs })),
     ),
@@ -31,7 +27,7 @@ const entries = computed<Entry[]>(() => {
   return all.sort((a, b) => a.t - b.t);
 });
 
-/** The nodes that wrote or passed on something, in the order they first did. */
+/** The nodes that wrote or reported something, in the order they first did. */
 const nodeIds = computed(() => [...new Set(entries.value.map((e) => e.node))]);
 
 // the nodes shown; none: all of them
@@ -87,24 +83,8 @@ function logClass(log: LogEntry): string {
     <p v-if="!shown.length" class="note">{{ filter.length ? t("journal.nodeEmpty") : t("journal.empty") }}</p>
     <ol v-else class="entries">
       <li v-for="(entry, i) in shown" :key="i" class="entry" :class="entry.kind === 'log' ? logClass(entry.log) : entry.kind">
-        <!-- what a node passed on -->
-        <details v-if="entry.kind === 'out'" :open="!entry.out.same">
-          <summary>
-            <span class="at">{{ fmtMs(entry.t) }}</span>
-            <button v-if="!oneNode" class="node" @click.stop.prevent="pick(entry.node)">{{ entry.node }}</button><span v-else />
-            <span class="kind">→ {{ entry.out.port }}<code v-if="typeShort(entry.out.type) !== entry.out.port" class="type" :style="{ color: typeColor(entry.out.type) }">{{ typeShort(entry.out.type) }}</code></span>
-            <span class="text" :class="{ preview: !entry.out.same }">
-              <template v-if="entry.out.same">{{ t("journal.same", { from: entry.out.same }) }}</template>
-              <template v-else-if="entry.out.seconds !== undefined">{{ entry.out.seconds.toFixed(1) }} s</template>
-              <template v-else-if="entry.out.text !== undefined">{{ entry.out.text }}</template>
-            </span>
-            <span v-if="entry.out.items > 1" class="took">{{ t("journal.items", { n: entry.out.items }) }}</span>
-          </summary>
-          <div class="body"><OutputValue :out="entry.out" /></div>
-        </details>
-
         <!-- what a node wrote: model requests, tools, quick commands -->
-        <details v-else-if="entry.kind === 'log'" :open="entry.log.kind === 'tool' && entry.log.attrs.ok === false">
+        <details v-if="entry.kind === 'log'" :open="entry.log.kind === 'tool' && entry.log.attrs.ok === false">
           <summary>
             <span class="at">{{ fmtMs(entry.t) }}</span>
             <button v-if="!oneNode" class="node" @click.stop.prevent="pick(entry.node)">{{ entry.node }}</button><span v-else />
@@ -280,16 +260,6 @@ function logClass(log: LogEntry): string {
   color: var(--kind, var(--muted));
 }
 
-.type {
-  margin-left: 5px;
-  font-size: 10.5px;
-}
-
-/* the summary shows the beginning of the data; open, the body shows all of it */
-details[open] > summary .preview {
-  visibility: hidden;
-}
-
 .text {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -304,10 +274,6 @@ details[open] > summary .preview {
 
 .attrs .k {
   color: var(--faint);
-}
-
-.entry.out {
-  --kind: var(--cat-speech, var(--ok));
 }
 
 .entry.llm {
