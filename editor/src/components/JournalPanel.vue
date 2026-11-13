@@ -1,15 +1,15 @@
 <script setup lang="ts">
 // The turn's journal in live debug: one list for the whole turn, in time order. What each node
-// passed on (text, data, audio to play), what the nodes wrote (model requests, tools, quick
-// commands) and what they reported (timings, levels). A node filter on top follows the node
-// selected on the canvas or the timeline.
+// passed on, what the nodes wrote (model requests, tools, quick commands) and what they reported
+// (timings, levels). The filter on top takes several nodes, as tags; empty, it shows them all.
+// Selecting a node on the canvas or the timeline filters to that node.
 import { computed, ref, watch } from "vue";
 import { t } from "../i18n";
-import { download, play, playing } from "../playback";
 import { currentTurn, selectedId, type LogEntry, type OutputData } from "../store";
 import { fmtMs } from "../timing";
 import { typeColor, typeShort } from "../types";
 import JsonBlock from "./JsonBlock.vue";
+import OutputValue from "./OutputValue.vue";
 
 type Entry =
   | { kind: "log"; node: string; t: number; log: LogEntry }
@@ -34,13 +34,26 @@ const entries = computed<Entry[]>(() => {
 /** The nodes that wrote or passed on something, in the order they first did. */
 const nodeIds = computed(() => [...new Set(entries.value.map((e) => e.node))]);
 
-// "" shows every node; selecting a node on the canvas or the timeline filters to it
-const filter = ref("");
-watch(selectedId, (id) => (filter.value = id ?? ""), { immediate: true });
+// the nodes shown; none: all of them
+const filter = ref<string[]>([]);
+watch(selectedId, (id) => (filter.value = id ? [id] : []), { immediate: true });
+
+const addable = computed(() => nodeIds.value.filter((id) => !filter.value.includes(id)));
+const adding = ref("");
+
+function add() {
+  if (adding.value && !filter.value.includes(adding.value)) filter.value = [...filter.value, adding.value];
+  adding.value = "";
+}
+
+function remove(id: string) {
+  filter.value = filter.value.filter((f) => f !== id);
+}
 
 const shown = computed(() =>
-  filter.value ? entries.value.filter((e) => e.node === filter.value) : entries.value,
+  filter.value.length ? entries.value.filter((e) => filter.value.includes(e.node)) : entries.value,
 );
+const oneNode = computed(() => filter.value.length === 1);
 
 function pick(node: string) {
   selectedId.value = node;
@@ -56,70 +69,45 @@ function logClass(log: LogEntry): string {
   if (log.attrs.ok === false || log.kind.startsWith("llm.no_")) return "bad";
   return log.kind.split(".")[0];
 }
-
-function isAudio(out: OutputData) {
-  return out.type === "audio.pcm/1";
-}
 </script>
 
 <template>
   <div class="journal">
-    <header>
-      <h3>{{ t("debug.journal") }}</h3>
-      <select v-model="filter" class="filter" :aria-label="t('journal.filter')">
-        <option value="">{{ t("journal.all") }}</option>
-        <option v-for="id in nodeIds" :key="id" :value="id">{{ id }}</option>
-        <option v-if="filter && !nodeIds.includes(filter)" :value="filter">{{ filter }}</option>
+    <div class="filter" :aria-label="t('journal.filter')">
+      <span v-for="id in filter" :key="id" class="tag">
+        {{ id }}
+        <button :title="t('journal.removeNode')" :aria-label="t('journal.removeNode')" @click="remove(id)">×</button>
+      </span>
+      <select v-if="addable.length" v-model="adding" class="add" :aria-label="t('journal.addNode')" @change="add">
+        <option value="">{{ filter.length ? t("journal.addNode") : t("journal.all") }}</option>
+        <option v-for="id in addable" :key="id" :value="id">{{ id }}</option>
       </select>
-    </header>
-    <p v-if="!shown.length" class="note">{{ filter ? t("journal.nodeEmpty") : t("journal.empty") }}</p>
+      <button v-if="filter.length" class="clear" @click="filter = []">{{ t("journal.clear") }}</button>
+    </div>
+    <p v-if="!shown.length" class="note">{{ filter.length ? t("journal.nodeEmpty") : t("journal.empty") }}</p>
     <ol v-else class="entries">
       <li v-for="(entry, i) in shown" :key="i" class="entry" :class="entry.kind === 'log' ? logClass(entry.log) : entry.kind">
         <!-- what a node passed on -->
         <details v-if="entry.kind === 'out'" :open="!entry.out.same">
           <summary>
             <span class="at">{{ fmtMs(entry.t) }}</span>
-            <button v-if="!filter" class="node" @click.stop.prevent="pick(entry.node)">{{ entry.node }}</button><span v-else />
+            <button v-if="!oneNode" class="node" @click.stop.prevent="pick(entry.node)">{{ entry.node }}</button><span v-else />
             <span class="kind">→ {{ entry.out.port }}<code v-if="typeShort(entry.out.type) !== entry.out.port" class="type" :style="{ color: typeColor(entry.out.type) }">{{ typeShort(entry.out.type) }}</code></span>
             <span class="text" :class="{ preview: !entry.out.same }">
               <template v-if="entry.out.same">{{ t("journal.same", { from: entry.out.same }) }}</template>
-              <template v-else-if="isAudio(entry.out) && entry.out.seconds !== undefined">{{ entry.out.seconds.toFixed(1) }} s</template>
+              <template v-else-if="entry.out.seconds !== undefined">{{ entry.out.seconds.toFixed(1) }} s</template>
               <template v-else-if="entry.out.text !== undefined">{{ entry.out.text }}</template>
             </span>
             <span v-if="entry.out.items > 1" class="took">{{ t("journal.items", { n: entry.out.items }) }}</span>
           </summary>
-          <div class="body">
-            <p v-if="entry.out.error" class="err">{{ entry.out.error }}</p>
-            <div v-if="isAudio(entry.out) && entry.out.file" class="audio">
-              <button
-                class="play"
-                :class="{ on: playing === entry.out.file }"
-                :title="playing === entry.out.file ? t('debug.stopPlaying') : t('debug.play')"
-                :aria-label="playing === entry.out.file ? t('debug.stopPlaying') : t('debug.play')"
-                @click="play(entry.out.file!)"
-              >
-                <svg v-if="playing === entry.out.file" viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1" /></svg>
-                <svg v-else viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7.5-4.5z" /></svg>
-              </button>
-              <span class="secs">{{ entry.out.seconds?.toFixed(1) }} s</span>
-              <button class="icon" :title="t('debug.download')" :aria-label="t('debug.download')" @click="download(entry.out.file!)">
-                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10" /></svg>
-              </button>
-            </div>
-            <template v-else-if="entry.out.text !== undefined">
-              <pre class="plain">{{ entry.out.text || "—" }}</pre>
-              <p v-if="entry.out.partials" class="hint">{{ t("journal.partials", { n: entry.out.partials }) }}</p>
-            </template>
-            <JsonBlock v-else-if="entry.out.json !== undefined" :text="entry.out.json" />
-            <p v-if="entry.out.more" class="hint">{{ t("journal.more", { n: entry.out.more }) }}</p>
-          </div>
+          <div class="body"><OutputValue :out="entry.out" /></div>
         </details>
 
         <!-- what a node wrote: model requests, tools, quick commands -->
         <details v-else-if="entry.kind === 'log'" :open="entry.log.kind === 'tool' && entry.log.attrs.ok === false">
           <summary>
             <span class="at">{{ fmtMs(entry.t) }}</span>
-            <button v-if="!filter" class="node" @click.stop.prevent="pick(entry.node)">{{ entry.node }}</button><span v-else />
+            <button v-if="!oneNode" class="node" @click.stop.prevent="pick(entry.node)">{{ entry.node }}</button><span v-else />
             <span class="kind">{{ kindLabel(entry.log.kind) }}</span>
             <span class="text">{{ entry.log.summary }}</span>
             <span v-if="entry.log.attrs.ms !== undefined" class="took">{{ fmtMs(Number(entry.log.attrs.ms)) }}</span>
@@ -133,7 +121,7 @@ function isAudio(out: OutputData) {
         <details v-else>
           <summary>
             <span class="at">{{ fmtMs(entry.t) }}</span>
-            <button v-if="!filter" class="node" @click.stop.prevent="pick(entry.node)">{{ entry.node }}</button><span v-else />
+            <button v-if="!oneNode" class="node" @click.stop.prevent="pick(entry.node)">{{ entry.node }}</button><span v-else />
             <span class="kind">{{ entry.event }}</span>
             <span class="text attrs">
               <span v-for="(value, key) in entry.attrs" :key="key"><span class="k">{{ key }}</span> {{ value ?? "—" }}</span>
@@ -150,39 +138,78 @@ function isAudio(out: OutputData) {
 
 <style scoped>
 .journal {
-  overflow-y: auto;
-  border-left: 1px solid var(--line);
   padding: 0 12px 12px;
   min-width: 0;
 }
 
-header {
+.filter {
   position: sticky;
   top: 0;
   z-index: 1;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 8px 0 8px;
+  gap: 5px;
+  padding: 8px 0;
   background: var(--panel);
 }
 
-h3 {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 3px 1px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--focus) 18%, transparent);
+  color: var(--text);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11.5px;
 }
 
-.filter {
-  margin-left: auto;
-  max-width: 60%;
-  padding: 2px 6px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel-raised);
+.tag button {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tag button:hover {
+  background: var(--line);
   color: var(--text);
-  font-size: 12px;
+}
+
+.add {
+  padding: 2px 6px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.clear {
+  margin-left: auto;
+  padding: 1px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.clear:hover {
+  color: var(--text);
+  background: var(--line);
 }
 
 .note {
@@ -202,8 +229,8 @@ h3 {
 
 .entry summary {
   display: grid;
+  /* the node column stays, empty, when one node is shown */
   grid-template-columns: 52px auto auto minmax(0, 1fr) auto;
-  /* without the node filter each entry names its node; with it the column stays, empty */
   align-items: baseline;
   gap: 7px;
   padding: 4px 6px;
@@ -305,92 +332,5 @@ details[open] > summary .preview {
 
 .body {
   margin: 4px 0 6px 59px;
-}
-
-.plain {
-  margin: 0;
-  padding: 7px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel-raised);
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 320px;
-  overflow: auto;
-}
-
-.hint {
-  margin: 3px 0 0;
-  font-size: 11px;
-  color: var(--faint);
-}
-
-.err {
-  margin: 0 0 4px;
-  font-size: 11.5px;
-  color: var(--danger);
-}
-
-.audio {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 8px 3px 3px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--panel-raised);
-}
-
-.audio button {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.audio button:hover {
-  color: var(--text);
-  background: var(--line);
-}
-
-.audio .play {
-  background: color-mix(in srgb, var(--cat-speech, var(--ok)) 25%, transparent);
-  color: var(--text);
-}
-
-.audio .play.on {
-  background: var(--cat-speech, var(--ok));
-  color: var(--primary-text);
-}
-
-.audio svg {
-  width: 13px;
-  height: 13px;
-}
-
-.audio .play svg {
-  fill: currentColor;
-}
-
-.audio .icon svg {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.secs {
-  font-size: 12px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
 }
 </style>
