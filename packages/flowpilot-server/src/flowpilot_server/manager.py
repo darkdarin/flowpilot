@@ -31,6 +31,7 @@ from flowpilot_core.runtime import Deployment, MemorySessionStore, TraceSink
 from flowpilot_sdk import IDENTITY_PROVIDER_GRANT, registered_types
 from flowpilot_sdk.types import PRIVILEGED_TYPES, type_kind
 
+from .captures import TurnCapture, recordings_dir
 from .commands_store import CommandStore
 from .memory_store import MemoryStore
 from .migrations import migrate_graph
@@ -238,6 +239,7 @@ class GraphManager:
             raise GraphError([GraphIssue("id_mismatch", "$.id", f"graph id must be {graph_id!r}")])
         trace = self._trace_factory(graph_id) if self._trace_factory else None
         watching = self._watching
+        recordings = recordings_dir(self.data_dir) if self.data_dir else None
         deployment = Deployment(
             graph,
             self.registry,
@@ -250,6 +252,12 @@ class GraphManager:
             skills=self.skills,
             voices=self.voices,
             taps_active=(lambda: watching(graph_id)) if watching else None,
+            # live debug: what every node passed on, for the editor's journal
+            output_tap=(
+                (lambda context: TurnCapture(trace, context, graph_id, recordings))
+                if trace is not None and watching
+                else None
+            ),
         )
         try:
             await deployment.start()

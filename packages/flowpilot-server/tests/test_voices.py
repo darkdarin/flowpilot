@@ -219,9 +219,9 @@ def wav(pcm: bytes, rate: int = RATE) -> bytes:
 async def test_editor_api_enrolls_and_tests_voices(tmp_path: Path) -> None:
     from flowpilot_core import NodeRegistry  # noqa: PLC0415
     from flowpilot_core.builtin import register_builtin  # noqa: PLC0415
+    from flowpilot_server.captures import recordings_dir  # noqa: PLC0415
     from flowpilot_server.manager import GraphManager, GraphStore  # noqa: PLC0415
     from flowpilot_server.nodes import ClientSink, ClientSource  # noqa: PLC0415
-    from flowpilot_server.probe import recordings_dir  # noqa: PLC0415
     from flowpilot_server.server import FlowPilotServer  # noqa: PLC0415
 
     registry = register_builtin(NodeRegistry())
@@ -233,7 +233,7 @@ async def test_editor_api_enrolls_and_tests_voices(tmp_path: Path) -> None:
     )  # fmt: skip
     rec = recordings_dir(tmp_path)
     rec.mkdir(parents=True)
-    (rec / "20261109T120000Z.main.probe.T1.wav").write_bytes(wav(speech(MASHA)))
+    (rec / "20261109T120000Z.main.source-audio.T1.wav").write_bytes(wav(speech(MASHA)))
     server = FlowPilotServer(token="t", default_graph="main", manager=manager)
     ts = TestServer(server.app())
     await ts.start_server()
@@ -243,7 +243,7 @@ async def test_editor_api_enrolls_and_tests_voices(tmp_path: Path) -> None:
             base_url=str(ts.make_url("/api/editor/")), headers=auth
         ) as http:
             as_wav = {"Content-Type": "audio/wav"}
-            recording = {"recording": "20261109T120000Z.main.probe.T1.wav"}
+            recording = {"recording": "20261109T120000Z.main.source-audio.T1.wav"}
             for _ in range(2):
                 resp = await http.post(
                     "voices/u-pavel/samples", data=wav(speech(PAVEL)), headers=as_wav

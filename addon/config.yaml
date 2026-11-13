@@ -18,8 +18,8 @@ panel_icon: mdi:graph-outline
 panel_title: FlowPilot
 discovery:
   - flowpilot
-# Debug recordings (the "Debug probe" node) are voices of the household: keep them out of backups
-# (debug.record: where releases up to 0.1.2 kept them).
+# Live debug's recordings (what nodes passed on; the Debug probe's before 0.1.34) are voices of the
+# household: keep them out of backups (debug.record: where releases up to 0.1.2 kept them).
 backup_exclude:
   - nodes/debug.probe/*
   - nodes/debug.record/*

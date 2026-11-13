@@ -13,6 +13,7 @@ from .deployment import (
 )
 from .state import MemorySessionStore, SessionStateView
 from .streams import RuntimeInputStream, RuntimeOutputStream
+from .taps import OutputTap, OutputTapFactory
 from .trace import ListTraceSink, NullTraceSink, TraceEvent, TraceSink
 
 __all__ = [
@@ -24,6 +25,8 @@ __all__ = [
     "NodeOutcome",
     "NodeStatus",
     "NullTraceSink",
+    "OutputTap",
+    "OutputTapFactory",
     "RuntimeInputStream",
     "RuntimeNodeContext",
     "RuntimeOutputStream",

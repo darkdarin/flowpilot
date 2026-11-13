@@ -48,7 +48,6 @@ from .devnodes import DEV_NODES
 from .manager import GraphManager, GraphStore
 from .memory_store import MemoryStore
 from .nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
-from .probe import DebugProbe
 from .quick import HaQuickCommands
 from .secret_store import SecretStore
 from .server import FlowPilotServer
@@ -73,7 +72,6 @@ def build_registry(*, dev: bool = False) -> NodeRegistry:
         SpeakerId,
         HaStt,
         HaTts,
-        DebugProbe,
         FixedAnswer,
     ]
     if dev:

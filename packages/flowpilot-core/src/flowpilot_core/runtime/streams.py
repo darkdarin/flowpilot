@@ -11,6 +11,7 @@ from flowpilot_sdk import Envelope, PortSpec, StreamError, StreamHeader
 from flowpilot_sdk.types import type_id_of, type_kind
 
 from .channel import Channel, End, Fail, Item, Open
+from .taps import SafeTap
 
 State = Literal["pending", "open", "ended", "failed"]
 
@@ -31,6 +32,7 @@ class RuntimeOutputStream:
         turn_id: str,
         on_first_item: Callable[[str], None] | None = None,
         on_end: Callable[[str, int, str], None] | None = None,
+        tap: SafeTap | None = None,
     ) -> None:
         self.node_id = node_id
         self.name = name
@@ -45,6 +47,8 @@ class RuntimeOutputStream:
         # called once when the output ends: (port, items, "end" | "error" | "absent"); the time
         # an output ends is how long the node took with it, not when the node returned
         self._on_end = on_end
+        # live debug: what the node passes on (only in a watched turn)
+        self._tap = tap
 
     @property
     def items(self) -> int:
@@ -76,6 +80,8 @@ class RuntimeOutputStream:
         self.state = "open"
         self.opened = True
         self._type = type_id
+        if self._tap is not None:
+            self._tap.opened(self.node_id, self.name, type_id, dict(meta or {}))
         await self._broadcast(Open(StreamHeader(type_id, dict(meta or {}))))
 
     async def send(self, payload: Any) -> None:
@@ -92,6 +98,8 @@ class RuntimeOutputStream:
             raise RuntimeError(f"output {self.node_id}.{self.name} is already {self.state}")
         if self._seq == 0 and self._on_first_item is not None:
             self._on_first_item(self.name)
+        if self._tap is not None:
+            self._tap.item(self.node_id, self.name, payload)
         envelope = Envelope(self._turn_id, self._seq, time.monotonic_ns(), payload)
         self._seq += 1
         await self._broadcast(Item(envelope))
@@ -113,6 +121,8 @@ class RuntimeOutputStream:
         await self._broadcast(Fail(reason))
 
     def _ended(self, state: str) -> None:
+        if self._tap is not None:
+            self._tap.ended(self.node_id, self.name, state)
         if self._on_end is not None:
             self._on_end(self.name, self._seq, state)
 

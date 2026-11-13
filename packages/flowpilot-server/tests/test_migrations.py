@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from flowpilot_core import GrantPolicy, NodeRegistry, parse_graph, validate_graph
 from flowpilot_server.__main__ import build_registry
@@ -47,9 +48,9 @@ def test_old_debug_nodes_are_replaced(tmp_path: Path) -> None:
     types = {n["id"]: (n["type"], n.get("config")) for n in data["nodes"]}
     assert types["agent"] == ("debug.answer", {"text": "kids: {text}", "mode": "words"})
     assert types["say"] == ("debug.answer", {"text": "t"})
-    assert types["rec"] == ("debug.probe", {"keep": 5})
-    assert types["show"] == ("debug.probe", None)
+    assert "rec" not in types and "show" not in types  # probes, then removed with the journal
     edges = {(e["from"], e["to"]) for e in data["edges"]}
+    assert not any(dst.startswith(("rec.", "show.")) for _, dst in edges)
     assert ("stt.utterance", "say.utterance") in edges
     assert not any(src == "say.utterance" for src, _ in edges)  # the output is gone
     registry: NodeRegistry = build_registry(dev=True)
@@ -58,7 +59,7 @@ def test_old_debug_nodes_are_replaced(tmp_path: Path) -> None:
 
 
 def test_current_graphs_are_left_alone() -> None:
-    data = {"schema_version": 2, "id": "g", "nodes": [{"id": "a", "type": "debug.probe"}]}
+    data = {"schema_version": 2, "id": "g", "nodes": [{"id": "a", "type": "debug.answer"}]}
     assert migrate_graph(data) is data
     assert migrate_graph(migrate_graph(OLD)) == migrate_graph(OLD)
 
@@ -144,7 +145,7 @@ def test_agent_remember_on_request_becomes_remembers_facts() -> None:
     assert migrate_graph(migrated) is migrated
 
 
-def test_probes_and_converters_get_one_text_input() -> None:
+def test_converters_get_one_text_input_and_probes_go() -> None:
     data = {
         "schema_version": 1,
         "id": "g",
@@ -159,59 +160,36 @@ def test_probes_and_converters_get_one_text_input() -> None:
             {"from": "stt.transcript", "to": "conv.transcript"},
             {"from": "in.utterance", "to": "conv.utterance"},
         ],
-        "ui": {"nodes": {"probe": {"x": 10, "y": 20}}},
+        "ui": {"nodes": {"probe": {"x": 10, "y": 20}, "conv": {"x": 0, "y": 0}}},
     }
     migrated = migrate_graph(data)
-    nodes = {n["id"]: n for n in migrated["nodes"]}
-    # the delta stays on the probe (first in the old order), the answer moves to a copy
-    assert nodes["probe_response"] == {
-        "type": "debug.probe",
-        "config": {"keep": 3},
-        "id": "probe_response",
-    }
-    assert "version" not in nodes["probe"]
+    assert [n["id"] for n in migrated["nodes"]] == ["conv"]
     assert {(e["from"], e["to"]) for e in migrated["edges"]} == {
-        ("a.delta", "probe.value"),
-        ("a.response", "probe_response.value"),
-        ("in.audio", "probe_audio.value"),  # then the probe took one input of any type
         ("stt.transcript", "conv.text"),  # the converter keeps its first input
     }
-    assert migrated["ui"]["nodes"]["probe_response"] == {"x": 10, "y": 250}
+    assert migrated["ui"]["nodes"] == {"conv": {"x": 0, "y": 0}}
     assert migrate_graph(migrated) is migrated
 
 
-def test_a_probe_has_one_input_of_any_type() -> None:
-    data = {
-        "schema_version": 1,
+def test_debug_probes_leave_the_graph_with_their_wires() -> None:
+    """The journal of live debug shows what every node passed on: the probe is not needed."""
+    data: dict[str, Any] = {
+        "schema_version": 2,
         "id": "g",
         "nodes": [
-            {"id": "both", "type": "debug.probe", "version": "^2.0", "config": {"keep": 3}},
-            {"id": "sound", "type": "debug.probe"},
-            {"id": "both_audio", "type": "debug.answer"},  # the copy's name is taken
+            {"id": "in", "type": "client.source"},
+            {"id": "probe", "type": "debug.probe"},
+            {"id": "out", "type": "client.sink"},
         ],
         "edges": [
-            {"from": "in.audio", "to": "both.audio"},
-            {"from": "a.response", "to": "both.text"},
-            {"from": "in.audio", "to": "sound.audio"},
-            {"from": "a.response", "to": "out.text"},
+            {"from": "in.audio", "to": "probe.value"},
+            {"from": "in.utterance", "to": "out.response"},
         ],
-        "ui": {"nodes": {"both": {"x": 10, "y": 300}}},
     }
     migrated = migrate_graph(data)
-    nodes = {n["id"]: n for n in migrated["nodes"]}
-    assert nodes["both"] == {"id": "both", "type": "debug.probe", "config": {"keep": 3}}
-    assert nodes["both_audio_"] == {
-        "id": "both_audio_",
-        "type": "debug.probe",
-        "config": {"keep": 3},
-    }
-    assert {(e["from"], e["to"]) for e in migrated["edges"]} == {
-        ("a.response", "both.value"),  # the text stays, the audio moves to a copy
-        ("in.audio", "both_audio_.value"),
-        ("in.audio", "sound.value"),
-        ("a.response", "out.text"),  # not a probe
-    }
-    assert migrated["ui"]["nodes"]["both_audio_"] == {"x": 10, "y": 70}
+    assert [n["id"] for n in migrated["nodes"]] == ["in", "out"]
+    assert migrated["edges"] == [{"from": "in.utterance", "to": "out.response"}]
+    assert data["nodes"][1]["type"] == "debug.probe"  # the saved graph is not changed in place
     assert migrate_graph(migrated) is migrated
 
 

@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 EDITOR_WS_PATH = "/api/editor/ws"
-BACKLOG = 400
+BACKLOG = 1500  # a few turns: a watched turn reports every output too
 QUEUE_SIZE = 1000
 
 

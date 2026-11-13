@@ -40,7 +40,39 @@ def migrate_graph(data: Any) -> Any:
     if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
         return data
     data = _one_text_input(_agent_remember(_split_turn_filter(_rename_nodes(data))))
-    return _no_signal_nor_turn_filter(_principal_by_wire(_one_probe_input(data)))
+    data = _no_signal_nor_turn_filter(_principal_by_wire(_one_probe_input(data)))
+    return _no_probes(data)
+
+
+def _no_probes(data: dict[str, Any]) -> dict[str, Any]:
+    """0.1.33 → 0.1.34: live debug's journal shows what every node passed on, text, audio and
+    data, so the Debug probe is gone: its nodes and their wires leave the graph."""
+    probes = {
+        n.get("id") for n in data["nodes"] if isinstance(n, dict) and n.get("type") == "debug.probe"
+    }
+    if not probes:
+        return data
+
+    def node_of(ref: Any) -> Any:
+        return ref.split(".", 1)[0] if isinstance(ref, str) else None
+
+    data = copy.deepcopy(data)
+    data["nodes"] = [
+        n for n in data["nodes"] if not (isinstance(n, dict) and n.get("id") in probes)
+    ]
+    data["edges"] = [
+        e
+        for e in data.get("edges") or []
+        if not (
+            isinstance(e, dict)
+            and (node_of(e.get("from")) in probes or node_of(e.get("to")) in probes)
+        )
+    ]
+    ui = data.get("ui")
+    if isinstance(ui, dict) and isinstance(ui.get("nodes"), dict):
+        ui["nodes"] = {k: v for k, v in ui["nodes"].items() if k not in probes}
+    _LOGGER.info("graph %s: Debug probes removed, the journal shows outputs now", data.get("id"))
+    return data
 
 
 def _split_turn_filter(data: dict[str, Any]) -> dict[str, Any]:

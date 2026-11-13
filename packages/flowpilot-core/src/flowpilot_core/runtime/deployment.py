@@ -35,6 +35,7 @@ from .channel import Channel
 from .settings import coerce, fits
 from .state import MemorySessionStore, SessionStateView
 from .streams import RuntimeInputStream, RuntimeOutputStream
+from .taps import OutputTapFactory, SafeTap
 from .trace import NullTraceSink, TraceEvent, TraceSink
 
 
@@ -262,8 +263,11 @@ class Deployment:
         skills: Skills | None = None,
         voices: Voices | None = None,
         taps_active: Callable[[], bool] | None = None,
+        output_tap: OutputTapFactory | None = None,
     ) -> None:
         self.graph = graph
+        # live debug: sees what every node passes on in a watched turn
+        self._output_tap = output_tap
         # asked at the start of each turn: run the debug taps (someone watches live debug)?
         self._taps_active = taps_active
         # nodes get <data_dir>/nodes/<node type>/ for their files
@@ -347,6 +351,7 @@ class Deployment:
         # Debug taps nobody watches are left out of the turn: no channels, no task, no data.
         watched = self._taps_active is not None and self._taps_active()
         idle = set() if watched else {n for n, spec in g.specs.items() if spec.debug_tap}
+        tap = SafeTap(self._output_tap(context)) if watched and self._output_tap else None
         channels: dict[tuple[str, str], Channel] = {}
         for node_id, ports in g.incoming.items():
             if node_id in idle:
@@ -383,6 +388,7 @@ class Deployment:
                     turn_id,
                     on_first_item=self._first_item_tracer(turn_id, node_id),
                     on_end=self._end_tracer(turn_id, node_id),
+                    tap=tap,
                 )
                 for name, port in spec.outputs.items()
             }
@@ -415,6 +421,8 @@ class Deployment:
                     )
         except TimeoutError:
             timed_out = True
+        if tap is not None:
+            await tap.close()  # its recordings are written before the turn ends
 
         if timed_out:
             status = TurnStatus.TIMEOUT
