@@ -2,10 +2,10 @@
 // The turn's journal in live debug: one list for the whole turn, in time order. What the nodes
 // wrote (model requests, tools, quick commands) and what they reported (timings, levels); what
 // went through their inputs and outputs is in the Data tab. The filter on top takes several nodes, as tags; empty, it shows them all.
-// Selecting a node on the canvas or the timeline filters to that node.
-import { computed, ref, watch } from "vue";
+// A node's name on an entry adds it to the filter.
+import { computed, ref } from "vue";
 import { t } from "../i18n";
-import { currentTurn, selectedId, type LogEntry } from "../store";
+import { currentTurn, type LogEntry } from "../store";
 import { fmtMs } from "../timing";
 import JsonBlock from "./JsonBlock.vue";
 
@@ -32,7 +32,6 @@ const nodeIds = computed(() => [...new Set(entries.value.map((e) => e.node))]);
 
 // the nodes shown; none: all of them
 const filter = ref<string[]>([]);
-watch(selectedId, (id) => (filter.value = id ? [id] : []), { immediate: true });
 
 const addable = computed(() => nodeIds.value.filter((id) => !filter.value.includes(id)));
 const adding = ref("");
@@ -52,7 +51,7 @@ const shown = computed(() =>
 const oneNode = computed(() => filter.value.length === 1);
 
 function pick(node: string) {
-  selectedId.value = node;
+  if (!filter.value.includes(node)) filter.value = [...filter.value, node];
 }
 
 function kindLabel(kind: string): string {
