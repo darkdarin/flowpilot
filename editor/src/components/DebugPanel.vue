@@ -4,7 +4,7 @@ import { computed, onBeforeUnmount, ref } from "vue";
 import { t } from "../i18n";
 import { download, play, playing, removeRecording, stopPlaying } from "../playback";
 import { currentTurn, debug, nodes, selectedId, specs } from "../store";
-import { currentTurnTiming, describeMoment, fmtAt, fmtMs, currentTimings as timings } from "../timing";
+import { currentTurnTiming, describeMoment, fmtAt, fmtMs, sinkId, currentTimings as timings } from "../timing";
 import { categoryColor } from "../types";
 
 const rows = computed(() => {
@@ -230,7 +230,8 @@ function status(s: string) {
           />
         </span>
         <span class="dur" :title="t('debug.reactionHint')">{{ timings[row.id]?.reaction !== undefined ? ms(timings[row.id].reaction!) : "" }}</span>
-        <span class="dur" :title="timings[row.id]?.onPath ? t('debug.onPath') : t('debug.delayHint')">{{ timings[row.id]?.delay !== undefined ? `+${ms(timings[row.id].delay!)}` : "" }}</span>
+        <span v-if="row.id === sinkId" class="dur total" :title="t('debug.effectiveHint')">{{ currentTurnTiming?.effective !== undefined ? `▶ ${ms(currentTurnTiming.effective)}` : "" }}</span>
+        <span v-else class="dur" :title="timings[row.id]?.onPath ? t('debug.onPath') : t('debug.delayHint')">{{ timings[row.id]?.delay !== undefined ? `+${ms(timings[row.id].delay!)}` : "" }}</span>
       </button>
       <template v-if="hover">
         <span class="cursor" :style="{ left: `${hover.x}px` }" />
@@ -694,7 +695,8 @@ function status(s: string) {
   box-shadow: 0 0 0 1.5px var(--focus);
 }
 
-.row.on-path .dur:last-child {
+.row.on-path .dur:last-child,
+.dur.total {
   color: var(--text);
   font-weight: 600;
 }
