@@ -2,21 +2,31 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any
+import time
+from datetime import UTC, datetime
+from typing import Any, cast
 
 from flowpilot_core import GrantPolicy, NodeRegistry, parse_graph, validate_graph
 from flowpilot_core.builtin import register_builtin
 from flowpilot_core.conformance import InputFeed, assert_conforms, check_node, run_node_once
-from flowpilot_core.runtime import RuntimeNodeContext
+from flowpilot_core.runtime import Deployment, ListTraceSink, RuntimeNodeContext, TurnStatus
 from flowpilot_sdk import (
     Assurance,
     HostUnavailable,
+    Node,
+    NodeContext,
+    NodeSpec,
+    PortSpec,
     Principal,
     Response,
+    SessionInfo,
+    SourceInfo,
     TextDelta,
     Transcript,
+    TurnContext,
+    TurnSession,
     Utterance,
+    new_ulid,
 )
 from flowpilot_server.condition import Condition
 from flowpilot_server.manager import BUILTIN_GRANTS
@@ -236,3 +246,105 @@ async def test_a_stream_is_passed_on_when_the_branch_is_decided_before_it_starts
     late = InputFeed(items=deltas, meta={}, end="end", delay_s=0.01, start_delay_s=0.05)
     branch, items = await route(node, {"value": late}, context={"voice": True})
     assert branch == "yes" and items == deltas
+
+
+# --- in a real runtime: value and check fed by one output ----------------------------------------
+
+ANSWER = [TextDelta(f"слово{i} ") for i in range(100)]  # more than a channel holds (32)
+
+
+class Answer:
+    """An agent's answer: many pieces, its language in the header."""
+
+    spec = NodeSpec(
+        type="test.answer",
+        version="1.0.0",
+        title="Answer",
+        category="input",
+        inputs={},
+        outputs={"delta": PortSpec("text.delta/1", description="The answer.")},
+        description="Test answer.",
+    )
+
+    async def start(self, ctx: NodeContext) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    async def run_turn(self, turn: TurnSession) -> None:
+        out = turn.output("delta")
+        await out.open({"language": "ru"})
+        for delta in ANSWER:
+            await out.send(delta)
+        await out.end()
+
+
+class Collect:
+    spec = NodeSpec(
+        type="test.collect",
+        version="1.0.0",
+        title="Collect",
+        category="output",
+        inputs={"text": PortSpec("text.delta/1", description="Text.")},
+        outputs={},
+        description="Test sink.",
+    )
+
+    def __init__(self) -> None:
+        self.got: list[str] = []
+
+    async def start(self, ctx: NodeContext) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    async def run_turn(self, turn: TurnSession) -> None:
+        self.got = [d.text async for d in turn.input("text")]
+
+
+async def test_a_decision_by_the_header_does_not_hold_up_what_feeds_check() -> None:
+    """The bug of 0.1.36: decided by the language in the header, the node never read check; fed
+    by the same output as value, check filled up and stopped that output after 32 pieces, so the
+    answer broke off mid-speech and the turn hung until its deadline."""
+    registry = NodeRegistry()
+    for cls in (Answer, Condition, Collect):
+        registry.register(cast(type[Node], cls))
+    data = {
+        "schema_version": 2,
+        "id": "g",
+        "nodes": [
+            {"id": "agent", "type": "test.answer"},
+            {"id": "voice", "type": "logic.condition", "config": {}},
+            {"id": "lang", "type": "logic.condition", "config": {"languages": ["ru"]}},
+            {"id": "out", "type": "test.collect"},
+        ],
+        "edges": [
+            {"from": "agent.delta", "to": "voice.value"},
+            {"from": "voice.yes", "to": "lang.value"},
+            {"from": "voice.yes", "to": "lang.check"},
+            {"from": "lang.yes", "to": "out.text"},
+        ],
+    }
+    vg = validate_graph(parse_graph(data), registry, grants=GrantPolicy(BUILTIN_GRANTS))
+    deployment = Deployment(vg, registry, trace=ListTraceSink())
+    await deployment.start()
+    try:
+        ctx = TurnContext(
+            turn_id=new_ulid(),
+            session_id="s",
+            started_at=datetime.now(UTC),
+            deadline_mono_ns=time.monotonic_ns() + int(3e9),
+            source=SourceInfo(kind="test", adapter_id="test"),
+            trace_id=new_ulid(),
+            initial_principal=Principal.unknown(),
+            language="ru",
+        )
+        session = SessionInfo(session_id="s", created_at=datetime.now(UTC), turn_index=0)
+        result = await deployment.run_turn(ctx, session)
+        assert result.status is TurnStatus.OK, result
+        collected = cast(Collect, deployment.instance("out")).got
+        assert collected == [d.text for d in ANSWER]
+    finally:
+        await deployment.stop()

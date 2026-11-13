@@ -234,6 +234,10 @@ class Condition:
         started = time.monotonic()
         try:
             branch, why = await self._decide(turn)
+            # Decided: what check still brings is not needed. Check is often fed by the same
+            # output as value, and an unread input holds that output up once its channel is
+            # full (a decision by a stream's header reads none of it).
+            turn.input("check").close()
             waited_ms = round(1000 * (time.monotonic() - started))
             turn.trace(
                 "logic.condition", branch="yes" if branch else "no", why=why, waited_ms=waited_ms
