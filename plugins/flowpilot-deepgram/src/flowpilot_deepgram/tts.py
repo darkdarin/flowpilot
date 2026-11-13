@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import time
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, ClassVar
 
@@ -31,6 +30,7 @@ from flowpilot_sdk import (
     TurnSession,
     node_translations,
 )
+from flowpilot_sdk.helpers import SpeechTiming
 
 from .common import (
     API_KEY_SETTING,
@@ -173,11 +173,13 @@ class DeepgramTts:
         speech = turn.output("speech")
         await speech.open(AudioFormat(sample_rate=rate).as_meta())
         offset = 0
+        timing = SpeechTiming()
 
         async def deliver(pcm: bytes) -> None:
             nonlocal offset
             await speech.send(AudioChunk(pcm, offset))
             offset += len(pcm) // 2
+            timing.audio(len(pcm) // 2, rate)
 
         params = [("model", voice), ("encoding", "linear16"), ("sample_rate", str(rate))]
         speed = float(cfg.get("speed") or 1.0)
@@ -187,14 +189,14 @@ class DeepgramTts:
         try:
             await synthesis.connect()  # in parallel with the agent's first words
             async for piece in text:
+                timing.text()
                 await synthesis.speak(piece.text)
             await synthesis.finish()
         finally:
             await synthesis.close()
         turn.trace(
             "deepgram.tts",
-            seconds=round(offset / rate, 2),
-            first_audio_ms=synthesis.first_audio_ms,
+            **timing.attrs(),
             voice=voice,
             warnings=synthesis.warnings,
         )
@@ -219,8 +221,6 @@ class _Synthesis:
         self._error: DeepgramError | None = None
         self._odd_byte = b""
         self._spoken = False
-        self._started = time.monotonic()
-        self.first_audio_ms: int | None = None
         self.warnings: list[str] = []
 
     async def connect(self) -> None:
@@ -294,6 +294,4 @@ class _Synthesis:
         audio, self._odd_byte = audio[: len(audio) // 2 * 2], audio[len(audio) // 2 * 2 :]
         if not audio:
             return
-        if self.first_audio_ms is None:
-            self.first_audio_ms = round(1000 * (time.monotonic() - self._started))
         await self._on_audio(audio)

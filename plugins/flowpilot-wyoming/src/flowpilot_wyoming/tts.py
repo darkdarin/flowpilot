@@ -32,7 +32,7 @@ from flowpilot_sdk import (
     TurnSession,
     node_translations,
 )
-from flowpilot_sdk.helpers import SpeechWriter, split_sentences
+from flowpilot_sdk.helpers import SpeechTiming, SpeechWriter, split_sentences
 
 from .common import (
     DEFAULT_CONNECT_TIMEOUT_S,
@@ -174,15 +174,19 @@ class WyomingTts:
         text: InputStream[Any] = turn.input("text")
         if await text.header() is None:
             return
-        writer = SpeechWriter(turn.output("speech"))
+        timing = SpeechTiming()
+        writer = SpeechWriter(turn.output("speech"), timing)
         if self.streaming:
-            await self._run_streaming(text, writer)
+            await self._run_streaming(text, writer, timing)
         else:
-            await self._run_sentences(text, writer, turn)
+            await self._run_sentences(text, writer, turn, timing)
+        turn.trace("wyoming.tts", **timing.attrs(), streaming=self.streaming)
 
     # --- service supports synthesize streaming ---------------------------------------------------
 
-    async def _run_streaming(self, text: InputStream[Any], writer: SpeechWriter) -> None:
+    async def _run_streaming(
+        self, text: InputStream[Any], writer: SpeechWriter, timing: SpeechTiming
+    ) -> None:
         async with connect(self._address, self._connect_timeout_s) as client:
             await client.write_event(SynthesizeStart(voice=self._voice).event())
             reader = asyncio.create_task(self._read_streamed(client, writer))
@@ -190,6 +194,7 @@ class WyomingTts:
                 full = ""
                 try:
                     async for delta in text:
+                        timing.text()
                         full += delta.text
                         await client.write_event(SynthesizeChunk(text=delta.text).event())
                     # Full text for services that only understand plain synthesize (HA does too).
@@ -222,13 +227,14 @@ class WyomingTts:
     # --- plain synthesize: one request per sentence, in order ------------------------------------
 
     async def _run_sentences(
-        self, text: InputStream[Any], writer: SpeechWriter, turn: TurnSession
+        self, text: InputStream[Any], writer: SpeechWriter, turn: TurnSession, timing: SpeechTiming
     ) -> None:
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         worker = asyncio.create_task(self._synthesize_queue(queue, writer, turn))
         try:
             buffer = ""
             async for delta in text:
+                timing.text()
                 buffer += delta.text
                 sentences, buffer = split_sentences(buffer)
                 for sentence in sentences:

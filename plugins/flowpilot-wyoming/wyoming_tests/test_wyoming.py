@@ -161,6 +161,10 @@ async def test_tts_streaming_service() -> None:
     assert rec.chunks == DELTAS
     assert rec.synthesize == ["".join(DELTAS)]
     assert b"".join(c.pcm for c in run.outputs["speech"].items) == "".join(DELTAS).encode()
+    # timed like every TTS node: from the first text, not from the node's start
+    (timed,) = [e for e in run.trace.events if e.event == "wyoming.tts"]
+    assert timed.attrs["done_ms"] >= timed.attrs["first_audio_ms"] >= 0
+    assert {"seconds", "realtime"} <= timed.attrs.keys() and timed.attrs["streaming"] is True
 
 
 async def test_tts_error_event_is_a_node_error() -> None:

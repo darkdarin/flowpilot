@@ -26,7 +26,7 @@ from flowpilot_sdk import (
     node_translations,
     type_kind,
 )
-from flowpilot_sdk.helpers import SpeechWriter, split_sentences
+from flowpilot_sdk.helpers import SpeechTiming, SpeechWriter, split_sentences
 
 AUDIO = "audio.pcm/1"
 UTTERANCE = "text.utterance/1"
@@ -507,12 +507,14 @@ class HaTts(_Lifecycle):
         text = turn.input("text")
         if await text.header() is None:
             return
-        writer = SpeechWriter(turn.output("speech"))
+        timing = SpeechTiming()
+        writer = SpeechWriter(turn.output("speech"), timing)
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         worker = asyncio.create_task(self._speak(turn, queue, writer))
         try:
             buffer = ""
             async for delta in text:
+                timing.text()
                 buffer += delta.text
                 sentences, buffer = split_sentences(buffer)
                 for sentence in sentences:
@@ -524,6 +526,7 @@ class HaTts(_Lifecycle):
         finally:
             worker.cancel()
             await asyncio.gather(worker, return_exceptions=True)
+        turn.trace("ha.tts", **timing.attrs(), engine=self._args["engine"])
 
     async def _speak(
         self, turn: TurnSession, queue: asyncio.Queue[str | None], writer: SpeechWriter

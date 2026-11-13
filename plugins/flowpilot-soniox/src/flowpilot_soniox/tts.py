@@ -12,7 +12,6 @@ import asyncio
 import base64
 import itertools
 import json
-import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, ClassVar
@@ -34,6 +33,7 @@ from flowpilot_sdk import (
     TurnSession,
     node_translations,
 )
+from flowpilot_sdk.helpers import SpeechTiming
 
 from .common import (
     API_KEY_SETTING,
@@ -239,11 +239,13 @@ class SonioxTts:
         speech = turn.output("speech")
         await speech.open(AudioFormat(sample_rate=rate).as_meta())
         offset = 0
+        timing = SpeechTiming()
 
         async def deliver(pcm: bytes) -> None:
             nonlocal offset
             await speech.send(AudioChunk(pcm, offset))
             offset += len(pcm) // 2
+            timing.audio(len(pcm) // 2, rate)
 
         session = _Synthesis(
             self._api_key,
@@ -260,14 +262,14 @@ class SonioxTts:
         try:
             await session.connect()  # in parallel with the agent's first words
             async for piece in text:
+                timing.text()
                 await session.add_text(piece.text)
             await session.finish()
         finally:
             await session.close()
         turn.trace(
             "soniox.tts",
-            seconds=round(offset / rate, 2),
-            first_audio_ms=session.first_audio_ms,
+            **timing.attrs(),
             streams=session.streams,
             voice=str(cfg.get("voice") or self._voice),
         )
@@ -292,8 +294,6 @@ class _Synthesis:
         self._terminated: dict[str, asyncio.Event] = {}
         self._error: SonioxError | None = None
         self._odd_byte = b""
-        self._started = time.monotonic()
-        self.first_audio_ms: int | None = None
         self.streams = 0
 
     async def connect(self) -> None:
@@ -389,6 +389,4 @@ class _Synthesis:
         audio, self._odd_byte = audio[: len(audio) // 2 * 2], audio[len(audio) // 2 * 2 :]
         if not audio:
             return
-        if self.first_audio_ms is None:
-            self.first_audio_ms = round(1000 * (time.monotonic() - self._started))
         await self._on_audio(audio)
