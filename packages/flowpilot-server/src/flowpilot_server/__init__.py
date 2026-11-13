@@ -1,3 +1,3 @@
 """FlowPilot runtime server (ADR-014)."""
 
-__version__ = "0.1.36"
+__version__ = "0.1.37"

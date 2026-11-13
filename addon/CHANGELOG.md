@@ -4,6 +4,25 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.37
+
+Update the app only.
+
+### App
+
+- **A long answer no longer breaks off mid-speech.** A Condition that decided by the language of
+  the agent's answer did not read its check input; fed by the same output as value, check filled
+  up after 32 pieces of the answer and stopped it, so the voice went silent and the turn hung
+  until its deadline. Condition now lets go of check once it has decided.
+- **Live debug: nodes show only their reaction and delay.** A node's run time is the turn's in
+  a streaming graph and said nothing; a node that took no part shows nothing, a failed one its
+  status. The output still shows the time to the first sound and the whole turn.
+- **Live debug: an output's counter of a failed stream keeps its size.**
+
+### Integration
+
+No changes, no need to update.
+
 ## 0.1.36
 
 Update the app only.

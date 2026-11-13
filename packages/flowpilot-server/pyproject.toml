@@ -1,6 +1,6 @@
 [project]
 name = "flowpilot-server"
-version = "0.1.36"
+version = "0.1.37"
 description = "FlowPilot runtime server: WebSocket protocol for clients such as the Home Assistant integration"
 readme = "README.md"
 license = "Apache-2.0"

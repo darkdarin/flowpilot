@@ -8,7 +8,7 @@ from .common import DeepgramError
 from .stt import DeepgramStt
 from .tts import DeepgramTts
 
-__version__ = "0.1.36"
+__version__ = "0.1.37"
 
 
 def nodes() -> list[type[Node]]:
