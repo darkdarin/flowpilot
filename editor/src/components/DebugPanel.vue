@@ -202,8 +202,9 @@ function status(s: string) {
   overflow-y: auto;
 }
 
-/* the Data tab scrolls inside its own columns */
-.content.data {
+/* the Data and Journal tabs scroll inside their own columns */
+.content.data,
+.content.journal {
   overflow: hidden;
 }
 </style>

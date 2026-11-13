@@ -1,27 +1,28 @@
 <script setup lang="ts">
 // The turn's journal in live debug: one list for the whole turn, in time order. What the nodes
 // wrote (model requests, tools, quick commands) and what they reported (timings, levels); what
-// went through their inputs and outputs is in the Data tab. The filter on top takes several nodes, as tags; empty, it shows them all.
-// A node's name on an entry adds it to the filter.
-import { computed, ref } from "vue";
+// went through their inputs and outputs is in the Data tab. The selected entry's content shows on
+// the right. The filter on top takes several nodes, as tags; empty, it shows them all. A node's
+// name on an entry adds it to the filter.
+import { computed, ref, watch } from "vue";
 import { t } from "../i18n";
 import { currentTurn, type LogEntry } from "../store";
 import { fmtMs } from "../timing";
 import JsonBlock from "./JsonBlock.vue";
 
 type Entry =
-  | { kind: "log"; node: string; t: number; log: LogEntry }
-  | { kind: "note"; node: string; t: number; event: string; attrs: Record<string, unknown> };
+  | { key: string; kind: "log"; node: string; t: number; log: LogEntry }
+  | { key: string; kind: "note"; node: string; t: number; event: string; attrs: Record<string, unknown> };
 
 const entries = computed<Entry[]>(() => {
   const turn = currentTurn.value;
   if (!turn) return [];
   const all: Entry[] = [
     ...Object.entries(turn.logs).flatMap(([node, logs]) =>
-      logs.map((log): Entry => ({ kind: "log", node, t: log.t, log })),
+      logs.map((log, i): Entry => ({ key: `log:${node}:${i}`, kind: "log", node, t: log.t, log })),
     ),
     ...Object.entries(turn.notes).flatMap(([node, notes]) =>
-      notes.map((n): Entry => ({ kind: "note", node, t: n.t, event: n.event, attrs: n.attrs })),
+      notes.map((n, i): Entry => ({ key: `note:${node}:${i}`, kind: "note", node, t: n.t, event: n.event, attrs: n.attrs })),
     ),
   ];
   return all.sort((a, b) => a.t - b.t);
@@ -49,6 +50,11 @@ const shown = computed(() =>
   filter.value.length ? entries.value.filter((e) => filter.value.includes(e.node)) : entries.value,
 );
 const oneNode = computed(() => filter.value.length === 1);
+
+// the entry whose content shows on the right; another turn starts with none
+const picked = ref<string | null>(null);
+watch(() => currentTurn.value?.id, () => (picked.value = null));
+const entry = computed(() => shown.value.find((e) => e.key === picked.value));
 
 function pick(node: string) {
   if (!filter.value.includes(node)) filter.value = [...filter.value, node];
@@ -79,58 +85,99 @@ function logClass(log: LogEntry): string {
       </select>
       <button v-if="filter.length" class="clear" @click="filter = []">{{ t("journal.clear") }}</button>
     </div>
-    <p v-if="!shown.length" class="note">{{ filter.length ? t("journal.nodeEmpty") : t("journal.empty") }}</p>
-    <ol v-else class="entries">
-      <li v-for="(entry, i) in shown" :key="i" class="entry" :class="entry.kind === 'log' ? logClass(entry.log) : entry.kind">
-        <!-- what a node wrote: model requests, tools, quick commands -->
-        <details v-if="entry.kind === 'log'" :open="entry.log.kind === 'tool' && entry.log.attrs.ok === false">
-          <summary>
-            <span class="at">{{ fmtMs(entry.t) }}</span>
-            <button v-if="!oneNode" class="node" @click.stop.prevent="pick(entry.node)">{{ entry.node }}</button><span v-else />
-            <span class="kind">{{ kindLabel(entry.log.kind) }}</span>
-            <span class="text">{{ entry.log.summary }}</span>
-            <span v-if="entry.log.attrs.ms !== undefined" class="took">{{ fmtMs(Number(entry.log.attrs.ms)) }}</span>
-          </summary>
-          <div v-if="entry.log.detail" class="body">
-            <JsonBlock :text="entry.log.detail" />
-          </div>
-        </details>
+    <div class="split">
+      <div class="list">
+        <p v-if="!shown.length" class="note">{{ filter.length ? t("journal.nodeEmpty") : t("journal.empty") }}</p>
+        <ol v-else class="entries">
+          <li v-for="e in shown" :key="e.key" :class="e.kind === 'log' ? logClass(e.log) : e.kind">
+            <button class="row" :class="{ sel: picked === e.key }" @click="picked = e.key">
+              <span class="at">{{ fmtMs(e.t) }}</span>
+              <span v-if="!oneNode" class="node" :title="t('journal.addToFilter')" @click.stop="pick(e.node)">{{ e.node }}</span><span v-else />
+              <template v-if="e.kind === 'log'">
+                <span class="kind">{{ kindLabel(e.log.kind) }}</span>
+                <span class="text">{{ e.log.summary }}</span>
+                <span v-if="e.log.attrs.ms !== undefined" class="took">{{ fmtMs(Number(e.log.attrs.ms)) }}</span>
+              </template>
+              <template v-else>
+                <span class="kind">{{ e.event }}</span>
+                <span class="text attrs">
+                  <span v-for="(value, key) in e.attrs" :key="key"><span class="k">{{ key }}</span> {{ value ?? "—" }}</span>
+                </span>
+              </template>
+            </button>
+          </li>
+        </ol>
+      </div>
 
-        <!-- what a node reported: timings, levels, counts -->
-        <details v-else>
-          <summary>
+      <div class="detail">
+        <template v-if="entry">
+          <p class="where">
             <span class="at">{{ fmtMs(entry.t) }}</span>
-            <button v-if="!oneNode" class="node" @click.stop.prevent="pick(entry.node)">{{ entry.node }}</button><span v-else />
-            <span class="kind">{{ entry.event }}</span>
-            <span class="text attrs">
-              <span v-for="(value, key) in entry.attrs" :key="key"><span class="k">{{ key }}</span> {{ value ?? "—" }}</span>
-            </span>
-          </summary>
-          <div class="body">
-            <JsonBlock :value="entry.attrs" />
-          </div>
-        </details>
-      </li>
-    </ol>
+            <code>{{ entry.node }}</code>
+            <span class="kind" :class="entry.kind === 'log' ? logClass(entry.log) : 'note'">{{ entry.kind === "log" ? kindLabel(entry.log.kind) : entry.event }}</span>
+            <span v-if="entry.kind === 'log' && entry.log.attrs.ms !== undefined" class="took">{{ fmtMs(Number(entry.log.attrs.ms)) }}</span>
+          </p>
+          <p v-if="entry.kind === 'log'" class="summary">{{ entry.log.summary }}</p>
+          <JsonBlock v-if="entry.kind === 'log' && entry.log.detail" :text="entry.log.detail" />
+          <JsonBlock v-else-if="entry.kind === 'log'" :value="entry.log.attrs" />
+          <JsonBlock v-else :value="entry.attrs" />
+        </template>
+        <p v-else class="note">{{ t("journal.pick") }}</p>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .journal {
-  padding: 0 12px 12px;
-  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.split {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 0;
+}
+
+.list,
+.detail {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.list {
+  padding: 0 8px 12px 12px;
+  border-right: 1px solid var(--line);
+}
+
+.detail {
+  padding: 8px 12px 12px;
+}
+
+.where {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+
+.summary {
+  margin: 0 0 8px;
+  font-size: 12.5px;
 }
 
 .filter {
-  position: sticky;
-  top: 0;
-  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 5px;
-  padding: 8px 0;
-  background: var(--panel);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
 }
 
 .tag {
@@ -206,26 +253,30 @@ function logClass(log: LogEntry): string {
   gap: 3px;
 }
 
-.entry summary {
+.row {
   display: grid;
   /* the node column stays, empty, when one node is shown */
   grid-template-columns: 52px auto auto minmax(0, 1fr) auto;
   align-items: baseline;
   gap: 7px;
+  width: 100%;
   padding: 4px 6px;
+  border: 0;
   border-radius: 5px;
-  cursor: pointer;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
   font-size: 12px;
-  list-style: none;
+  cursor: pointer;
 }
 
-.entry summary::-webkit-details-marker {
-  display: none;
-}
-
-.entry summary:hover,
-.entry details[open] summary {
+.row:hover,
+.row.sel {
   background: var(--panel-raised);
+}
+
+.row.sel {
+  box-shadow: inset 2px 0 0 var(--focus);
 }
 
 .at,
@@ -275,27 +326,29 @@ function logClass(log: LogEntry): string {
   color: var(--faint);
 }
 
-.entry.llm {
+li.llm,
+.kind.llm {
   --kind: var(--cat-agent, #7c5cff);
 }
 
-.entry.tool {
+li.tool,
+.kind.tool {
   --kind: var(--warn);
 }
 
-.entry.quick {
+li.quick,
+.kind.quick {
   --kind: var(--cat-io, var(--ok));
 }
 
-.entry.memory {
+li.memory,
+.kind.memory {
   --kind: var(--ok);
 }
 
-.entry.bad {
+li.bad,
+.kind.bad {
   --kind: var(--danger);
 }
 
-.body {
-  margin: 4px 0 6px 59px;
-}
 </style>
