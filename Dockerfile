@@ -1,4 +1,5 @@
-# FlowPilot runtime with the graph editor and the bundled plugins (Wyoming, VAD, audio, Soniox, Deepgram, LLM).
+# FlowPilot runtime with the graph editor and the bundled plugins (Wyoming, VAD, audio, Soniox, Deepgram, LLM,
+# text for speech).
 #
 #   docker build -t flowpilot .
 #   docker run -d -p 8765:8765 -v flowpilot-data:/data flowpilot

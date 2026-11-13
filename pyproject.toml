@@ -18,6 +18,7 @@ dependencies = [
     "flowpilot-soniox",
     "flowpilot-deepgram",
     "flowpilot-llm",
+    "flowpilot-speech",
 ]
 
 [tool.uv]
@@ -38,6 +39,7 @@ flowpilot-audio = { workspace = true }
 flowpilot-soniox = { workspace = true }
 flowpilot-deepgram = { workspace = true }
 flowpilot-llm = { workspace = true }
+flowpilot-speech = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -62,7 +64,7 @@ target-version = "py314"
 select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "BLE"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["flowpilot_sdk", "flowpilot_core", "flowpilot_server", "flowpilot_wyoming", "flowpilot_vad", "flowpilot_audio", "flowpilot_soniox", "flowpilot_deepgram", "flowpilot_llm", "custom_components"]
+known-first-party = ["flowpilot_sdk", "flowpilot_core", "flowpilot_server", "flowpilot_wyoming", "flowpilot_vad", "flowpilot_audio", "flowpilot_soniox", "flowpilot_deepgram", "flowpilot_llm", "flowpilot_speech", "custom_components"]
 
 [tool.mypy]
 python_version = "3.14"
@@ -86,6 +88,8 @@ files = [
     "plugins/flowpilot-deepgram/deepgram_tests",
     "plugins/flowpilot-llm/src",
     "plugins/flowpilot-llm/llm_tests",
+    "plugins/flowpilot-speech/src",
+    "plugins/flowpilot-speech/speech_tests",
 ]
 
 [[tool.mypy.overrides]]
