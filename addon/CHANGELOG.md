@@ -4,6 +4,29 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.39
+
+Update both: speech markup is in the app; "other music" and genres are in the integration.
+
+### App
+
+- **Speech markup for Silero voices.** The agent's new setting Speech markup: Silero has the
+  model mark the intonation centre of a question (*word*) and the emphasised word (**word**),
+  which Silero v5_6_ru voices read (Wyoming Silero 0.1.1 passes them to the model). The marks go
+  only to text-to-speech: chats and the dialogue get the answer without them. Soniox and
+  Deepgram voices drop them.
+- **Live debug, Data tab: the value instead of "the same as".** An output that passes on what
+  another one sent (First present, a condition), and an input wired to it, show that value
+  (text, data or sound), with where it came from.
+
+### Integration
+
+- **"Включи другую музыку" plays another mix** instead of a song called "Другая музыка": after
+  your own stream a mix or playlist of your library, after anything else your stream.
+- **A genre plays a playlist or radio of it.** "Включи рок" played the artist "Рокки"; now a
+  genre ("рок", "джаз", "русский рок") plays the playlist or radio station named closest to it,
+  your library's first.
+
 ## 0.1.38
 
 Update both: the app speaks answers that touched no device; the integration tells it how many
