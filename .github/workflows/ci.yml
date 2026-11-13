@@ -44,7 +44,7 @@ jobs:
       - name: Type check against Home Assistant
         run: uv run mypy
       - name: Tests
-        run: uv run pytest -q -p no:logging
+        run: uv run pytest -q
 
   editor:
     runs-on: ubuntu-latest
