@@ -11,6 +11,7 @@ what was done ("turn it back on").
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import time
 from dataclasses import replace
@@ -50,6 +51,19 @@ DONE = {"ru": ("Готово", "Не получилось"), "en": ("Done", "Tha
 
 # Home Assistant intents and the sound that confirms them (``acknowledge`` on the ack answer)
 ACK_KINDS = {"HassTurnOn": "on", "HassTurnOff": "off"}
+
+
+def _journal(turn: TurnSession, kind: str, summary: str, detail: Any = None, **attrs: Any) -> None:
+    """One step for live debug's journal, only while someone watches (it holds what was said);
+    ``detail`` goes as JSON."""
+    if not getattr(turn, "watched", False):
+        return
+    extra = (
+        {"detail": json.dumps(detail, ensure_ascii=False, indent=2, default=str)}
+        if detail is not None
+        else {}
+    )
+    turn.trace(LOG_EVENT, kind=kind, summary=summary, **extra, **attrs)
 
 
 def _base(language: str | None) -> str:
@@ -228,19 +242,41 @@ class HaQuickCommands:
         if self._names is None or now - self._names[0] > NAMES_MAX_AGE_S:
             try:
                 result = await turn.call_host(NAMES_OP, {})
-            except HostError, HostUnavailable:
+            except (HostError, HostUnavailable) as err:
+                _journal(turn, "quick.names", f"names not loaded: {err}", ok=False)
                 return None
             names = result.get("names") if isinstance(result, dict) else None
             self._names = (now, [str(n) for n in names] if isinstance(names, list) else [])
+            ms = round(1000 * (time.monotonic() - now))
+            _journal(
+                turn,
+                "quick.names",
+                f"{len(self._names[1])} names from Home Assistant in {ms} ms",
+                self._names[1],
+                ms=ms,
+            )
         return NameMatcher(self._names[1], language) if self._names[1] else None
 
-    async def _ask(self, turn: TurnSession, args: dict[str, Any]) -> dict[str, Any]:
+    async def _ask(self, turn: TurnSession, args: dict[str, Any], attempt: int) -> dict[str, Any]:
+        started = time.monotonic()
         try:
             result = await turn.call_host(HA_CONVERSATION_OP, args)
+            answer = dict(result) if isinstance(result, dict) else {}
         except (HostError, HostUnavailable) as err:
             # no Home Assistant to ask: the agent after this node answers instead
-            return {"response_type": "error", "error_code": "unavailable", "speech": str(err)}
-        return dict(result) if isinstance(result, dict) else {}
+            answer = {"response_type": "error", "error_code": "unavailable", "speech": str(err)}
+        ms = round(1000 * (time.monotonic() - started))
+        kind = str(answer.get("response_type") or "no answer")
+        code = answer.get("error_code")
+        _journal(
+            turn,
+            "quick.ask",
+            f"try {attempt}: «{args['text']}» → {kind}{f' ({code})' if code else ''} in {ms} ms",
+            {"request": args, "response": answer},
+            ms=ms,
+            ok=kind != "error",
+        )
+        return answer
 
     async def stop(self) -> None:
         return None
@@ -282,6 +318,7 @@ class HaQuickCommands:
         skills = {s.tool: s for s in self._skills.all()} if self._skills is not None else {}
         for action in command.actions:
             intents.append(action.tool.removeprefix("intent__"))
+            started = time.monotonic()
             try:
                 if action.tool.startswith(TOOL_PREFIX):  # a skill: its own actions
                     skill = skills.get(action.tool)
@@ -295,6 +332,16 @@ class HaQuickCommands:
                     )
             except (HostError, HostUnavailable, ValueError) as err:
                 result = {"error": True, "data": {"message": str(err)}}
+            failed_now = not isinstance(result, dict) or bool(result.get("error"))
+            ms = round(1000 * (time.monotonic() - started))
+            _journal(
+                turn,
+                "tool",
+                f"{action.tool}: {'failed' if failed_now else 'ok'}",
+                {"arguments": dict(action.arguments), "result": result},
+                ms=ms,
+                ok=not failed_now,
+            )
             if not isinstance(result, dict) or result.get("error"):
                 data = result.get("data") if isinstance(result, dict) else None
                 why = data.get("message") if isinstance(data, dict) else None
@@ -343,11 +390,19 @@ class HaQuickCommands:
         started = time.monotonic()
         learned = self._learned(said.text, args["language"])
         if learned is not None:
+            _journal(
+                turn,
+                "quick.learned",
+                f"learned command «{learned.phrases[0]}»: {len(learned.actions)} actions",
+                {"phrases": list(learned.phrases), "actions": [
+                    {"tool": a.tool, "arguments": dict(a.arguments)} for a in learned.actions
+                ]},
+            )  # fmt: skip
             result = await self._replay(turn, learned, args)
             if self._commands is not None and result.get("response_type") == "action_done":
                 self._commands.used(learned.id)
         else:
-            result = await self._ask(turn, args)
+            result = await self._ask(turn, args, 1)
         tried = said.text
         code0 = result.get("error_code")
         if learned is None and code0 in ("no_intent_match", "no_valid_targets") and self._retry:
@@ -361,9 +416,16 @@ class HaQuickCommands:
                 if code0 == "no_intent_match"
                 else (words(named) != words(simpler))
             )
+            reason = {"code": code0, "said": said.text, "cleaned": simpler, "named": named}
             if named and worth:
+                again = f"not understood ({code0}): again as «{named}»"
+                _journal(turn, "quick.retry", again, reason)
                 tried = named
-                result = await self._ask(turn, args | {"text": named})
+                result = await self._ask(turn, args | {"text": named}, 2)
+            else:
+                _journal(
+                    turn, "quick.retry", f"not understood ({code0}): no other form to try", reason
+                )
         ms = round(1000 * (time.monotonic() - started))
         kind = str(result.get("response_type") or "")
         code = result.get("error_code")
@@ -390,7 +452,7 @@ class HaQuickCommands:
                     f"done by Home Assistant ({kind}) in {ms} ms"
                     if handled
                     else f"passed on ({code or kind or 'no answer'}) after {ms} ms"
-                ) + (f"; second try: «{tried}»" if retried else "")
+                )
             turn.trace(
                 LOG_EVENT, kind="quick", summary=summary, detail=speech or None, ms=ms, ok=handled
             )

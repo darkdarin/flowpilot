@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from flowpilot_core.conformance import InputFeed, run_node_once
@@ -72,8 +73,13 @@ async def test_a_command_home_assistant_did_is_answered() -> None:
     assert [(e["user"], e["assistant"], e["by"]) for e in kept] == [
         ("включи свет на кухне", "Включила свет", "quick")
     ]
-    [log] = [e.attrs for e in result.trace.events if e.event == "log"]
-    assert log["kind"] == "quick" and log["ok"] is True
+    # the journal: the request to Home Assistant, then the outcome
+    ask, outcome = [e.attrs for e in result.trace.events if e.event == "log"]
+    assert ask["kind"] == "quick.ask" and ask["ok"] is True and "try 1" in ask["summary"]
+    detail = json.loads(ask["detail"])
+    assert detail["request"]["text"] == "включи свет на кухне"
+    assert detail["response"]["speech"] == "Включила свет"
+    assert outcome["kind"] == "quick" and outcome["ok"] is True
 
 
 async def test_what_it_did_not_understand_passes_on_unchanged() -> None:
@@ -116,6 +122,13 @@ async def test_a_second_try_without_extra_words() -> None:
     assert [r.text for r in result.outputs["response"].items] == ["Включила свет"]
     [event] = [e for e in result.trace.events if e.event == "ha.quick"]
     assert event.attrs["retried"] is True and event.attrs["handled"] is True
+    # each try and the decision between them are entries of their own
+    kinds = [e.attrs["kind"] for e in result.trace.events if e.event == "log"]
+    # (the names Assist knows load once, before the second try)
+    assert kinds == ["quick.ask", "quick.names", "quick.retry", "quick.ask", "quick"]
+    first, _, retry, second = [e.attrs for e in result.trace.events if e.event == "log"][:4]
+    assert first["ok"] is False and second["ok"] is True and "try 2" in second["summary"]
+    assert "«включи свет на кухне»" in retry["summary"]
 
 
 async def test_no_second_try_when_understood_or_turned_off() -> None:
