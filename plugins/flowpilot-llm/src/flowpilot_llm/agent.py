@@ -106,11 +106,21 @@ class Journal:
         self._turn.trace(LOG_EVENT, kind=kind, summary=summary, **extra, **attrs)
 
 
-def _pretty(arguments: str) -> str:
+def _parsed(text: str) -> Any:
+    """JSON text as data (the editor shows it as a tree), anything else as it is."""
     try:
-        return json.dumps(json.loads(arguments or "{}"), ensure_ascii=False, indent=2)
+        return json.loads(text)
     except ValueError:
-        return arguments
+        return text
+
+
+def _tool_detail(arguments: str, result: str) -> str:
+    """A tool call for the journal: its arguments and result as one JSON object."""
+    return json.dumps(
+        {"arguments": _parsed(arguments or "{}"), "result": _parsed(result)},
+        ensure_ascii=False,
+        indent=2,
+    )
 
 
 class LlmError(Exception):
@@ -964,7 +974,7 @@ class LlmAgent:
                 log(
                     "tool",
                     f"{call['name']}: {'ok' if ok else 'failed'}",
-                    f"arguments:\n{_pretty(call['arguments'])}\n\nresult:\n{result}",
+                    _tool_detail(call["arguments"], result),
                     tool=call["name"],
                     ok=ok,
                     ms=round(1000 * (time.monotonic() - called_at)),
