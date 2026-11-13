@@ -104,6 +104,16 @@ function barStyle(row: { id: string; category: string; run: { startMs: number; d
   };
 }
 
+/** The part of the bar after every input ended: the node still passes data on, on its own time. */
+function tailStyle(row: { id: string; category: string; run: { status: string } }) {
+  const tm = timings.value[row.id];
+  if (!tm || ["error", "timeout", "cancelled"].includes(row.run.status)) return null;
+  if (tm.inEnd === undefined || tm.outFirst === undefined || tm.outEnd === undefined) return null;
+  const start = Math.max(tm.inEnd, tm.outFirst);
+  if (tm.outEnd - start < span.value / 400) return null; // too short to see
+  return { left: pct(start), width: pct(tm.outEnd - start), "--cat": categoryColor(row.category) };
+}
+
 function pct(ms: number) {
   return `${(ms / span.value) * 100}%`;
 }
@@ -166,14 +176,6 @@ function status(s: string) {
         <template v-if="headline.text"> · {{ t("debug.toFirstText") }} <b>{{ headline.text }}</b></template>
         <template v-if="headline.total"> · {{ t("debug.total") }} <b>{{ headline.total }}</b></template>
       </p>
-      <div class="legend">
-        <span><i class="lg alive" />{{ t("legend.alive") }}</span>
-        <span><i class="lg wait" />{{ t("legend.reaction") }}</span>
-        <span><i class="lg flow" />{{ t("legend.flow") }}</span>
-        <span><i class="lg in-end" />{{ t("legend.inEnd") }}</span>
-        <span><i class="lg host" />{{ t("legend.host") }}</span>
-        <span><i class="lg path" />{{ t("legend.path") }}</span>
-      </div>
       <div class="head">
         <span />
         <div class="axis">
@@ -216,6 +218,7 @@ function status(s: string) {
             :class="`s-${row.run.status}`"
             :style="barStyle(row)"
           />
+          <span v-if="tailStyle(row)" class="tail" :style="tailStyle(row)!" />
           <span
             v-if="timings[row.id]?.inEnd !== undefined"
             class="in-end"
@@ -701,84 +704,14 @@ function status(s: string) {
   font-weight: 600;
 }
 
-/* what the marks of the timeline mean */
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  margin: 0 0 6px 6px;
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.lg {
-  display: inline-block;
-  position: relative;
-  width: 16px;
-  height: 10px;
-}
-
-.lg.alive::before,
-.lg.wait::before,
-.lg.flow::before,
-.lg.path::before {
-  content: "";
+/* after every input ended: the node still passes data on, on its own time */
+.tail {
   position: absolute;
-  left: 0;
-  right: 0;
-  border-radius: 2px;
-}
-
-.lg.alive::before {
-  top: 2px;
-  height: 6px;
-  background: var(--line);
-}
-
-.lg.wait::before {
-  top: 4px;
-  height: 2px;
-  background: var(--muted);
-}
-
-.lg.flow::before {
   top: 0;
-  height: 10px;
-  background: var(--muted);
-  opacity: 0.85;
-}
-
-.lg.path::before {
-  top: 0;
-  height: 10px;
-  background: var(--muted);
-  box-shadow: 0 0 0 1.5px var(--focus);
-}
-
-.lg.in-end {
-  width: 6px;
-  border-left: 1.5px dashed var(--muted);
-}
-
-.lg.host {
-  width: 6px;
-}
-
-.lg.host::before {
-  content: "";
-  position: absolute;
-  left: 2px;
-  top: -1px;
-  width: 2px;
   height: 12px;
-  background: var(--text);
-  border-radius: 1px;
+  border-radius: 0 3px 3px 0;
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--panel) 55%, transparent) 0 3px, transparent 3px 7px);
+  pointer-events: none;
 }
 
 /* the hover: one moment across every node, like a chart's crosshair */

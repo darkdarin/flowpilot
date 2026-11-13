@@ -223,10 +223,14 @@ export function turnTiming(turn: FlowTurn, wires: Wire[], source?: string, sink?
 
 /** What a node was doing at one moment of the turn, for the timeline's hover. */
 export interface Moment {
-  state: "idle" | "waiting" | "working" | "sending" | "finishing" | "done" | "failed";
+  /** sending: passing data on while its input still comes; draining: every input has ended and
+   * it still passes data on (time of its own, past its input) */
+  state: "idle" | "waiting" | "working" | "sending" | "draining" | "finishing" | "done" | "failed";
   status: string;
   startMs: number;
   endMs?: number;
+  /** the last of its inputs ended */
+  inEnd?: number;
   inputs: { port: string; from: string; first?: number; end?: number }[];
   outputs: { port: string; items: number; first?: number; end?: number }[];
   log?: { t: number; kind: string; summary: string };
@@ -240,11 +244,14 @@ export function momentOf(turn: FlowTurn, wires: Wire[], id: string, t: number): 
   const inputs = inputsOf(turn, wires, id).map((i) => ({ port: i.port, from: i.from, first: i.flow?.first, end: i.flow?.end }));
   const outputs = outputsOf(turn, id).map((o) => ({ port: o.port, items: o.items, first: o.flow?.first, end: o.flow?.end }));
   const before = <T extends { t: number }>(list: T[]) => list.filter((e) => e.t <= t).at(-1);
+  const flowedIn = inputs.filter((i) => i.first !== undefined);
+  const inEnd = flowedIn.length && flowedIn.every((i) => i.end !== undefined) ? Math.max(...flowedIn.map((i) => i.end!)) : undefined;
   let state: Moment["state"];
   if (t < run.startMs) state = "idle";
   else if (endMs !== undefined && t >= endMs) state = ["ok", "running"].includes(run.status) ? "done" : "failed";
-  else if (outputs.some((o) => o.first !== undefined && o.first <= t && (o.end === undefined || t < o.end))) state = "sending";
-  else if (outputs.some((o) => o.first !== undefined && o.first <= t)) state = "finishing";
+  else if (outputs.some((o) => o.first !== undefined && o.first <= t && (o.end === undefined || t < o.end))) {
+    state = inEnd !== undefined && inEnd <= t ? "draining" : "sending";
+  } else if (outputs.some((o) => o.first !== undefined && o.first <= t)) state = "finishing";
   else if (inputs.some((i) => i.first !== undefined && i.first <= t)) state = "working";
   else state = "waiting";
   return {
@@ -252,6 +259,7 @@ export function momentOf(turn: FlowTurn, wires: Wire[], id: string, t: number): 
     status: run.status,
     startMs: run.startMs,
     endMs,
+    inEnd,
     inputs,
     outputs,
     log: before(turn.logs[id] ?? []),

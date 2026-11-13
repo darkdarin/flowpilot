@@ -44,7 +44,11 @@ export function describeMoment(id: string, at: number): string[] {
   if (!turn) return [];
   const m = momentOf(turn, wires.value, id, at);
   if (!m) return [];
-  const lines = [t(`moment.${m.state}`, { status: m.status, at: m.endMs !== undefined ? fmtAt(m.endMs) : "" })];
+  const lines = [
+    m.state === "draining" && m.inEnd !== undefined
+      ? t("moment.draining", { at: fmtAt(m.inEnd), over: fmtMs(Math.max(0, at - m.inEnd)) })
+      : t(`moment.${m.state}`, { status: m.status, at: m.endMs !== undefined ? fmtAt(m.endMs) : "" }),
+  ];
   for (const out of m.outputs) {
     if (out.first === undefined) continue;
     if (out.first <= at && (out.end === undefined || at < out.end)) {
