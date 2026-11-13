@@ -46,10 +46,18 @@ function shown(port: PortInfo, side: "inputs" | "outputs"): string {
 // output shows the turn instead: to the first sound, and the whole turn.
 const timing = computed(() => (debug.enabled ? currentTimings.value[props.id] : undefined));
 const onPath = computed(() => Boolean(timing.value?.onPath));
+// Took part in the turn: something went out of one of its outputs. A node off the turn's path (the
+// other branch of a condition, a voice-only node in a typed turn) only waited for its inputs to end:
+// its run time says nothing, so it shows none.
+const tookPart = computed(() => {
+  const outputs = spec.value?.outputs ?? [];
+  return !outputs.length || outputs.some((p) => (portRun(p.name)?.state ?? "absent") !== "absent");
+});
 const runBadge = computed(() => {
   const r = run.value;
   if (!r) return null;
   if (r.status === "running") return { text: t("status.running"), title: "" };
+  if (!tookPart.value && r.status === "ok" && props.id !== sinkId.value) return null;
   const tt = currentTurnTiming.value;
   if (props.id === sinkId.value && tt) {
     const lines = [
