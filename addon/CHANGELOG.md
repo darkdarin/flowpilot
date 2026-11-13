@@ -4,6 +4,29 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.36
+
+Update the app only.
+
+### App
+
+- **Text for speech: a new node that spells for a Russian voice what it would misread.** Put it
+  between the agent and text-to-speech (in the Russian branch, if a Condition splits them):
+  - English words by pronunciation (Queen → квин), from a pronouncing dictionary; unknown ones
+    by their letters;
+  - acronyms letter by letter (TV → ти-ви, МЧС → эм-че-эс);
+  - numbers, times, ordinals, units and currencies in words, the unit agreeing with the number
+    (−5 °C → минус пять градусов, 7:05 → семь ноль пять, 2-го → второго, $3 → три доллара);
+  - built-in replacements (Wi-Fi, iPhone, YouTube, Home Assistant…) and your own, one per line:
+    `word = как сказать`;
+  - stress marks (`+` before the vowel) for Silero voices: turn on Stress marks.
+
+  It passes whole words on as they come and leaves text in other languages unchanged.
+
+### Integration
+
+No changes, no need to update.
+
 ## 0.1.35
 
 Update the app only.

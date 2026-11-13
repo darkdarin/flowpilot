@@ -1,6 +1,6 @@
 [project]
 name = "flowpilot-speech"
-version = "0.1.35"
+version = "0.1.36"
 description = "FlowPilot text for speech: English words, acronyms, numbers and units spelled for a Russian voice"
 readme = "README.md"
 license = "Apache-2.0"
