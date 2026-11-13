@@ -9,6 +9,7 @@ import { t } from "../i18n";
 import { currentTurn, type LogEntry } from "../store";
 import { fmtMs } from "../timing";
 import JsonBlock from "./JsonBlock.vue";
+import SoundIcon from "./SoundIcon.vue";
 
 type Entry =
   | { key: string; kind: "log"; node: string; t: number; log: LogEntry }
@@ -60,6 +61,14 @@ function pick(node: string) {
   if (!filter.value.includes(node)) filter.value = [...filter.value, node];
 }
 
+/** The entry is about sound: its data is audio (audio.pcm/1) or a recording. */
+function isSound(e: Entry): boolean {
+  const attrs = e.kind === "log" ? e.log.attrs : e.attrs;
+  return Object.values(attrs).some(
+    (v) => typeof v === "string" && (v.startsWith("audio.pcm/") || v.endsWith(".wav")),
+  );
+}
+
 function kindLabel(kind: string): string {
   const key = `log.${kind}` as Parameters<typeof t>[0];
   const text = t(key);
@@ -91,7 +100,7 @@ function logClass(log: LogEntry): string {
         <ol v-else class="entries">
           <li v-for="e in shown" :key="e.key" :class="e.kind === 'log' ? logClass(e.log) : e.kind">
             <button class="row" :class="{ sel: picked === e.key }" @click="picked = e.key">
-              <span class="at">{{ fmtMs(e.t) }}</span>
+              <span class="at"><SoundIcon v-if="isSound(e)" />{{ fmtMs(e.t) }}</span>
               <span v-if="!oneNode" class="node" :title="t('journal.addToFilter')" @click.stop="pick(e.node)">{{ e.node }}</span><span v-else />
               <template v-if="e.kind === 'log'">
                 <span class="kind">{{ kindLabel(e.log.kind) }}</span>
@@ -112,7 +121,7 @@ function logClass(log: LogEntry): string {
       <div class="detail">
         <template v-if="entry">
           <p class="where">
-            <span class="at">{{ fmtMs(entry.t) }}</span>
+            <span class="at"><SoundIcon v-if="isSound(entry)" />{{ fmtMs(entry.t) }}</span>
             <code>{{ entry.node }}</code>
             <span class="kind" :class="entry.kind === 'log' ? logClass(entry.log) : 'note'">{{ entry.kind === "log" ? kindLabel(entry.log.kind) : entry.event }}</span>
             <span v-if="entry.kind === 'log' && entry.log.attrs.ms !== undefined" class="took">{{ fmtMs(Number(entry.log.attrs.ms)) }}</span>
@@ -277,6 +286,12 @@ function logClass(log: LogEntry): string {
 
 .row.sel {
   box-shadow: inset 2px 0 0 var(--focus);
+}
+
+.at {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
 }
 
 .at,

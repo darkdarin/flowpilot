@@ -7,6 +7,7 @@ import { currentTurn, edges, nodes, selectedId, specs, type OutputData } from ".
 import { nodeTitle } from "../texts";
 import { typeColor, typeShort } from "../types";
 import OutputValue from "./OutputValue.vue";
+import SoundIcon from "./SoundIcon.vue";
 
 interface Port {
   side: "in" | "out";
@@ -99,7 +100,7 @@ function summary(p: Port): string {
             :class="{ sel: port === p, empty: !p.data }"
             @click="picked = { side: p.side, name: p.name }"
           >
-            <span class="name">{{ side === "in" ? "←" : "→" }} {{ p.name }}</span>
+            <span class="name"><SoundIcon v-if="p.type === 'audio.pcm/1'" />{{ side === "in" ? "←" : "→" }} {{ p.name }}</span>
             <code class="type" :style="{ color: typeColor(p.type) }">{{ typeShort(p.type) !== p.name ? typeShort(p.type) : "" }}</code>
             <span class="sum">{{ summary(p) }}</span>
           </button>
@@ -110,6 +111,7 @@ function summary(p: Port): string {
     <div class="value">
       <template v-if="port">
         <p class="where">
+          <SoundIcon v-if="port.type === 'audio.pcm/1'" />
           <code>{{ selectedId }}.{{ port.name }}</code>
           <template v-if="port.from"> ← <code>{{ port.from }}</code></template>
           <span v-if="port.data && port.data.items > 1" class="items">{{ t("journal.items", { n: port.data.items }) }}</span>
@@ -208,6 +210,12 @@ h4 {
 
 .port {
   grid-template-columns: auto auto minmax(0, 1fr);
+}
+
+.name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
 }
 
 .port.empty .name,
