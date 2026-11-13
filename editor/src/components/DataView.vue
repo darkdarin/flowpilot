@@ -102,7 +102,7 @@ function summary(p: Port): string {
           >
             <span class="name">{{ side === "in" ? "←" : "→" }} {{ p.name }}</span>
             <code class="type" :style="{ color: typeColor(p.type) }">{{ typeShort(p.type) !== p.name ? typeShort(p.type) : "" }}</code>
-            <span class="sum"><SoundIcon v-if="p.type === 'audio.pcm/1'" /> {{ summary(p) }}</span>
+            <span class="sum"><SoundIcon v-if="p.data && p.type === 'audio.pcm/1'" /> {{ summary(p) }}</span>
           </button>
         </template>
       </template>
