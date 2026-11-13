@@ -97,6 +97,10 @@ async def check(hass: HomeAssistant, fake: FakeModel, runtime: Runtime) -> None:
     first, second = fake.requests
     assert any("HassTurnOn" in t["function"]["name"] for t in first["tools"])
     assert second["messages"][-1]["role"] == "tool"
+    # Home Assistant's live context is in the prompt: the model need not ask for it first
+    system = first["messages"][0]["content"]
+    state = system.split("The state of the home as this request began", 1)[1]
+    assert "Kitchen light" in state and "'off'" in state
 
 
 async def test_the_agent_confirms_with_a_sound_without_asking_the_model_again(

@@ -46,6 +46,35 @@ from .const import (
 )
 from .wav import open_wav
 
+# The Assist API's tool that tells the state of the exposed devices (``GetLiveContext``, named
+# ``homeassistant__GetLiveContext`` since Home Assistant 2026.10)
+LIVE_CONTEXT = "GetLiveContext"
+
+
+def live_context_tool(api: llm.APIInstance) -> str | None:
+    """The name of the Assist API's live context tool, if it offers one."""
+    return next(
+        (
+            t.name
+            for t in api.tools
+            if t.name == LIVE_CONTEXT or t.name.endswith(f"__{LIVE_CONTEXT}")
+        ),
+        None,
+    )
+
+
+async def live_context(api: llm.APIInstance) -> str | None:
+    """What the live context tool answers now (the exposed devices, their areas and states), or
+    None without the tool or when it fails."""
+    if (name := live_context_tool(api)) is None:
+        return None
+    try:
+        result = await api.async_call_tool(llm.ToolInput(tool_name=name, tool_args={}))
+    except HomeAssistantError, ValueError:
+        return None
+    text = result.data.get("result") if not result.error else None
+    return str(text) if text else None
+
 
 def targets_in_area(
     hass: HomeAssistant, response: Any, satellite_id: str | None, device_id: str | None
@@ -329,7 +358,11 @@ def build_host_ops(
             )
         # FlowPilot's own tools where Home Assistant's fall short (starting music)
         tools.extend(music.music_tools(hass))
-        return {"prompt": api.api_prompt, "tools": tools}
+        answer: dict[str, Any] = {"prompt": api.api_prompt, "tools": tools}
+        # the state of the exposed devices now, so the agent need not ask for it first
+        if request.args.get("live_context") and (state := await live_context(api)) is not None:
+            answer["live_context"] = state
+        return answer
 
     async def llm_call(request: HostRequest) -> Any:
         """Run one tool of the Assist API; failures come back as text for the model."""

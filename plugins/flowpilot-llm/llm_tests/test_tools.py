@@ -607,6 +607,7 @@ class ActingHost:
     def __init__(self, *, here: bool = True, fail: str | None = None) -> None:
         self.here = here
         self.fail = fail  # the device that is not found
+        self.asked: list[Any] = []  # what the agent asked for the tools with
 
     def offers(self, op: str) -> bool:
         return op in {"ha.llm.tools", "ha.llm.call"}
@@ -618,7 +619,11 @@ class ActingHost:
                 {"name": name, "description": name, "parameters": schema}
                 for name in ("HassTurnOn", "HassTurnOff", "GetLiveContext", "flowpilot__play_music")
             ]
-            return {"prompt": "Use the tools.", "tools": tools}
+            self.asked.append(args)
+            answer: dict[str, Any] = {"prompt": "Use the tools.", "tools": tools}
+            if args.get("live_context"):
+                answer["live_context"] = "- names: Свет\n  domain: light\n  state: 'on'"
+            return answer
         name, device = args["name"], args["arguments"].get("name")
         if self.fail is not None and device == self.fail:
             return {"error": True, "data": {"message": f"no device named {device}"}}
@@ -739,3 +744,22 @@ async def test_the_models_own_words_are_not_repeated(api: tuple[ToolCallingApi, 
     run = await ask(url, MemoryStore(None), "включи сплин", "pavel", host=ActingHost())
     assert len(fake.requests) == 1
     assert [r.text for r in run.outputs["response"].items] == ["Хорошо."]
+
+
+async def test_the_home_state_is_in_the_prompt(api: tuple[ToolCallingApi, str]) -> None:
+    """The model sees which lights are on and acts at once, without asking for the state."""
+    fake, url = api
+    host = ActingHost()
+    await ask(url, MemoryStore(None), "выключи свет", "pavel", host=host)
+    assert host.asked[0]["live_context"] is True
+    system = fake.requests[0]["messages"][0]["content"]
+    assert system.rstrip().endswith("state: 'on'")  # last: the rest of the prompt is cached
+    assert "The state of the home as this request began" in system
+
+
+async def test_the_home_state_can_be_left_out(api: tuple[ToolCallingApi, str]) -> None:
+    fake, url = api
+    host = ActingHost()
+    await ask(url, MemoryStore(None), "выключи свет", "pavel", host=host, home_state=False)
+    assert host.asked[0]["live_context"] is False
+    assert "state: 'on'" not in fake.requests[0]["messages"][0]["content"]

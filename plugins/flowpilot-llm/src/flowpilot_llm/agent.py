@@ -77,6 +77,11 @@ HOME_CALL_TIMEOUT_S = 20.0
 SERVICE_CALL_OP = "ha.service.call"
 # Rounds of tool calls in one turn; the last round must answer in words.
 MAX_TOOL_ROUNDS = 4
+# the state of the home when the turn began, from Home Assistant's live context
+STATE_TEXT = (
+    "The state of the home as this request began (you need not ask for it before acting; ask "
+    "again only to see what changed after your own actions):\n{}"
+)
 # Home Assistant intents and the sound that confirms them (``acknowledge`` on the ack answer)
 ACK_KINDS = {"HassTurnOn": "on", "HassTurnOff": "off"}
 DONE = {"ru": "Готово", "en": "Done"}
@@ -233,7 +238,7 @@ class LlmAgent:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="llm.agent",
         translations=node_translations(__package__, "llm.agent"),
-        version="1.6.0",
+        version="1.7.0",
         title="LLM agent",
         category="agent",
         inputs={
@@ -376,6 +381,19 @@ class LlmAgent:
                         "Home Assistant (Settings → Voice assistants → Expose), with Home "
                         "Assistant's own tools, as the person who speaks; needs a model with "
                         "function calling and FlowPilot Assist 0.1.14 or newer. On when not set."
+                    ),
+                    "type": "boolean",
+                    "default": True,
+                    GROUP_KEY: "tools",
+                },
+                "home_state": {
+                    "title": "Home state in the prompt",
+                    "description": (
+                        "The state of the devices exposed to Assist (on or off, temperature, "
+                        "mode) goes into every request, so the model acts at once instead of "
+                        "first asking Home Assistant for it: a command is answered a request "
+                        "sooner, every request is longer. Needs FlowPilot Assist 0.1.34 or "
+                        "newer. On when not set."
                     ),
                     "type": "boolean",
                     "default": True,
@@ -607,14 +625,15 @@ class LlmAgent:
         language: str | None,
         done: list[dict[str, Any]],
         said: list[str],
-    ) -> tuple[str, list[Tool]]:
-        """Home Assistant's instructions and tools for this turn, or nothing without them.
+    ) -> tuple[str, list[Tool], str]:
+        """Home Assistant's instructions, tools and (with ``home_state``) the state of its
+        exposed devices for this turn, or nothing without them.
 
         Each action that succeeded is added to ``done``: its tool, words and whether its devices
         are in the satellite's room (for a confirmation sound). A tool that answers with the words
         for the person (``say``, e.g. "Включаю Сплин" from ``play_music``) adds them to ``said``."""
         if not self._config.get("home", True):
-            return "", []
+            return "", [], ""
         device = turn.context.device
         who: dict[str, Any] = {
             "user_id": speaker,
@@ -623,14 +642,15 @@ class LlmAgent:
         }
         try:
             async with asyncio.timeout(HOME_TOOLS_TIMEOUT_S):
-                result = await turn.call_host(HOME_TOOLS_OP, who)
+                live = bool(self._config.get("home_state", True))
+                result = await turn.call_host(HOME_TOOLS_OP, {**who, "live_context": live})
         except HostUnavailable:
-            return "", []
+            return "", [], ""
         except (HostError, TimeoutError) as err:
             turn.trace("llm.agent.home_failed", reason=str(err)[:200])
-            return "", []
+            return "", [], ""
         if not isinstance(result, Mapping):
-            return "", []
+            return "", [], ""
 
         def tool(spec: Mapping[str, Any]) -> Tool:
             name = str(spec["name"])
@@ -670,7 +690,7 @@ class LlmAgent:
         specs = [t for t in result.get("tools") or [] if isinstance(t, Mapping) and t.get("name")]
         tools = [tool(t) for t in specs]
         tools += [self._skill_tool(turn, s, who, done) for s in self._enabled_skills()]
-        return str(result.get("prompt") or ""), tools
+        return str(result.get("prompt") or ""), tools, str(result.get("live_context") or "")
 
     def _enabled_skills(self) -> list[Skill]:
         return [s for s in self._skills.all() if s.enabled] if self._skills is not None else []
@@ -767,7 +787,7 @@ class LlmAgent:
         guide = _tools_text(speaker is not None or not personal, auto=auto) if remembers else ""
         done: list[dict[str, Any]] = []  # the actions that succeeded, in order
         tool_words: list[str] = []  # the words tools gave for the person (see ``_home``)
-        people, (home_prompt, home_tools) = await asyncio.gather(
+        people, (home_prompt, home_tools, home_state) = await asyncio.gather(
             self._people(turn), self._home(turn, speaker, language, done, tool_words)
         )
         if home_tools:
@@ -811,7 +831,9 @@ class LlmAgent:
             home_prompt if home_tools else "",
             teach_text,
         )
-        system = "\n\n".join(p for p in (*parts, guide) if p)
+        # last: it changes every turn, the rest stays the same and is cached by the provider
+        state = STATE_TEXT.format(home_state) if home_tools and home_state else ""
+        system = "\n\n".join(p for p in (*parts, guide, state) if p)
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}] if system else []
         messages += history[-2 * keep :] if keep else []
         messages.append({"role": "user", "content": said.text})
