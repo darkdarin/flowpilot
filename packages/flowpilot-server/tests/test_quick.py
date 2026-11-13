@@ -177,6 +177,18 @@ async def test_a_sound_instead_of_words_in_the_speakers_room() -> None:
     assert not never.outputs["ack"].items and never.outputs["delta"].items
 
 
+async def test_an_answer_without_devices_is_spoken_even_with_always() -> None:
+    """Home Assistant answers "what time is it" as done too; nothing was touched, so the answer
+    is the words, not a sound, whatever the setting."""
+    time = {**DONE, "speech": "Сейчас 17:05", "intent": "HassGetCurrentTime"}
+    for answer in ({**time, "targets": 0}, time):  # time: an older integration without targets
+        result, _ = await run(answer, config={"acknowledge": "always"})
+        assert not result.outputs["ack"].items
+        assert [d.text for d in result.outputs["delta"].items] == ["Сейчас 17:05"]
+    lights, _ = await run({**DONE, "targets": 2}, config={"acknowledge": "always"})
+    assert lights.outputs["ack"].items and not lights.outputs["delta"].items
+
+
 async def test_the_sound_says_what_was_done() -> None:
     """The ack carries what was done: turned on, turned off, or something else."""
     here = {**DONE, "targets_in_area": True}

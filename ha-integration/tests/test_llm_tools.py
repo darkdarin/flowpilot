@@ -131,9 +131,13 @@ async def test_conversation_tells_if_the_command_stayed_in_the_speakers_room(
 
     here = await ask("turn on ceiling light")
     assert here["response_type"] == "action_done", here
-    assert here["targets_in_area"] is True
+    assert here["targets_in_area"] is True and here["targets"] == 1
     there = await ask("turn on the lights in the kitchen")
     assert there["response_type"] == "action_done" and there["targets_in_area"] is False
+    # done, but nothing touched: no sound for it, whatever the setting
+    time = await ask("what time is it")
+    assert time["response_type"] == "action_done", time
+    assert time["targets"] == 0 and time["targets_in_area"] is False
 
 
 async def test_a_skill_action_runs_as_the_person(hass: HomeAssistant) -> None:

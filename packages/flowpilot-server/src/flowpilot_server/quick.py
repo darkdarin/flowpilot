@@ -51,6 +51,17 @@ DONE = {"ru": ("Готово", "Не получилось"), "en": ("Done", "Tha
 
 # Home Assistant intents and the sound that confirms them (``acknowledge`` on the ack answer)
 ACK_KINDS = {"HassTurnOn": "on", "HassTurnOff": "off"}
+# Intents Home Assistant answers "done" without touching a device: their answer is the words, never
+# a sound. Only for an integration that does not say how many devices a command touched.
+NO_DEVICE_INTENTS = frozenset(
+    {
+        "HassGetCurrentTime", "HassGetCurrentDate", "HassGetWeather", "HassGetState",
+        "HassNevermind", "HassRespond", "HassBroadcast", "HassStartTimer", "HassCancelTimer",
+        "HassCancelAllTimers", "HassIncreaseTimer", "HassDecreaseTimer", "HassPauseTimer",
+        "HassUnpauseTimer", "HassTimerStatus", "HassListAddItem", "HassListCompleteItem",
+        "HassShoppingListAddItem",
+    }
+)  # fmt: skip
 
 
 def _journal(turn: TurnSession, kind: str, summary: str, detail: Any = None, **attrs: Any) -> None:
@@ -468,8 +479,14 @@ class HaQuickCommands:
         )
         ack = str(result.get("acknowledge") or self._acknowledge_kind([str(result.get("intent"))]))
         here = bool(result.get("targets_in_area"))
+        # a sound only confirms a command that touched devices: "what time is it" is answered
+        # "done" too, and its answer is the words
+        touched = result.get("targets")
+        if touched is None:  # an integration before 0.1.38 does not say
+            touched = learned is not None or str(result.get("intent")) not in NO_DEVICE_INTENTS
         sound = (
             kind == "action_done"
+            and bool(touched)
             and turn.output("ack").connected
             and (self._acknowledge == "always" or (self._acknowledge == "area" and here))
         )

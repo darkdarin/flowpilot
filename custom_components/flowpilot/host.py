@@ -87,6 +87,14 @@ def targets_in_area(
     return entities_in_area(hass, [s.entity_id for s in states or []], satellite_id, device_id)
 
 
+def targets(response: Any) -> int:
+    """How many entities a done command touched; none for an answer without devices (what time
+    it is, the weather), which Home Assistant's own pipeline never confirms with a sound."""
+    if getattr(response, "response_type", None) is not intent.IntentResponseType.ACTION_DONE:
+        return 0
+    return len(getattr(response, "matched_states", None) or [])
+
+
 def area_of(hass: HomeAssistant, satellite_id: str | None, device_id: str | None) -> str | None:
     """The area of the satellite (or device) that heard the turn: the satellite entity's own area,
     else its device's."""
@@ -188,6 +196,7 @@ def build_host_ops(
             # every device the command touched is in the speaker's room: Home Assistant's own
             # pipeline confirms such commands with a sound instead of words
             "targets_in_area": targets_in_area(hass, result.response, satellite_id, device_id),
+            "targets": targets(result.response),
             "speech": speech,
             "continue_conversation": result.continue_conversation,
             "conversation_id": result.conversation_id,
