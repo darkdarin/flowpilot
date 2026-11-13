@@ -606,11 +606,13 @@ class LlmAgent:
         speaker: str | None,
         language: str | None,
         done: list[dict[str, Any]],
+        said: list[str],
     ) -> tuple[str, list[Tool]]:
         """Home Assistant's instructions and tools for this turn, or nothing without them.
 
         Each action that succeeded is added to ``done``: its tool, words and whether its devices
-        are in the satellite's room (for a confirmation sound)."""
+        are in the satellite's room (for a confirmation sound). A tool that answers with the words
+        for the person (``say``, e.g. "Включаю Сплин" from ``play_music``) adds them to ``said``."""
         if not self._config.get("home", True):
             return "", []
         device = turn.context.device
@@ -644,6 +646,8 @@ class LlmAgent:
                 data = json.dumps(answer.get("data"), ensure_ascii=False)
                 if answer.get("error"):
                     raise ValueError(data)
+                if words := str(answer.get("say") or "").strip():
+                    said.append(words)
                 result = answer.get("data")
                 if isinstance(result, Mapping) and result.get("response_type") == "action_done":
                     done.append(
@@ -762,8 +766,9 @@ class LlmAgent:
         auto = self._remember() == "auto"
         guide = _tools_text(speaker is not None or not personal, auto=auto) if remembers else ""
         done: list[dict[str, Any]] = []  # the actions that succeeded, in order
+        tool_words: list[str] = []  # the words tools gave for the person (see ``_home``)
         people, (home_prompt, home_tools) = await asyncio.gather(
-            self._people(turn), self._home(turn, speaker, language, done)
+            self._people(turn), self._home(turn, speaker, language, done, tool_words)
         )
         if home_tools:
             toolbox = toolbox.with_tools(home_tools)
@@ -847,6 +852,7 @@ class LlmAgent:
         used: list[str] = []
         home_calls: list[dict[str, Any]] = []
         acknowledged: str | None = None  # the sound that confirms the turn, instead of words
+        told = False  # the answer is the words the tools gave: no round to ask the model for them
         for round_ in range(MAX_TOOL_ROUNDS + 1):
             request = body | {"messages": messages}
             offer = bool(toolbox) and round_ < MAX_TOOL_ROUNDS
@@ -905,7 +911,9 @@ class LlmAgent:
                 }
             )
             acted_from = len(done)
+            said_from = len(tool_words)
             failed = False
+            worded = 0  # calls of this reply that gave the words for the person
             # the confirmation is decided last, once the actions of this reply have run
             order = sorted(range(len(calls)), key=lambda i: calls[i]["name"] == CONFIRM_TOOL)
             for i in order:
@@ -919,8 +927,10 @@ class LlmAgent:
                     if ok:
                         acknowledged = sound
                 else:
+                    before = len(tool_words)
                     result, ok = await toolbox.call(call["name"], call["arguments"])
                     failed = failed or not ok
+                    worded += int(ok and len(tool_words) > before)
                 if ok and call["name"] in home_names:
                     try:
                         arguments = json.loads(call["arguments"] or "{}")
@@ -946,6 +956,16 @@ class LlmAgent:
                 )
             if acknowledged is not None:
                 break  # confirmed with a sound: no words to ask the model for
+            if worded and worded == len(calls) and not failed:
+                # every call of the reply gave its words ("Включаю Сплин"): say them and end,
+                # instead of a round that only asks the model to say the same
+                if not "".join(pieces[text_before:]).strip():  # unless it spoke already
+                    for words in dict.fromkeys(tool_words[said_from:]):
+                        await on_text(words if words[-1:] in ".!?" else f"{words}.")
+                        gap = True
+                told = True
+                log("told", "answered with the tools' words", " ".join(tool_words[said_from:]))
+                break
         await delta.end()
         answer = "".join(pieces).strip()
         if acknowledged is not None:
@@ -964,6 +984,7 @@ class LlmAgent:
             people=len(people) if people is not None else None,
             tools=",".join(used) or None,
             acknowledge=acknowledged,
+            told=told,
         )
         if not answer:
             raise LlmError("the model gave an empty answer")

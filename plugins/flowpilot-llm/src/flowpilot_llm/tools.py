@@ -361,11 +361,12 @@ def confirm_tool(mode: str) -> Tool:
     )
     return Tool(
         CONFIRM_TOOL,
-        "Confirm a simple command with a short sound instead of words, and end your answer. "
-        "Call it in the same reply as the Home Assistant actions that fully do what was asked "
-        "(turn on or off, open, close, set), when nothing needs saying: no question, nothing "
-        "unclear, nothing to tell. Never call it alone, for questions, or before the last "
-        "action. If an action fails there is no sound and you answer in words." + where,
+        "Confirm a simple device command with a short sound instead of words, and end your "
+        "answer. It does nothing by itself: call it only in the same reply as the Home Assistant "
+        "actions that fully do what was asked (turn on or off, open, close, set), when nothing "
+        "needs saying: no question, nothing unclear, nothing to tell. Not for music, searches or "
+        "questions; never alone, never instead of the action, never before the last action. If "
+        "an action fails there is no sound and you answer in words." + where,
         {"type": "object", "properties": {}},
         run,
     )

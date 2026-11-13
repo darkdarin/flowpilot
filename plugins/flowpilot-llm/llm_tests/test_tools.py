@@ -616,7 +616,7 @@ class ActingHost:
             schema = {"type": "object", "properties": {"name": {"type": "string"}}}
             tools = [
                 {"name": name, "description": name, "parameters": schema}
-                for name in ("HassTurnOn", "HassTurnOff", "GetLiveContext")
+                for name in ("HassTurnOn", "HassTurnOff", "GetLiveContext", "flowpilot__play_music")
             ]
             return {"prompt": "Use the tools.", "tools": tools}
         name, device = args["name"], args["arguments"].get("name")
@@ -624,6 +624,9 @@ class ActingHost:
             return {"error": True, "data": {"message": f"no device named {device}"}}
         if name == "GetLiveContext":
             return {"error": False, "data": {"success": True, "result": "light: on"}}
+        if name == "flowpilot__play_music":
+            playing = {"playing": "Сплин", "type": "artist", "status": "starting"}
+            return {"error": False, "data": playing, "say": "Включаю Сплин"}
         said = {"HassTurnOn": "Включила", "HassTurnOff": "Выключила"}[name]
         data = {"response_type": "action_done", "speech": {"plain": {"speech": f"{said} {device}"}}}
         return {"error": False, "data": data, "targets_in_area": self.here}
@@ -700,3 +703,39 @@ async def test_words_already_said_are_not_followed_by_a_sound(
     fake.calls = turn_off("свет")  # «Хорошо.» comes first
     run = await ask(url, MemoryStore(None), "выключи", "pavel", host=ActingHost())
     assert not run.outputs["ack"].items and len(fake.requests) == 2
+
+
+async def test_music_on_its_way_is_told_without_asking_the_model_again(
+    api: tuple[ToolCallingApi, str],
+) -> None:
+    fake, url = api
+    fake.say_first = False
+    fake.calls = [{"name": "flowpilot__play_music", "arguments": {"artist": "Сплин"}}]
+    run = await ask(url, MemoryStore(None), "включи сплин", "pavel", host=ActingHost())
+    assert len(fake.requests) == 1  # the words came with the tool's answer
+    assert "".join(d.text for d in run.outputs["delta"].items) == "Включаю Сплин."
+    assert [r.text for r in run.outputs["response"].items] == ["Включаю Сплин."]
+    assert not run.outputs["ack"].items
+    (done,) = [e for e in run.trace.events if e.event == "llm.agent"]
+    assert done.attrs["told"] is True
+
+
+async def test_a_reply_with_more_than_music_goes_on_to_the_model(
+    api: tuple[ToolCallingApi, str],
+) -> None:
+    fake, url = api
+    fake.say_first = False
+    fake.calls = [
+        {"name": "flowpilot__play_music", "arguments": {"artist": "Сплин"}},
+        {"name": "GetLiveContext", "arguments": {}},
+    ]
+    await ask(url, MemoryStore(None), "включи сплин", "pavel", host=ActingHost())
+    assert len(fake.requests) == 2
+
+
+async def test_the_models_own_words_are_not_repeated(api: tuple[ToolCallingApi, str]) -> None:
+    fake, url = api
+    fake.calls = [{"name": "flowpilot__play_music", "arguments": {"artist": "Сплин"}}]
+    run = await ask(url, MemoryStore(None), "включи сплин", "pavel", host=ActingHost())
+    assert len(fake.requests) == 1
+    assert [r.text for r in run.outputs["response"].items] == ["Хорошо."]
