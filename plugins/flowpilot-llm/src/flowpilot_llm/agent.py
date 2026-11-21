@@ -650,23 +650,28 @@ class LlmAgent:
         self._memory = getattr(ctx, "memory", None)
         ref = ctx.config.get("api_key")
         self._key = ctx.secret(ref["secret"]) if isinstance(ref, dict) else None
-        self._search, self._search_problem = None, None
-        provider = str(self._config.get("web_search") or "off")
-        if provider != "off":
-            ref = self._config.get("web_search_key")
-            try:
-                self._search = WebSearch(
-                    provider,
-                    key=ctx.secret(ref["secret"]) if isinstance(ref, dict) else None,
-                    url=self._config.get("web_search_url"),
-                    results=int(self._config.get("web_search_results", DEFAULT_RESULTS)),
-                )
-            except KeyError as err:
-                self._search_problem = f"the search key's secret {err} is not set"
-            except ValueError as err:
-                self._search_problem = str(err)
+        self._start_search(ctx)
         timeout = aiohttp.ClientTimeout(total=float(self._config.get("timeout_s", 60)))
         self._http = aiohttp.ClientSession(timeout=timeout)
+
+    def _start_search(self, ctx: NodeContext) -> None:
+        """The web search of the settings, or why it cannot work (``web_search``)."""
+        self._search, self._search_problem = None, None
+        provider = str(self._config.get("web_search") or "off")
+        if provider == "off":
+            return
+        ref = self._config.get("web_search_key")
+        try:
+            self._search = WebSearch(
+                provider,
+                key=ctx.secret(ref["secret"]) if isinstance(ref, dict) else None,
+                url=self._config.get("web_search_url"),
+                results=int(self._config.get("web_search_results", DEFAULT_RESULTS)),
+            )
+        except KeyError as err:
+            self._search_problem = f"the search key's secret {err} is not set"
+        except ValueError as err:
+            self._search_problem = str(err)
 
     async def stop(self) -> None:
         if self._http is not None:
