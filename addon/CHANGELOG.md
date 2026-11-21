@@ -4,6 +4,25 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.41
+
+Update the app only.
+
+### App
+
+- **Voice agent (new node).** Hears and answers with one speech-to-speech model over the OpenAI
+  Realtime API (gpt-realtime-2.1-mini by default, or a compatible API): no separate speech
+  recognition and text-to-speech, so the answer starts sooner and sounds more alive. The model
+  hears the end of the command itself; the agent has the LLM agent's memory, people, Home
+  Assistant tools, skills and web search, and continues the same dialogue. Wire the Client
+  input's audio to it and its speech, transcript, delta and response to the Client output. Needs
+  an OpenAI API key (a ChatGPT plan through ChatGPT Gateway cannot do audio). Not yet: a
+  confirmation sound, teaching quick commands, interrupting the answer.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.40
 
 Update the app only.
