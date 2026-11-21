@@ -4,6 +4,25 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.42
+
+Update the app only.
+
+### App
+
+- **The voice agent answers seconds sooner.** It took 5–7 s to start answering a short command:
+  - the model's judgement of whether a phrase is complete waited seconds for its timeout after
+    short commands (and sometimes missed the speech altogether). The end of a command is now a
+    pause of 600 ms by default (End of command: By a pause; Pause, ms); judging by meaning stays
+    an option;
+  - the audio waited for speaker identification (up to 3 s of speech) before it went to the
+    model. Now it goes at once; who speaks, facts and tools follow, and the answer still waits
+    for them.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.41
 
 Update the app only.
