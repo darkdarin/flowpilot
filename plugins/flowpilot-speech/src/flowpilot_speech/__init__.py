@@ -7,7 +7,7 @@ from flowpilot_sdk import Node
 from .node import SpeechText
 from .prepare import Options, Preparer, parse_replacements
 
-__version__ = "0.1.39"
+__version__ = "0.1.40"
 
 
 def nodes() -> list[type[Node]]:

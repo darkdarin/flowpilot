@@ -4,6 +4,23 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.40
+
+Update the app only.
+
+### App
+
+- **Web search.** The agent's new setting Web search (in Tools) lets it look up fresh facts on
+  the web (news, prices, sports, opening hours) when it does not know them and the home does not
+  have them: Tavily or Brave Search with their API key, or your own SearXNG by its address (its
+  JSON output must be on). The model calls it only when it needs it, so plain commands are as
+  fast as before; a searched answer takes a second or two longer. Off unless set; needs a model
+  with function calling.
+
+### Integration
+
+- No changes, no need to update.
+
 ## 0.1.39
 
 Update both: speech markup is in the app; "other music" and genres are in the integration.

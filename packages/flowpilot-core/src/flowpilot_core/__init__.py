@@ -14,7 +14,7 @@ from .registry import NodeRegistry
 from .validate import GrantPolicy, ValidatedGraph, validate_graph
 from .versions import satisfies
 
-__version__ = "0.1.39"
+__version__ = "0.1.40"
 
 __all__ = [
     "SCHEMA_VERSION",
