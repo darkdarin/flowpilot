@@ -4,6 +4,24 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.43
+
+Update both: the voice agent gets Home Assistant's tools only with both new.
+
+### App
+
+- **The voice agent controls the home.** It asks for Home Assistant's tools while the person
+  speaks, and got none: Home Assistant named the satellite only after speech was recognized, so
+  the request waited and timed out. The agents now pass the satellite along with the device, so
+  "here" means the satellite's room.
+
+### Integration
+
+- **A voice turn knows its satellite from the start.** When exactly one satellite is listening, its
+  device and room go with the turn, and Home Assistant's tools answer at once instead of waiting
+  for speech recognition (the voice agent asks for them while the person speaks; the LLM agent
+  sometimes waited too).
+
 ## 0.1.42
 
 Update the app only.
