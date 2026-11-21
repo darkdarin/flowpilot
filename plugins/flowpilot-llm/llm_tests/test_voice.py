@@ -171,7 +171,12 @@ async def test_hears_and_answers_in_its_own_voice(realtime: tuple[FakeRealtime, 
     session = update["session"]
     assert session["instructions"].startswith("Ты — Степа.")
     assert session["audio"]["input"]["format"] == {"type": "audio/pcm", "rate": RATE}
-    assert session["audio"]["input"]["turn_detection"]["create_response"] is False
+    assert session["audio"]["input"]["turn_detection"] == {
+        "type": "server_vad",  # by a pause: semantic_vad waited seconds after short commands
+        "silence_duration_ms": 600,
+        "create_response": False,
+        "interrupt_response": False,
+    }
     assert session["audio"]["output"]["voice"] == "marin"
     assert session["audio"]["input"]["transcription"]["language"] == "ru"
     # 16 kHz in, 24 kHz to the model; the model's end of the command stopped the audio
@@ -187,6 +192,14 @@ async def test_hears_and_answers_in_its_own_voice(realtime: tuple[FakeRealtime, 
     [event] = [e for e in run.trace.events if e.event == "llm.voice"]
     assert event.attrs["ended_by"] == "model"
     assert (event.attrs["input_tokens"], event.attrs["output_tokens"]) == (120, 40)
+
+
+async def test_the_end_of_command_by_meaning(realtime: tuple[FakeRealtime, str]) -> None:
+    fake, url = realtime
+    run = await hear(url, speech(), eagerness="high")
+    assert run.error is None, run.error
+    detection = fake.of("session.update")[0]["session"]["audio"]["input"]["turn_detection"]
+    assert (detection["type"], detection["eagerness"]) == ("semantic_vad", "high")
 
 
 async def test_the_end_of_the_audio_asks_for_the_answer(

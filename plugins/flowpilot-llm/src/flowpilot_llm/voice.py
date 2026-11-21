@@ -86,6 +86,7 @@ RATE = 24000  # the Realtime API's PCM, in and out
 CONNECT_TIMEOUT_S = 10.0
 TRANSCRIPT_WAIT_S = 3.0  # the person's words may come after the answer
 COMMIT_EMPTY = "input_audio_buffer_commit_empty"
+DEFAULT_PAUSE_MS = 600
 SILENCE_GRACE_S = 0.7  # after the audio ends, for the model's last voice activity events
 
 VOICE_TEXT = (
@@ -234,18 +235,32 @@ def _config_schema() -> dict[str, Any]:
             "eagerness": {
                 "title": "End of command",
                 "description": (
-                    "How soon the model decides the person has finished: Soon answers quicker "
-                    "but may cut a slow speaker off; Late waits for pauses. Automatic when not "
-                    "set."
+                    "How the model hears that the person has finished. By a pause: after "
+                    "Pause, ms of silence, quick and steady. By meaning: the model judges whether "
+                    "the phrase is complete, so a slow speaker is not cut off, but a short "
+                    "command may wait seconds for its timeout (Soon waits least, Late most). By "
+                    "a pause when not set."
                 ),
-                "enum": ["auto", "high", "medium", "low"],
+                "enum": ["pause", "auto", "high", "medium", "low"],
                 ENUM_TITLES_KEY: {
-                    "auto": "Automatic",
-                    "high": "Soon",
-                    "medium": "Medium",
-                    "low": "Late",
+                    "pause": "By a pause",
+                    "auto": "By meaning, automatic",
+                    "high": "By meaning, soon",
+                    "medium": "By meaning, medium",
+                    "low": "By meaning, late",
                 },
-                "default": "auto",
+                "default": "pause",
+            },
+            "pause_ms": {
+                "title": "Pause, ms",
+                "description": (
+                    f"Silence after speech that ends the command (By a pause); {DEFAULT_PAUSE_MS}."
+                    " Less answers sooner but may cut in on a pause for thought."
+                ),
+                "type": "integer",
+                "minimum": 200,
+                "maximum": 3000,
+                "default": DEFAULT_PAUSE_MS,
             },
             "transcription": {
                 "title": "Transcription model",
@@ -343,6 +358,16 @@ class VoiceAgent(LlmAgent):
         self._start_search(ctx)
         timeout = aiohttp.ClientTimeout(total=None, sock_connect=CONNECT_TIMEOUT_S)
         self._http = aiohttp.ClientSession(timeout=timeout)
+
+    def _turn_detection(self) -> dict[str, Any]:
+        """How the model hears the end of the command; the agent asks for the answer itself once
+        it is committed, so never twice."""
+        mode = str(self._config.get("eagerness") or "pause")
+        common = {"create_response": False, "interrupt_response": False}
+        if mode == "pause":
+            pause = int(self._config.get("pause_ms", DEFAULT_PAUSE_MS))
+            return {"type": "server_vad", "silence_duration_ms": pause} | common
+        return {"type": "semantic_vad", "eagerness": mode} | common
 
     async def _instructions(
         self, turn: TurnSession, cfg: Mapping[str, Any], language: str | None, log: Journal
@@ -467,12 +492,7 @@ class VoiceAgent(LlmAgent):
                             "model": str(self._config.get("transcription") or DEFAULT_TRANSCRIPTION)
                         }
                         | ({"language": base} if base else {}),
-                        "turn_detection": {
-                            "type": "semantic_vad",
-                            "eagerness": str(self._config.get("eagerness") or "auto"),
-                            "create_response": False,  # asked for once committed: never twice
-                            "interrupt_response": False,
-                        },
+                        "turn_detection": self._turn_detection(),
                     },
                     "output": {
                         "format": {"type": "audio/pcm", "rate": RATE},
