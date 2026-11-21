@@ -309,11 +309,28 @@ def build_host_ops(
         except TimeoutError:
             return None
 
+    def attached_now(request: HostRequest) -> conversation.ConversationInput | None:
+        """The Assist request behind the turn if Home Assistant has bound it already."""
+        attached = request.handle.attached if request.handle is not None else None
+        if attached is None or not attached.done() or attached.cancelled():
+            return None
+        return attached.result()
+
+    async def turn_input_unless_known(
+        request: HostRequest,
+    ) -> conversation.ConversationInput | None:
+        """The Assist request; not waited for when the caller already names the device (a voice
+        turn whose satellite was known from the start), so tools come while the person speaks."""
+        if request.args.get("device_id") or request.args.get("satellite_id"):
+            return attached_now(request)
+        return await turn_input(request)
+
     async def turn_where(request: HostRequest) -> Any:
         """Where the turn comes from: the satellite or device and its area. In a voice turn Home
-        Assistant names them once speech is recognized, so this waits for that (a few seconds)."""
+        Assistant names them once speech is recognized, so this waits for that (a few seconds)
+        unless the caller names them."""
         args = request.args
-        user_input = await turn_input(request)
+        user_input = await turn_input_unless_known(request)
         device_id = args.get("device_id") or (user_input.device_id if user_input else None)
         satellite_id = args.get("satellite_id") or (user_input.satellite_id if user_input else None)
         if device_id is None and satellite_id:
@@ -332,7 +349,7 @@ def build_host_ops(
         """Home Assistant's Assist LLM API for the turn's person, device and language: only
         entities exposed to Assist, tools run with the person's context."""
         args = request.args
-        user_input = await turn_input(request)
+        user_input = await turn_input_unless_known(request)
         user_id = args.get("user_id")
         context = (
             user_input.context

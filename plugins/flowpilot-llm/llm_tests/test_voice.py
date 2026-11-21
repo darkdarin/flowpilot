@@ -17,8 +17,10 @@ from flowpilot_core.runtime import RuntimeNodeContext
 from flowpilot_core.runtime.state import MemorySessionStore
 from flowpilot_llm import VoiceAgent
 from flowpilot_llm.voice import RATE, Resampler, _models_url, _session_url
-from flowpilot_sdk import Assurance, AudioChunk, AudioFormat, Principal
+from flowpilot_sdk import Assurance, AudioChunk, AudioFormat, DeviceInfo, Principal
 from flowpilot_server.memory_store import MemoryStore
+
+from .test_tools import HomeHost
 
 KEY = "sk-test"
 ANSWER_PCM = array("h", [1000, -1000] * 2400).tobytes()  # 0.2 s at 24 kHz
@@ -215,6 +217,33 @@ async def test_the_audio_does_not_wait_for_who_speaks(
     assert "input_audio_buffer.append" in kinds[:context]  # heard before it knew who
     assert kinds.index("response.create") > context  # never answered without the context
     assert run.outputs["response"].items[0].text == fake.answer
+
+
+async def test_home_assistant_tools_for_the_satellite_that_hears(
+    realtime: tuple[FakeRealtime, str],
+) -> None:
+    fake, url = realtime
+    host = HomeHost()
+    node = VoiceAgent()
+    cfg = {"url": url, "api_key": {"secret": "k"}}
+    await node.start(RuntimeNodeContext("voice", cfg, {"k": KEY}, frozenset({"k"})))
+    device = DeviceInfo(device_id="dev1", satellite_id="assist_satellite.station", area="Гостиная")
+    try:
+        run = await run_node_once(
+            node, {"audio": speech()}, host=host, context={"language": "ru", "device": device}
+        )
+    finally:
+        await node.stop()
+    assert run.error is None, run.error
+    [(op, args)] = [c for c in host.calls if c[0] == "ha.llm.tools"]
+    # named from the start, so Home Assistant answers while the person still speaks
+    assert (args["device_id"], args["satellite_id"]) == ("dev1", "assist_satellite.station")
+    tools = fake.of("session.update")[1]["session"]["tools"]
+    assert "intent__HassTurnOn" in [t["name"] for t in tools]
+    assert (
+        "Use the tools to control the home."
+        in fake.of("session.update")[1]["session"]["instructions"]
+    )
 
 
 async def test_the_end_of_command_by_meaning(realtime: tuple[FakeRealtime, str]) -> None:

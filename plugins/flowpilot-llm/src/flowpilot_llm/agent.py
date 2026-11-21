@@ -781,6 +781,7 @@ class LlmAgent:
         who: dict[str, Any] = {
             "user_id": speaker,
             "device_id": device.device_id if device else None,
+            "satellite_id": device.satellite_id if device else None,
             "language": language,
         }
         try:

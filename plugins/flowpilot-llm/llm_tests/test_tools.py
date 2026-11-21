@@ -338,6 +338,7 @@ async def test_the_agent_controls_the_home_as_the_speaker(api: tuple[ToolCalling
     assert called == {
         "user_id": "pavel",
         "device_id": None,
+        "satellite_id": None,
         "language": "ru",
         "name": "intent__HassTurnOn",
         "arguments": {"name": "Kitchen"},

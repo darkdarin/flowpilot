@@ -11,7 +11,9 @@ from homeassistant.components import stt
 from homeassistant.components.stt.models import SpeechAudioProcessing
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import chat_session
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -20,8 +22,36 @@ from .const import SIGNAL_CONNECTION, STT_LANGUAGES, TRANSCRIPT_TIMEOUT_S
 from .correlation import CURRENT_TURN
 from .entity import service_device
 from .graphs import GraphEntity, async_track_graphs, graph_unique_id
+from .host import area_of
 
 _LOGGER = logging.getLogger(__name__)
+
+SATELLITE_DOMAIN = "assist_satellite"
+LISTENING = "listening"  # AssistSatelliteState.LISTENING, set on the pipeline's STT start
+
+
+def listening_source(hass: HomeAssistant) -> dict[str, str]:
+    """The satellite that hears this command, when exactly one is listening now.
+
+    Home Assistant names the device only to the conversation agent, after speech is recognized;
+    a satellite's state turns ``listening`` when its pipeline starts speech-to-text, just before
+    it calls us. Knowing it from the start, FlowPilot's tools need not wait for recognition (an
+    agent that hears speech itself, ``llm.voice``, asks for them while the person speaks).
+    """
+    listening = [s for s in hass.states.async_all(SATELLITE_DOMAIN) if s.state == LISTENING]
+    if len(listening) != 1:
+        return {}
+    satellite_id = listening[0].entity_id
+    entry = er.async_get(hass).async_get(satellite_id)
+    device_id = entry.device_id if entry else None
+    source = {"satellite_id": satellite_id}
+    if device_id:
+        source["device_id"] = device_id
+    if (area_id := area_of(hass, satellite_id, device_id)) and (
+        area := ar.async_get(hass).async_get_area(area_id)
+    ):
+        source["area"] = area.name
+    return source
 
 
 async def async_setup_entry(
@@ -111,7 +141,7 @@ class FlowPilotSpeechToText(GraphEntity, stt.SpeechToTextEntity):
         conversation_id = session.conversation_id if session else None
         try:
             handle = await self._client.start_turn(
-                source={"kind": "ha.assist"},
+                source={"kind": "ha.assist", **listening_source(self.hass)},
                 language=metadata.language,
                 conversation_id=conversation_id,
                 audio_format={
