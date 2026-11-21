@@ -52,6 +52,7 @@ from flowpilot_sdk import (
 from flowpilot_sdk.language import LANGUAGE_META, language_by_script
 from flowpilot_sdk.skills import definition as skill_definition
 
+from .search import DEFAULT_RESULTS, PROVIDERS, WebSearch
 from .tools import (
     CONFIRM_TOOL,
     Tool,
@@ -112,6 +113,13 @@ def _language_clear(text: str) -> bool:
 STATE_TEXT = (
     "The state of the home as this request began (you need not ask for it before acting; ask "
     "again only to see what changed after your own actions):\n{}"
+)
+# Without it models tend to say they have no internet access, which is their default belief.
+SEARCH_TEXT = (
+    "You can look things up on the web with the web_search tool. When asked about something "
+    "current that you do not know and the home does not show (news, prices, exchange rates, "
+    "sports, events, opening hours), search instead of saying you cannot; never say you have no "
+    "internet access. Check the state of the home first when it may have the answer."
 )
 # Home Assistant intents and the sound that confirms them (``acknowledge`` on the ack answer)
 ACK_KINDS = {"HassTurnOn": "on", "HassTurnOff": "off"}
@@ -279,7 +287,7 @@ class LlmAgent:
     spec: ClassVar[NodeSpec] = NodeSpec(
         type="llm.agent",
         translations=node_translations(__package__, "llm.agent"),
-        version="1.7.0",
+        version="1.8.0",
         title="LLM agent",
         category="agent",
         inputs={
@@ -319,7 +327,8 @@ class LlmAgent:
                 "tools": {
                     "title": "Tools",
                     "description": (
-                        "What the agent may do itself: control the home, teach quick commands."
+                        "What the agent may do itself: control the home, teach quick commands, "
+                        "search the web."
                     ),
                 },
                 "memory": {
@@ -498,6 +507,49 @@ class LlmAgent:
                     "default": True,
                     GROUP_KEY: "tools",
                 },
+                "web_search": {
+                    "title": "Web search",
+                    "description": (
+                        "The agent may look up fresh facts on the web (news, prices, sports, "
+                        "opening hours) when it does not know them and the home does not have "
+                        "them; plain commands are not slowed down, a searched answer takes a "
+                        "second or two longer. Tavily and Brave need their API key, SearXNG its "
+                        "address. Needs a model with function calling; none when not set."
+                    ),
+                    "enum": ["off", *PROVIDERS],
+                    ENUM_TITLES_KEY: {
+                        "off": "None",
+                        "tavily": "Tavily",
+                        "brave": "Brave Search",
+                        "searxng": "SearXNG",
+                    },
+                    "default": "off",
+                    GROUP_KEY: "tools",
+                },
+                "web_search_key": {
+                    "title": "Search API key",
+                    "description": "A runtime secret: the key of Tavily or Brave Search.",
+                    "type": "secret",
+                    GROUP_KEY: "tools",
+                },
+                "web_search_url": {
+                    "title": "SearXNG address",
+                    "description": (
+                        "For example http://<host>:8080; its JSON output must be on "
+                        "(search.formats: html, json in settings.yml)."
+                    ),
+                    "type": "string",
+                    GROUP_KEY: "tools",
+                },
+                "web_search_results": {
+                    "title": "Search results",
+                    "description": "How many results the model reads; 5.",
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": DEFAULT_RESULTS,
+                    GROUP_KEY: "tools",
+                },
                 "people": {
                     "title": "Knows the household",
                     "description": (
@@ -572,6 +624,8 @@ class LlmAgent:
         self._skills: Skills | None = None
         # the provider refused tools with reasoning on (see _complete_with_tools)
         self._no_reasoning = False
+        self._search: WebSearch | None = None
+        self._search_problem: str | None = None  # why web search is set but cannot work
 
     @classmethod
     async def config_options(cls, field: str, config: Mapping[str, Any]) -> list[ConfigOption]:
@@ -596,6 +650,21 @@ class LlmAgent:
         self._memory = getattr(ctx, "memory", None)
         ref = ctx.config.get("api_key")
         self._key = ctx.secret(ref["secret"]) if isinstance(ref, dict) else None
+        self._search, self._search_problem = None, None
+        provider = str(self._config.get("web_search") or "off")
+        if provider != "off":
+            ref = self._config.get("web_search_key")
+            try:
+                self._search = WebSearch(
+                    provider,
+                    key=ctx.secret(ref["secret"]) if isinstance(ref, dict) else None,
+                    url=self._config.get("web_search_url"),
+                    results=int(self._config.get("web_search_results", DEFAULT_RESULTS)),
+                )
+            except KeyError as err:
+                self._search_problem = f"the search key's secret {err} is not set"
+            except ValueError as err:
+                self._search_problem = str(err)
         timeout = aiohttp.ClientTimeout(total=float(self._config.get("timeout_s", 60)))
         self._http = aiohttp.ClientSession(timeout=timeout)
 
@@ -861,6 +930,10 @@ class LlmAgent:
         )
         if home_tools:
             toolbox = toolbox.with_tools(home_tools)
+        if self._search is not None and self._http is not None:
+            toolbox = toolbox.with_tools([self._search.tool(self._http, language)])
+        elif self._search_problem:
+            turn.trace("llm.agent.no_web_search", reason=self._search_problem)
         mode = str(self._config.get("acknowledge", "area"))
         confirming = bool(home_tools) and mode != "never" and turn.output("ack").connected
         if confirming:
@@ -902,7 +975,8 @@ class LlmAgent:
         )
         # last: it changes every turn, the rest stays the same and is cached by the provider
         state = STATE_TEXT.format(home_state) if home_tools and home_state else ""
-        system = "\n\n".join(p for p in (*parts, guide, state) if p)
+        searching = SEARCH_TEXT if self._search is not None else ""
+        system = "\n\n".join(p for p in (*parts, guide, searching, state) if p)
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}] if system else []
         messages += history[-2 * keep :] if keep else []
         messages.append({"role": "user", "content": said.text})
