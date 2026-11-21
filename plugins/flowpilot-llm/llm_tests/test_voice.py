@@ -17,7 +17,7 @@ from flowpilot_core.runtime import RuntimeNodeContext
 from flowpilot_core.runtime.state import MemorySessionStore
 from flowpilot_llm import VoiceAgent
 from flowpilot_llm.voice import RATE, Resampler, _models_url, _session_url
-from flowpilot_sdk import AudioChunk, AudioFormat
+from flowpilot_sdk import Assurance, AudioChunk, AudioFormat, Principal
 from flowpilot_server.memory_store import MemoryStore
 
 KEY = "sk-test"
@@ -167,9 +167,9 @@ async def test_hears_and_answers_in_its_own_voice(realtime: tuple[FakeRealtime, 
     assert run.error is None, run.error
     assert fake.auth == f"Bearer {KEY}"
     assert fake.query == {"model": "gpt-realtime-2.1-mini"}
-    [update] = fake.of("session.update")
-    session = update["session"]
-    assert session["instructions"].startswith("Ты — Степа.")
+    first, context = fake.of("session.update")
+    session = first["session"]
+    assert context["session"]["instructions"].startswith("Ты — Степа.")
     assert session["audio"]["input"]["format"] == {"type": "audio/pcm", "rate": RATE}
     assert session["audio"]["input"]["turn_detection"] == {
         "type": "server_vad",  # by a pause: semantic_vad waited seconds after short commands
@@ -192,6 +192,29 @@ async def test_hears_and_answers_in_its_own_voice(realtime: tuple[FakeRealtime, 
     [event] = [e for e in run.trace.events if e.event == "llm.voice"]
     assert event.attrs["ended_by"] == "model"
     assert (event.attrs["input_tokens"], event.attrs["output_tokens"]) == (120, 40)
+
+
+async def test_the_audio_does_not_wait_for_who_speaks(
+    realtime: tuple[FakeRealtime, str],
+) -> None:
+    fake, url = realtime
+    node = VoiceAgent()
+    cfg = {"url": url, "api_key": {"secret": "k"}, "system_prompt": "Ты — Степа."}
+    await node.start(RuntimeNodeContext("voice", cfg, {"k": KEY}, frozenset({"k"})))
+    who = Principal("masha", frozenset(), Assurance.LOW)
+    late = InputFeed(items=[who], meta={}, end="end", start_delay_s=0.4)  # speaker ID: 3 s
+    try:
+        run = await run_node_once(
+            node, {"audio": speech(), "principal": late}, context={"language": "ru"}
+        )
+    finally:
+        await node.stop()
+    assert run.error is None, run.error
+    kinds = [e["type"] for e in fake.events]
+    context = kinds.index("session.update", 1)
+    assert "input_audio_buffer.append" in kinds[:context]  # heard before it knew who
+    assert kinds.index("response.create") > context  # never answered without the context
+    assert run.outputs["response"].items[0].text == fake.answer
 
 
 async def test_the_end_of_command_by_meaning(realtime: tuple[FakeRealtime, str]) -> None:
@@ -232,7 +255,7 @@ async def test_tools_run_between_responses(realtime: tuple[FakeRealtime, str]) -
     fake.calls = [{"name": "remember", "arguments": {"fact": "Кот — Барсик.", "about": "home"}}]
     run = await hear(url, speech(), store=memory)
     assert run.error is None, run.error
-    tools = fake.of("session.update")[0]["session"]["tools"]
+    tools = fake.of("session.update")[1]["session"]["tools"]
     assert {"type", "name", "description", "parameters"} <= set(tools[0])
     assert "remember" in [t["name"] for t in tools]
     [fact] = memory.all()
@@ -259,7 +282,7 @@ async def test_the_dialogue_goes_on_in_the_next_turn(realtime: tuple[FakeRealtim
             assert run.error is None, run.error
     finally:
         await node.stop()
-    second = fake.of("session.update")[1]["session"]["instructions"]
+    second = fake.of("session.update")[3]["session"]["instructions"]
     assert f"User: который час\nYou: {fake.answer}" in second
 
 

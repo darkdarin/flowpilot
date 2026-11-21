@@ -471,10 +471,11 @@ class VoiceAgent(LlmAgent):
                 max_msg_size=0,
             )
         )
+        # who speaks, facts and tools come in parallel: the audio does not wait for them
+        context = asyncio.create_task(self._instructions(turn, cfg, language, log))
         sender: asyncio.Task[None] | None = None
         ws: aiohttp.ClientWebSocketResponse | None = None
         try:
-            instructions, toolbox = await self._instructions(turn, cfg, language, log)
             try:
                 ws = await connecting
             except aiohttp.ClientError as err:
@@ -483,7 +484,7 @@ class VoiceAgent(LlmAgent):
             session: dict[str, Any] = {
                 "type": "realtime",
                 "model": model,
-                "instructions": instructions,
+                "instructions": VOICE_TEXT,  # the turn's own come with its context
                 "output_modalities": ["audio"],
                 "audio": {
                     "input": {
@@ -500,16 +501,13 @@ class VoiceAgent(LlmAgent):
                     },
                 },
             }
-            if toolbox:
-                session["tools"] = [_realtime_tool(d) for d in toolbox.definitions()]
-                session["tool_choice"] = "auto"
             await ws.send_json({"type": "session.update", "session": session})
-            exchange = _Exchange(turn, ws, toolbox, log, language, audio)
+            exchange = _Exchange(turn, ws, context, log, language, audio)
             exchange.audio_end = lambda: ended_by
             sender = asyncio.create_task(exchange.send_audio(heard))
             await exchange.run(sender, timeout_s=float(self._config.get("timeout_s", 60)))
         finally:
-            for task in (listener, sender, connecting):
+            for task in (listener, sender, connecting, context):
                 if task is not None and not task.done():
                     task.cancel()
                     with contextlib.suppress(BaseException):
@@ -528,14 +526,16 @@ class _Exchange:
         self,
         turn: TurnSession,
         ws: aiohttp.ClientWebSocketResponse,
-        toolbox: Toolbox,
+        context: asyncio.Task[tuple[str, Toolbox]],
         log: Journal,
         language: str | None,
         audio: InputStream[Any],
     ) -> None:
         self._turn = turn
         self._ws = ws
-        self._toolbox = toolbox
+        self._context = context
+        self._toolbox = Toolbox([])
+        self._context_sent = False
         self._log = log
         self._language = language
         self._audio = audio
@@ -566,6 +566,18 @@ class _Exchange:
                 {"type": "input_audio_buffer.append", "audio": base64.b64encode(pcm).decode()}
             )
 
+    async def _send_context(self) -> None:
+        """The turn's instructions and tools, once (waits for them): before any answer."""
+        if self._context_sent:
+            return
+        instructions, self._toolbox = await self._context
+        session: dict[str, Any] = {"type": "realtime", "instructions": instructions}
+        if self._toolbox:
+            session["tools"] = [_realtime_tool(d) for d in self._toolbox.definitions()]
+            session["tool_choice"] = "auto"
+        await self._ws.send_json({"type": "session.update", "session": session})
+        self._context_sent = True
+
     async def run(self, sender: asyncio.Task[None], *, timeout_s: float) -> None:
         """Read events until the answer is done (or nothing was said)."""
         rounds = 0
@@ -573,6 +585,8 @@ class _Exchange:
         audio_over: float | None = None  # when all the audio was sent, the command not over
         asked_commit = False
         while True:
+            if not self._context_sent and self._context.done():
+                await self._send_context()
             if sender.done() and not sender.cancelled() and (err := sender.exception()):
                 raise VoiceError(f"sending the audio failed: {err}") from err
             if sender.done() and not self.committed and not asked_commit:
@@ -613,6 +627,7 @@ class _Exchange:
                 self.ended_by = self.ended_by or "model"
                 self._audio.close()  # the command is over: the satellite can stop streaming
                 deadline = time.monotonic() + timeout_s
+                await self._send_context()
                 await self._ws.send_json({"type": "response.create"})
             elif kind == "conversation.item.input_audio_transcription.completed":
                 await self._heard(str(event.get("transcript") or ""))
