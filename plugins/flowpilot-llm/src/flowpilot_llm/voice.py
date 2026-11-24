@@ -11,8 +11,9 @@ One turn is one Realtime session over a WebSocket:
 1. The connection, the turn's context (facts, people, Home Assistant's tools and state) and the
    first audio come in parallel: audio is kept until the session is set up, then sent on as it
    comes, resampled to the model's 24 kHz.
-2. The model's voice activity detection hears the end of the command (``semantic_vad``); the
-   audio input is then closed so the satellite stops streaming. The end of the audio stream (the
+2. The model's voice activity detection hears the end of the command: by a pause
+   (``server_vad``, the default) or by meaning (``semantic_vad``); the audio input is then closed
+   so the satellite stops streaming. The end of the audio stream (the
    satellite's own detection) or the longest command ends it too.
 3. The answer's audio goes out on ``speech`` as the model speaks, its words on ``delta``; tool
    calls are run between responses, up to ``MAX_TOOL_ROUNDS``; the last round must answer.

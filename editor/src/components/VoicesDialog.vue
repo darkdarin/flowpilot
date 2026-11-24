@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Voices: the household's voice profiles for the Who speaks node. A sample is a person speaking,
-// from the microphone or from a turn a Debug probe recorded (the same microphone the satellite
-// hears with: better). The runtime keeps embeddings of the samples, not the audio. "Check a voice"
+// from the microphone or from a turn live debug recorded (the same microphone the satellite hears
+// with: better). The runtime keeps embeddings of the samples, not the audio. "Check a voice"
 // shows how close some speech is to each profile, to tune the threshold on your own voices.
 import { computed, onMounted, ref } from "vue";
 import type { HostOption, Recording, Voices, VoiceTest } from "../api";
@@ -99,7 +99,7 @@ async function pickFrom(user: string) {
     return;
   }
   try {
-    // what people said: the client's audio (or a Debug probe's recording), not speech it made
+    // what people said: the client's audio (or a recording of the old Debug probe), not speech it made
     const source = new Set(nodes.value.filter((n) => n.data?.type === "client.source").map((n) => n.id));
     recordings.value = (await api.value!.recordings()).recordings.filter((r) => r.port === null || source.has(r.node));
     picking.value = user;
