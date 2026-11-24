@@ -105,7 +105,7 @@ async def test_tools_do_not_wait_for_recognition_once_the_satellite_is_named(
         assert await async_setup_component(hass, domain, {})
     host = build_host_ops(hass, MockConfigEntry(domain="flowpilot"))
     # a voice turn whose Assist request Home Assistant has not bound yet (still listening)
-    handle = SimpleNamespace(attached=asyncio.get_running_loop().create_future())
+    handle: Any = SimpleNamespace(attached=asyncio.get_running_loop().create_future())
     named = {"language": "ru", "device_id": "dev1", "satellite_id": "assist_satellite.station"}
     result = await asyncio.wait_for(host["ha.llm.tools"](HostRequest(handle, named)), 1.0)
     assert result["tools"]
