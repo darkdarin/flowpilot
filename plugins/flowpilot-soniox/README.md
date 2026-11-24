@@ -4,7 +4,9 @@
 the Soniox real-time WebSocket API directly:
 
 - `soniox.stt` — streaming speech-to-text with partial results, its own end-of-speech detection,
-  context (terms, text) and wake word removal;
-- `soniox.tts` — streaming text-to-speech: speaks while the agent is still writing.
+  language detection (the turn's language follows what was said), context (terms, text) and wake
+  word removal;
+- `soniox.tts` — streaming text-to-speech: speaks while the agent is still writing, in the language
+  of the answer unless the settings fix one; cloned voices too.
 
 Both need a Soniox API key, kept as a runtime secret (`{"secret": "soniox"}`).

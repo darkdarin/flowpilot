@@ -9,8 +9,10 @@
    Integration), then restart Home Assistant.
 3. Home Assistant finds the app's runtime by itself: confirm the discovered **FlowPilot Assist** in
    Settings → Devices & services. You do not need a URL or a token.
-4. In Settings → Voice assistants, create (or edit) an assistant with **FlowPilot** as its
-   speech-to-text and conversation agent. Satellites using that assistant now run your graph.
+4. In Settings → Voice assistants, create (or edit) an assistant with the same FlowPilot graph as
+   its speech-to-text and conversation agent (each deployed graph has its own pair; **FlowPilot
+   Speech-to-text** and **FlowPilot Agent** follow the main graph), and optionally its
+   text-to-speech to have the graph speak. Satellites using that assistant now run your graph.
 
 The add-on starts with a graph `main` that answers with the Home Assistant agent. Open it in the
 editor to add speech-to-text, other agents or text-to-speech, then press **Deploy**.
@@ -24,10 +26,13 @@ editor to add speech-to-text, other agents or text-to-speech, then press **Deplo
 
 Everything lives in the add-on's data folder and is part of its backups: `config.json` (ports,
 default graph), `token` (for clients outside Home Assistant), `graphs/` (each graph and its draft),
-`secrets.json` (API keys entered under Secrets in the editor). Debug recordings are kept out of
-backups.
+`secrets.json` (API keys entered under Secrets in the editor), `memory.json`,
+`quick_commands.json` and `skills.json` (the agent's memory, quick commands and skills),
+`voices.json` (voice profiles for Who speaks) and `sessions.json` (dialogues). Live debug
+recordings and downloaded voice models (`models/`) are kept out of backups.
 
 ## Clients outside Home Assistant
 
 Map port 8765 in the add-on's network settings to reach the runtime API from other machines (the
-browser dev client at `/`, `POST /api/turn`). They need the token from the `token` file.
+browser dev client at `/`, `POST /api/turn`, the WebSocket protocol). They need the token from the
+`token` file.

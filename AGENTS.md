@@ -33,8 +33,9 @@ Page "06 · Prototype v0.1" describes a starter archive that is not in this repo
 | Path | What |
 |---|---|
 | `packages/flowpilot-sdk/` | Plugin SDK: payload types, `Envelope`, stream and node interfaces |
-| `packages/flowpilot-core/` | Runtime: graph validation and execution |
-| `plugins/` | Node plugins |
+| `packages/flowpilot-core/` | Runtime: graph validation and execution, built-in logic nodes, conformance kit |
+| `packages/flowpilot-server/` | Runtime server: client protocol, editor API, Home Assistant nodes, stores |
+| `plugins/` | Node plugins (entry point group `flowpilot.nodes`) |
 | `custom_components/flowpilot/` | Home Assistant companion integration (Assist mode, ADR-011/012); repo root for HACS/Marketplace |
 | `ha-integration/` | Test environment for the integration: own uv project pinned to one HA release |
 | `addon/` | Home Assistant app (add-on); image `ghcr.io/darkdarin/flowpilot` published by `release.yml` |
@@ -43,7 +44,8 @@ Page "06 · Prototype v0.1" describes a starter archive that is not in this repo
 ## Environment
 
 - Python 3.14, `uv` workspace. Checks: `uv run ruff check .`, `uv run ruff format --check .`,
-  `uv run mypy`, `uv run pytest` (the same steps run in CI).
+  `uv run mypy`, `uv run pytest` (the same steps run in CI). CI also runs `uv run mypy` and
+  `uv run pytest` in `ha-integration/` (its own uv project) and `npm run build` in `editor/`.
 - Develop against the **local Home Assistant** in `~/Projects/ha-dev` first (HA core from source, same
   versions as the owner's production HA; see Notion "08 · Development"). The owner's live HA (RPi 5) is
   only for final checks: restarting it or changing devices affects a real home, so do it deliberately and

@@ -7,6 +7,7 @@ FlowPilot nodes that act as Wyoming **clients**, so one node works with any Wyom
   service returns the final transcript (services that detect the end of speech themselves).
 - `wyoming.tts` — synthesizes the agent's streamed text. Uses Wyoming synthesize streaming when the
   service supports it; otherwise splits the text into sentences and synthesizes them one by one, so
-  speech starts after the first sentence with any Wyoming TTS (e.g. Piper).
+  speech starts after the first sentence with any Wyoming TTS (e.g. Piper). Without a chosen voice,
+  an answer in another language than the turn's gets a voice of the service in that language.
 
 Capabilities are read from the service's `describe` → `info` answer.

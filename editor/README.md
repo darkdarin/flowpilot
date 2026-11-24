@@ -8,8 +8,14 @@ Visual graph editor for FlowPilot (Vue 3 + Vue Flow). The runtime serves the bui
   to the runtime secrets file, never the secret itself.
 - Every change is autosaved as a draft (`<id>.draft.json`) and validated by the runtime; **Deploy**
   swaps the running graph without a restart (turns in flight finish on the old version).
-- **Live debug** subscribes to the runtime trace stream: node status and timings, item counts on wires,
-  host calls, and a waterfall per turn. Traces never carry audio or text.
+- **Live debug** subscribes to the runtime trace stream: node status, reaction and delay, item counts
+  on wires and where a turn failed, in three tabs: **Data** (what each node's inputs and outputs
+  carried), **Journal** (what nodes logged: model rounds, tool calls, quick commands) and
+  **Timeline** (each node's reaction and delay, the path to the answer's first sound). Traces carry
+  no audio or text by themselves; a watched turn's port data is captured only while live debug is on
+  (`flowpilot_server/captures.py`), audio as recordings the editor plays through the API.
+- Pages besides the graph: **Secrets**, **Memory**, **Quick commands**, **Skills** and **Voices**
+  (voice profiles for the Who speaks node).
 - Light and dark themes, English and Russian.
 
 ## Develop

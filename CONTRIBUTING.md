@@ -20,11 +20,18 @@ uv run mypy
 uv run pytest
 ```
 
+CI also type-checks and tests the Home Assistant integration in `ha-integration/` (its own uv
+project: `uv sync`, `uv run mypy`, `uv run pytest` there; the tests need `ffmpeg`) and builds the
+editor (`npm ci && npm run build` in `editor/`).
+
 ## Conventions
 
 - Code, identifiers, comments and repository docs are in English.
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/): `feat: ...`,
   `fix: ...`, `docs: ...`, `chore: ...`.
+- A node plugin is a package under `plugins/` that registers a callable returning its node classes
+  in the `flowpilot.nodes` entry point group (`[project.entry-points."flowpilot.nodes"]` in its
+  `pyproject.toml`, e.g. `audio = "flowpilot_audio:nodes"`); the runtime loads it from there.
 - Every node plugin declares typed ports, a documented timeout and failure behaviour, and passes the
   plugin conformance kit:
 

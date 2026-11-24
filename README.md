@@ -22,8 +22,8 @@ Build what happens between a satellite hearing a command and Home Assistant answ
 pick any speech-to-text and agent, put a voice activity detector in front of Whisper, split and
 join branches, and watch every turn flow through the graph live.
 
-> Early version (0.1). It works inside Assist today, with any satellite; speaker identification,
-> LLM agents and tools are on the way.
+> Early version (0.1). It works inside Assist today, with any satellite; nodes and their settings
+> may still change between releases.
 
 <p align="center"><img alt="The FlowPilot graph editor" src="docs/images/editor.png" width="900"></p>
 
@@ -32,18 +32,23 @@ join branches, and watch every turn flow through the graph live.
 - **A graph editor in the sidebar.** Nodes for Home Assistant speech-to-text, text-to-speech and
   conversation agents, any [Wyoming](https://github.com/OHF-Voice/wyoming) speech service,
   [Soniox](https://soniox.com) and [Deepgram](https://deepgram.com) real-time speech-to-text and
-  text-to-speech, a lightweight LLM agent
-  for any OpenAI-compatible API (OpenAI, OpenRouter, Ollama…), a voice command
-  segmenter, gain and automatic gain for quiet microphones, and logic. Wires are colored by the data
-  they carry and only connect where the types match. Light and dark themes, English and Russian.
+  text-to-speech, a lightweight LLM agent for any OpenAI-compatible API (OpenAI, OpenRouter,
+  Ollama…) with Home Assistant's tools, memory, your own skills, music through Music Assistant and
+  web search (Tavily, Brave Search, SearXNG), a voice agent on a speech-to-speech model (OpenAI
+  Realtime API), Home Assistant quick commands in front of an agent, telling who speaks by voice,
+  Text for speech for Russian voices, a voice command segmenter, gain and automatic gain for quiet
+  microphones, and logic (Condition by the turn, the speaker or the language, Value, First
+  present). Wires are colored by the data they carry and only connect where the types match.
+  Light and dark themes, English and Russian.
 - **Secrets.** API keys (Soniox, Deepgram and other cloud services) are entered once under **Secrets** in
   the editor and referred to by name in node settings; the runtime never shows a value again.
 - **Safe changes.** Every edit is saved as a draft and checked; **Deploy** switches the running
   graph without a restart, and a turn in progress finishes on the old version.
-- **Live debug.** See each node's status and timing, how much data went over every wire and where
-  a turn failed. Put a **Debug probe** next to any output to hear the audio or read the text that
-  went through; pick a turn and it shows right on the node. Probes run only while live debug is on
-  (greyed out otherwise), and recordings stay on your machine and out of Home Assistant backups. No
+- **Live debug.** See each node's status, reaction and delay, how much data went over every wire
+  and where a turn failed. Pick a turn: **Data** shows what each node's inputs and outputs carried
+  (text, data, audio to play), **Journal** what the nodes wrote (model requests, tool calls, quick
+  commands) and **Timeline** where the time to the answer went. Data is collected only while live
+  debug is on, and recordings stay on your machine and out of Home Assistant backups. No
   satellite needed to try a graph: in live debug the **Client input** node takes typed text, a
   microphone recording or an audio file, and a **Fixed answer** node stands in for an agent
   (`echo: {text}` repeats what was said).
@@ -59,8 +64,8 @@ join branches, and watch every turn flow through the graph live.
 
 - Home Assistant OS or Supervised, **2026.10 or newer** (the app runs on aarch64 and amd64, for
   example a Raspberry Pi 5).
-- For voice: a satellite and a speech-to-text service, either a Home Assistant STT entity (cloud,
-  Whisper and so on) or a Wyoming service FlowPilot can reach.
+- For voice: a satellite and a speech-to-text service: a Home Assistant STT entity (cloud,
+  Whisper and so on), a Wyoming service FlowPilot can reach, or Soniox or Deepgram with an API key.
 
 ## Installation
 
@@ -121,7 +126,7 @@ The starter graph has no speech-to-text yet. Open **FlowPilot** in the sidebar a
 1. **Home Assistant speech-to-text** (pick your STT entity) or **Wyoming speech-to-text** (your
    service's `tcp://host:port`). For Whisper and most Home Assistant STT entities put a **Voice
    command segmenter** between **Client input** `audio` and the speech-to-text node.
-2. A **First utterance** node: connect the speech-to-text `utterance` to `primary` and **Client
+2. A **First present** node: connect the speech-to-text `utterance` to `primary` and **Client
    input** `utterance` to `fallback`, then its `value` to the agent's `utterance` (an input takes one
    wire, so this replaces the starter's direct wire). Voice and typed turns both work this way.
 3. The speech-to-text `transcript` to **Client output** `transcript`, so the satellite shows what
@@ -142,8 +147,10 @@ On the **Configuration** tab of the app. Usually there is nothing to change.
 
 ### Data
 
-Graphs, their drafts and the runtime config live in the app's data folder and are part of Home
-Assistant backups. Each deployed graph keeps its previous version as a backup.
+Graphs, their drafts, the runtime config, secrets, the agent's memory, quick commands, skills and
+voice profiles live in the app's data folder and are part of Home Assistant backups. Each deployed
+graph keeps its previous version as a backup. Live debug recordings and the downloaded speaker
+model are left out of backups.
 
 ### Clients outside Home Assistant
 
@@ -177,7 +184,8 @@ satellite ──> Assist ──> FlowPilot STT entity ─┐            ┌─> 
 The integration (`custom_components/flowpilot`) gives Assist a speech-to-text engine, a
 conversation agent and a text-to-speech voice that hand the audio to the FlowPilot runtime and take
 its answer and speech back; the stages of one Assist run are linked into one FlowPilot turn. The runtime (the app, `addon/`)
-executes the graph and calls back into Home Assistant for its STT, TTS and agents. The core does
+executes the graph and calls back into Home Assistant for its STT, TTS, agents and the agents'
+tools (Assist actions, skills, music). The core does
 not depend on Home Assistant, so the runtime also runs on its own:
 
 ```sh
@@ -191,8 +199,8 @@ docker exec flowpilot cat /data/token     # token for the editor and the integra
 |---|---|
 | `packages/flowpilot-sdk` | Plugin SDK: payload types, ports, node interface |
 | `packages/flowpilot-core` | Runtime: graph validation and execution, plugin conformance kit |
-| `packages/flowpilot-server` | Runtime server, client protocol, editor API |
-| `plugins/` | Node plugins (Wyoming, voice activity detection) |
+| `packages/flowpilot-server` | Runtime server, client protocol, editor API, Home Assistant nodes |
+| `plugins/` | Node plugins (Wyoming, Soniox, Deepgram, LLM agents, audio, voice activity detection, text for speech) |
 | `custom_components/flowpilot` | Home Assistant integration (installed via Marketplace/HACS) |
 | `ha-integration/` | Test environment for the integration (pinned Home Assistant) |
 | `addon/` | Home Assistant app |
