@@ -4,6 +4,9 @@
   "after_dependencies": [
     "hassio"
   ],
+  "categories": [
+    "ai_voice.voice_assistants"
+  ],
   "codeowners": [
     "@darkdarin"
   ],
