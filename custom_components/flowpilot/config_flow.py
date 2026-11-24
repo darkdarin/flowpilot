@@ -21,7 +21,20 @@ from homeassistant.helpers.hassio import is_hassio
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 
 from .client import FlowPilotClient, FlowPilotError
-from .const import CONF_FALLBACK_TTS, CONF_TOKEN, CONF_URL, DOMAIN
+from .const import (
+    CONF_DUCK,
+    CONF_DUCK_EXCLUDE,
+    CONF_DUCK_FALLBACK,
+    CONF_DUCK_LEVEL,
+    CONF_FALLBACK_TTS,
+    CONF_TOKEN,
+    CONF_URL,
+    DOMAIN,
+    DUCK_LEVEL_DEFAULT,
+    DUCK_MUTE,
+    DUCK_NONE,
+    DUCK_PAUSE,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -132,7 +145,8 @@ class FlowPilotConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class FlowPilotOptionsFlow(OptionsFlow):
-    """The fallback voice: speaks what FlowPilot has no speech for (see tts.py)."""
+    """The fallback voice: speaks what FlowPilot has no speech for (see tts.py); quieting the
+    media players of a listening satellite's area (see duck.py)."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
@@ -145,15 +159,42 @@ class FlowPilotOptionsFlow(OptionsFlow):
             )
             if e.domain == "tts"
         ]
+        current = self.config_entry.options
         schema = probatio.Schema(
             {
                 probatio.Optional(
                     CONF_FALLBACK_TTS,
-                    description={
-                        "suggested_value": self.config_entry.options.get(CONF_FALLBACK_TTS)
-                    },
+                    description={"suggested_value": current.get(CONF_FALLBACK_TTS)},
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="tts", exclude_entities=ours)
+                ),
+                probatio.Optional(
+                    CONF_DUCK, default=bool(current.get(CONF_DUCK))
+                ): selector.BooleanSelector(),
+                probatio.Optional(
+                    CONF_DUCK_LEVEL, default=current.get(CONF_DUCK_LEVEL, DUCK_LEVEL_DEFAULT)
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=5,
+                        max=80,
+                        step=5,
+                        unit_of_measurement="%",
+                        mode=selector.NumberSelectorMode.SLIDER,
+                    )
+                ),
+                probatio.Optional(
+                    CONF_DUCK_FALLBACK, default=current.get(CONF_DUCK_FALLBACK, DUCK_MUTE)
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[DUCK_MUTE, DUCK_PAUSE, DUCK_NONE],
+                        translation_key=CONF_DUCK_FALLBACK,
+                    )
+                ),
+                probatio.Optional(
+                    CONF_DUCK_EXCLUDE,
+                    description={"suggested_value": current.get(CONF_DUCK_EXCLUDE)},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="media_player", multiple=True)
                 ),
             }
         )

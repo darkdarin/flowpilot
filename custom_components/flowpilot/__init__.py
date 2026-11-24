@@ -8,6 +8,7 @@ from homeassistant.core import HomeAssistant
 
 from .client import FlowPilotClient
 from .const import CONF_TOKEN, CONF_URL, SIGNAL_CONNECTION
+from .duck import MediaDucker
 from .host import build_host_ops
 from .references import ReferenceMonitor
 
@@ -23,7 +24,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: FlowPilotConfigEntry) ->
         entry.data[CONF_TOKEN],
         signal=SIGNAL_CONNECTION.format(entry_id=entry.entry_id),
     )
-    client.host_ops.update(build_host_ops(hass, entry))
+    ducker = MediaDucker(hass, entry)
+    ducker.start()
+    entry.async_on_unload(ducker.stop)
+    client.host_ops.update(build_host_ops(hass, entry, ducker.release))
     monitor = ReferenceMonitor(hass, entry.entry_id)
     client.on_references = monitor.update
     monitor.start()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import probatio
@@ -119,27 +120,27 @@ def tool_entities(data: Any) -> list[str]:
     ]
 
 
+def entity_area(hass: HomeAssistant, entry: er.RegistryEntry) -> str | None:
+    """The area of an entity: its own, else its device's."""
+    if entry.area_id is None and entry.device_id:
+        device = dr.async_get(hass).async_get(entry.device_id)
+        return dr.async_get_effective_area_id(hass, device) if device else None
+    return entry.area_id
+
+
 def entities_in_area(
     hass: HomeAssistant, entity_ids: list[str], satellite_id: str | None, device_id: str | None
 ) -> bool:
     """Whether every entity is in the area of the satellite (or device) that heard the turn."""
     if not entity_ids:
         return False
-    entities, devices = er.async_get(hass), dr.async_get(hass)
+    entities = er.async_get(hass)
     area_id = area_of(hass, satellite_id, device_id)
     if area_id is None:
         return False
     for entity_id in entity_ids:
         entry = entities.async_get(entity_id)
-        if entry is None:
-            return False
-        target_area = entry.area_id
-        if target_area is None and entry.device_id:
-            target_device = devices.async_get(entry.device_id)
-            target_area = (
-                dr.async_get_effective_area_id(hass, target_device) if target_device else None
-            )
-        if target_area != area_id:
+        if entry is None or entity_area(hass, entry) != area_id:
             return False
     return True
 
@@ -152,9 +153,19 @@ class HostOpError(Exception):
     """A host operation cannot be performed with the given arguments."""
 
 
+async def _nothing_held(satellite_id: str | None) -> None:
+    return None
+
+
 def build_host_ops(
-    hass: HomeAssistant, entry: ConfigEntry[FlowPilotClient]
+    hass: HomeAssistant,
+    entry: ConfigEntry[FlowPilotClient],
+    release_media: Callable[[str | None], Awaitable[None]] = _nothing_held,
 ) -> dict[str, HostHandler]:
+    """``release_media`` gives the media players quieted for a listening satellite their sound
+    back (duck.py); the operations that act on the home wait for it, so a command like "louder"
+    counts from the real volume."""
+
     def refuse_own(entity_id: str) -> None:
         entity = er.async_get(hass).async_get(entity_id)
         if entity is not None and entity.platform == DOMAIN:
@@ -164,6 +175,7 @@ def build_host_ops(
         args = request.args
         agent_id = args.get("agent_id") or DEFAULT_AGENT_ID
         refuse_own(agent_id)
+        await release_media(args.get("satellite_id"))
 
         user_input: conversation.ConversationInput | None = None
         if request.handle is not None:
@@ -392,6 +404,7 @@ def build_host_ops(
 
     async def llm_call(request: HostRequest) -> Any:
         """Run one tool of the Assist API; failures come back as text for the model."""
+        await release_media(request.args.get("satellite_id"))
         api = await llm_api(request)
         arguments = request.args.get("arguments") or {}
         name = str(request.args["name"])
@@ -426,6 +439,7 @@ def build_host_ops(
         domain, _, service = str(args.get("action") or "").partition(".")
         if not domain or not service or not hass.services.has_service(domain, service):
             return {"error": True, "data": {"message": f"no action {args.get('action')!r}"}}
+        await release_media(args.get("satellite_id"))
         user_input = await turn_input(request)
         user_id = args.get("user_id")
         context = (

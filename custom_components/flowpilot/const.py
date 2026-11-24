@@ -9,6 +9,15 @@ CONF_URL: Final = "url"
 CONF_TOKEN: Final = "token"
 # Options: the Home Assistant voice for texts FlowPilot has no speech for (tts.py).
 CONF_FALLBACK_TTS: Final = "fallback_tts"
+# Options: quiet the media players in a satellite's area while it listens (duck.py).
+CONF_DUCK: Final = "duck_media"
+CONF_DUCK_LEVEL: Final = "duck_level"  # percent of the player's volume while ducked
+CONF_DUCK_FALLBACK: Final = "duck_fallback"  # for players without a volume: mute, pause, none
+CONF_DUCK_EXCLUDE: Final = "duck_exclude"
+DUCK_LEVEL_DEFAULT: Final = 20
+DUCK_MUTE: Final = "mute"
+DUCK_PAUSE: Final = "pause"
+DUCK_NONE: Final = "none"
 
 PROTOCOL_VERSION: Final = 1
 WS_PATH: Final = "/api/ws"

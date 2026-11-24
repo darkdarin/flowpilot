@@ -106,6 +106,10 @@ integration have different names, so their updates are easy to tell apart.
    text-to-speech), choose a **fallback voice** in the FlowPilot Assist integration options.
 4. Pick this assistant on the satellite's device page. Different assistants can run different
    graphs, for example one per room.
+5. Optional: **Quiet media while a satellite listens** in the integration options turns down the
+   playing media players in the satellite's area from the wake word until the command is heard (a
+   television is the loudest competing voice). Players need the satellite's area in Home
+   Assistant; those without a volume control are muted or paused, as you choose.
 
 Try it in the Assist chat first: the starter graph `main` answers typed text with the Home
 Assistant agent.
