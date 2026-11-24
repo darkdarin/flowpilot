@@ -7,7 +7,7 @@ from flowpilot_sdk import Node
 from .node import VadSegmenter
 from .segmenter import CommandSegmenter, EnergyDetector, FrameBuffer, MicroDetector, Outcome
 
-__version__ = "0.1.43"
+__version__ = "0.1.44"
 
 
 def nodes() -> list[type[Node]]:

@@ -7,7 +7,7 @@ from flowpilot_sdk import Node
 from .agent import LlmAgent, LlmError
 from .voice import VoiceAgent
 
-__version__ = "0.1.43"
+__version__ = "0.1.44"
 
 
 def nodes() -> list[type[Node]]:

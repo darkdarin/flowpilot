@@ -4,6 +4,24 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.44
+
+Update the integration only.
+
+### App
+
+No changes, no need to update.
+
+### Integration
+
+- **Quiet media while a satellite listens.** A new option (off by default): from the wake word
+  until the command is heard, the playing media players in the satellite's area get quieter (20 %
+  of their volume by default); players without a volume control are muted, paused or left alone,
+  as you choose, and some can be excluded. The sound comes back before the command runs, so "turn
+  the TV down" counts from the real volume; a volume changed meanwhile (say, with the remote) is
+  kept. Players need the satellite's area in Home Assistant.
+- The integration declares its category (voice assistants) for HACS and Home Assistant.
+
 ## 0.1.43
 
 Update both: the voice agent gets Home Assistant's tools only with both new.
