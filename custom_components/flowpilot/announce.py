@@ -19,6 +19,7 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import entity_registry as er
 
 from .music import GOOD_MATCH, _area_of, _sim
+from .timers import device_aliases
 
 TOOL_NAME = "flowpilot__announce"
 SATELLITE = "assist_satellite"
@@ -47,6 +48,23 @@ def speakers(hass: HomeAssistant) -> dict[str, str]:
     return found
 
 
+def aliases(hass: HomeAssistant, entity_id: str) -> list[str]:
+    """What people call the speaker besides its name ("Алиса"): the aliases of its satellite and
+    media player in Home Assistant."""
+    entry = er.async_get(hass).async_get(entity_id)
+    if entry is None:
+        return []
+    if entry.device_id:
+        return device_aliases(hass, entry.device_id)
+    return [a for a in entry.aliases if isinstance(a, str)]
+
+
+def names(hass: HomeAssistant, found: dict[str, str]) -> list[str]:
+    """The speakers' labels, then their aliases: the values the agent may name them by."""
+    labels = sorted(found.values())
+    return labels + sorted({a for e in found for a in aliases(hass, e)} - set(labels))
+
+
 def announce_tools(hass: HomeAssistant) -> list[dict[str, Any]]:
     """The tool, when some speaker can announce."""
     found = speakers(hass)
@@ -58,9 +76,10 @@ def announce_tools(hass: HomeAssistant) -> list[dict[str, Any]]:
             "message": {"type": "string", "description": "What to say."},
             "speakers": {
                 "type": "array",
-                "items": {"type": "string", "enum": sorted(found.values())},
+                "items": {"type": "string", "enum": names(hass, found)},
                 "description": (
-                    "The speakers to say it on; a room means its speakers. Leave it out when "
+                    "The speakers to say it on, by name, another name or room (a room means "
+                    "its speakers). Leave it out when "
                     "the person did not say where and there is only one speaker."
                 ),
             },
@@ -78,7 +97,11 @@ def pick(hass: HomeAssistant, wanted: list[str]) -> list[str]:
     areas = ar.async_get(hass)
     picked: list[str] = []
     for name in wanted:
-        exact = [e for e, label in found.items() if label.casefold() == name.casefold()]
+        exact = [
+            e
+            for e, label in found.items()
+            if name.casefold() in {n.casefold() for n in [label, *aliases(hass, e)]}
+        ]
         in_room = [
             e
             for e in found
@@ -86,10 +109,14 @@ def pick(hass: HomeAssistant, wanted: list[str]) -> list[str]:
             and (area := areas.async_get_area(area_id))
             and _sim(name, area.name) > 0.75
         ]
-        scored = max(found, key=lambda e: _sim(name, found[e]))
+
+        def similarity(entity_id: str, name: str = name) -> float:
+            return max(_sim(name, n) for n in [found[entity_id], *aliases(hass, entity_id)])
+
+        scored = max(found, key=similarity)
         if exact or in_room:
             picked += exact or in_room
-        elif _sim(name, found[scored]) >= GOOD_MATCH:
+        elif similarity(scored) >= GOOD_MATCH:
             picked.append(scored)
         else:
             raise HomeAssistantError(

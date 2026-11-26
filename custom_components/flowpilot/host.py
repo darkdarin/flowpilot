@@ -408,7 +408,7 @@ def build_host_ops(
                 for t in speaker.tools
                 if timers.is_timer_tool(t.name) and t.name not in have
             ]
-            labels = sorted(devices.values())
+            labels = timers.speaker_names(hass, devices)
             tools = [
                 timers.with_device_argument(t, labels) if timers.is_timer_tool(t["name"]) else t
                 for t in tools

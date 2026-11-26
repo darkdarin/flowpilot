@@ -106,3 +106,20 @@ async def test_a_chat_timer_rings_on_the_chosen_speaker(hass: HomeAssistant) -> 
     done = await chosen["ha.llm.call"](start())
     assert done["error"] is False, done
     assert [len(rang[ids["Мини"]]), len(rang[ids["Станция"]])] == [1, 0]
+
+
+async def test_a_speaker_is_named_by_its_alias(hass: HomeAssistant) -> None:
+    """ "Поставь таймер на Алисе": an alias of the station's player names the station."""
+    from homeassistant.helpers import entity_registry as er
+
+    host, ids, rang = await setup(hass, [("Станция", "Кухня"), ("Мини", "Спальня")])
+    player = er.async_get(hass).async_get_or_create(
+        "media_player", "test", "station_player", device_id=ids["Станция"]
+    )
+    er.async_get(hass).async_update_entity(player.entity_id, aliases=[er.COMPUTED_NAME, "Алиса"])
+    result = await host["ha.llm.tools"](HostRequest(None, {"language": "ru"}))
+    timer = next(t for t in result["tools"] if t["name"].endswith(START))
+    assert "Алиса" in timer["parameters"]["properties"]["device"]["enum"]
+    done = await host["ha.llm.call"](start(device="Алисе"))
+    assert done["error"] is False, done
+    assert [len(rang[ids["Станция"]]), len(rang[ids["Мини"]])] == [1, 0]

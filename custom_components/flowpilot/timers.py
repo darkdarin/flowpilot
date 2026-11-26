@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import intent
 
 from .music import GOOD_MATCH, _sim
@@ -33,6 +34,8 @@ TIMER_INTENTS = frozenset(
     }
 )
 DEVICE_ARG = "device"
+# the entities of a speaker whose aliases name the speaker itself
+SPEAKER_DOMAINS = frozenset({"assist_satellite", "media_player"})
 
 
 def is_timer_tool(name: str) -> bool:
@@ -62,6 +65,26 @@ def timer_devices(hass: HomeAssistant) -> dict[str, str]:
     return found
 
 
+def device_aliases(hass: HomeAssistant, device_id: str | None) -> list[str]:
+    """What people call a speaker besides its name ("Алиса"): the aliases of its satellite and
+    media player entities in Home Assistant."""
+    if not device_id:
+        return []
+    found: list[str] = []
+    for entry in er.async_entries_for_device(er.async_get(hass), device_id):
+        if entry.domain in SPEAKER_DOMAINS:
+            # 2026.11 keeps the entity's own name in the list as a marker, not a string
+            found += [a for a in entry.aliases if isinstance(a, str) and a not in found]
+    return found
+
+
+def speaker_names(hass: HomeAssistant, devices: dict[str, str]) -> list[str]:
+    """The speakers' labels, then their aliases: the values the agent may name them by."""
+    labels = sorted(devices.values())
+    aliases = sorted({a for d in devices for a in device_aliases(hass, d)} - set(labels))
+    return labels + aliases
+
+
 def with_device_argument(spec: dict[str, Any], labels: list[str]) -> dict[str, Any]:
     """A timer tool's definition with ``device``: which speaker the timer is on."""
     parameters = dict(spec.get("parameters") or {"type": "object"})
@@ -71,7 +94,8 @@ def with_device_argument(spec: dict[str, Any], labels: list[str]) -> dict[str, A
         "enum": labels,
         "description": (
             "The speaker the timer rings on (this conversation has no speaker of its own): the "
-            "one the person named, by its name or room. Leave it out when they did not name one."
+            "one the person named, by its name, another name of it or its room. Leave it out "
+            "when they did not name one."
         ),
     }
     parameters["properties"] = properties
@@ -84,7 +108,11 @@ def timer_device(hass: HomeAssistant, wanted: str | None, default: str | None) -
     if not devices:
         raise HomeAssistantError("no speaker in this home can ring timers")
     if wanted:
-        exact = [d for d, label in devices.items() if label.casefold() == wanted.casefold()]
+        exact = [
+            d
+            for d, label in devices.items()
+            if wanted.casefold() in {n.casefold() for n in [label, *device_aliases(hass, d)]}
+        ]
         if exact:
             return exact[0]
         best = max(devices, key=lambda d: _similarity(hass, wanted, d, devices[d]))
@@ -106,7 +134,7 @@ def timer_device(hass: HomeAssistant, wanted: str | None, default: str | None) -
 def _similarity(hass: HomeAssistant, wanted: str, device_id: str, label: str) -> float:
     device = dr.async_get(hass).async_get(device_id)
     area = ar.async_get(hass).async_get_area(device.area_id) if device and device.area_id else None
-    names = [label, *([area.name] if area else [])]
+    names = [label, *([area.name] if area else []), *device_aliases(hass, device_id)]
     if device is not None:
         names.append(device.name_by_user or device.name or "")
     return max(_sim(wanted, n) for n in names)

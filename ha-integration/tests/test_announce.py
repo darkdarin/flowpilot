@@ -99,3 +99,17 @@ async def test_the_only_speaker_needs_no_name(hass: HomeAssistant) -> None:
     assert done == {"error": False, "data": {"announcing_on": ["Станция"]}}
     await hass.async_block_till_done()
     assert calls[0].data["entity_id"] == [entry.entity_id]
+
+
+async def test_a_speaker_is_named_by_its_alias(hass: HomeAssistant) -> None:
+    host, calls = await setup(hass)
+    registry = er.async_get(hass)
+    registry.async_update_entity(
+        "assist_satellite.test_kitchen", aliases=[er.COMPUTED_NAME, "Алиса"]
+    )
+    result = await host["ha.llm.tools"](HostRequest(None, {"language": "ru"}))
+    tool = next(t for t in result["tools"] if t["name"] == TOOL_NAME)
+    assert tool["parameters"]["properties"]["speakers"]["items"]["enum"][-1] == "Алиса"
+    for name in ("Алиса", "Алисе"):
+        done = await host["ha.llm.call"](say(message="Привет", speakers=[name]))
+        assert done["data"] == {"announcing_on": ["Станция (Кухня)"]}, done
