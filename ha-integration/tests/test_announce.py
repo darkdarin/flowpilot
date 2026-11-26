@@ -81,3 +81,21 @@ async def test_an_unknown_or_missing_speaker_is_an_error(hass: HomeAssistant) ->
     assert silent["error"] is True
     await hass.async_block_till_done()
     assert not calls
+
+
+async def test_the_only_speaker_needs_no_name(hass: HomeAssistant) -> None:
+    for domain in ("homeassistant", "llm", "conversation", "intent"):
+        assert await async_setup_component(hass, domain, {})
+    entry = er.async_get(hass).async_get_or_create(
+        "assist_satellite",
+        "test",
+        "only",
+        supported_features=AssistSatelliteEntityFeature.ANNOUNCE,
+    )
+    hass.states.async_set(entry.entity_id, "idle", {"friendly_name": "Станция"})
+    calls = async_mock_service(hass, "assist_satellite", "announce")
+    host = build_host_ops(hass, MockConfigEntry(domain="flowpilot"))
+    done = await host["ha.llm.call"](say(message="Обед готов"))
+    assert done == {"error": False, "data": {"announcing_on": ["Станция"]}}
+    await hass.async_block_till_done()
+    assert calls[0].data["entity_id"] == [entry.entity_id]

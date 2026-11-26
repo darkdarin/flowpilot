@@ -2,8 +2,9 @@
 
 Home Assistant's broadcast (``HassBroadcast``) says a message on every speaker but the one that
 heard the request; this tool says it on the speakers the person named, by name or room (from a
-Telegram chat: "скажи на кухне, что обед готов"). It uses ``assist_satellite.announce``, so any
-voice satellite that can announce works, a Yandex Station among them.
+Telegram chat: "скажи на кухне, что обед готов"); a home with one speaker needs no name. It
+uses ``assist_satellite.announce``, so any voice satellite that can announce works, a Yandex
+Station among them.
 """
 
 from __future__ import annotations
@@ -58,10 +59,13 @@ def announce_tools(hass: HomeAssistant) -> list[dict[str, Any]]:
             "speakers": {
                 "type": "array",
                 "items": {"type": "string", "enum": sorted(found.values())},
-                "description": "The speakers to say it on; a room means its speakers.",
+                "description": (
+                    "The speakers to say it on; a room means its speakers. Leave it out when "
+                    "the person did not say where and there is only one speaker."
+                ),
             },
         },
-        "required": ["message", "speakers"],
+        "required": ["message"],
     }
     return [{"name": TOOL_NAME, "description": DESCRIPTION, "parameters": parameters}]
 
@@ -105,9 +109,12 @@ async def announce(
     if isinstance(wanted, str):
         wanted = [wanted]
     found = speakers(hass)
-    if not wanted:
+    if wanted:
+        targets = pick(hass, [str(w) for w in wanted])
+    elif len(found) == 1:  # the only speaker of the home: "say it on the speaker"
+        targets = list(found)
+    else:
         raise ValueError(f"say on which speakers: {', '.join(sorted(found.values()))}")
-    targets = pick(hass, [str(w) for w in wanted])
     await hass.services.async_call(
         SATELLITE,
         "announce",
