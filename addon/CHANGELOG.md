@@ -4,6 +4,22 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.45
+
+Update the app only.
+
+### App
+
+- **The LLM agent knows the quick commands it saved.** It kept offering to save a command that
+  was saved already: it did not see them. Now it is told which quick commands exist (the first 30,
+  and that there are more), never offers to save one of them again, and offers to add your words
+  as another phrase when you said a saved command differently. Ask it "what quick commands are
+  there?" and it lists them all.
+
+### Integration
+
+No changes, no need to update.
+
 ## 0.1.44
 
 Update the integration only.

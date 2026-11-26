@@ -57,7 +57,7 @@ from .types import (
 )
 from .voices import Voices
 
-__version__ = "0.1.44"
+__version__ = "0.1.45"
 
 __all__ = [
     "ANY",
