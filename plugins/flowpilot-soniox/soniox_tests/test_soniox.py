@@ -31,7 +31,7 @@ class FakeSoniox:
     def __init__(self) -> None:
         self.stt_config: dict[str, Any] = {}
         self.stt_audio = 0
-        self.stt_script = "endpoint"  # endpoint | finalize | error
+        self.stt_script = "endpoint"  # endpoint | early_end | finalize | error
         self.languages: dict[str, str] = {}  # the language of a final token, by its text
         self.tts_configs: list[dict[str, Any]] = []
         self.tts_text: dict[str, str] = {}
@@ -66,13 +66,16 @@ class FakeSoniox:
                 if self.stt_script == "error":
                     await ws.send_json({"error_code": 401, "error_message": "bad key"})
                     break
+                if segment == 1280 and self.stt_script == "early_end":
+                    # an end of the silence a follow-up's buffered audio starts with
+                    await ws.send_json({"tokens": [self.final("<end>")]})
                 if segment == 3200:  # 100 ms in: a partial result
                     await ws.send_json({"tokens": [{"text": " Алиса", "is_final": False}]})
                 if segment == 6400:
                     await ws.send_json(
                         {"tokens": [self.final(" Алиса", 0), self.final(" включи", 900)]}
                     )
-                if segment == 9600 and self.stt_script == "endpoint":
+                if segment == 9600 and self.stt_script in ("endpoint", "early_end"):
                     await ws.send_json({"tokens": [self.final(" свет"), self.final("<end>")]})
         return ws
 
@@ -241,6 +244,15 @@ async def test_a_dialogue_keeps_its_connection(fake: FakeSoniox) -> None:
     assert {"type": "finalize"} in fake.messages
     await say(node, store, session="s2")
     assert fake.connections == 2  # another dialogue, another connection
+
+
+async def test_an_end_before_any_word_does_not_end_the_command(fake: FakeSoniox) -> None:
+    """A follow-up's buffered audio starts with a pause; an end Soniox reports in it is not the
+    end of the command."""
+    fake.stt_script = "early_end"
+    node = await started(SonioxStt, {"wake_words": ["Алиса"]})
+    assert (await say(node, MemorySessionStore()))[-1] == ("Включи свет", True)
+    assert SAID[-1]["ended_by"] == "end" and SAID[-1]["empty_ends"] == 1
 
 
 async def test_a_new_language_opens_a_new_connection(fake: FakeSoniox) -> None:

@@ -7,7 +7,7 @@ node asks Soniox to finalize what it heard (``<fin>``).
 
 Some satellites send audio from before the command, wake word included; with ``wake_words`` set
 the node cuts the wake word (and anything before it) from the text. An endpoint right after the
-wake word alone does not end the command.
+wake word alone (or before any word) does not end the command.
 
 A dialogue keeps its connection (``keep_connection_s``): the next command of the session goes on
 the same stream, so Soniox hears the dialogue and the connection is ready. Between turns the
@@ -578,6 +578,7 @@ class _Recognition:
         self._partial_shown = ""
         self._samples = 0
         self._speech_end_ms = 0
+        self._empty_ends = 0  # ends of speech Soniox reported before any word
 
     @property
     def text(self) -> str:
@@ -664,8 +665,11 @@ class _Recognition:
                 partial.append(Token(text, self._ms(token, "start_ms")))
                 continue
             if text == END_TOKEN:
-                if self._only_wake_word():
-                    continue  # the wake word alone: keep listening for the command
+                if not self.text:
+                    # nothing (or the wake word alone) heard yet: an end of silence, e.g. the pause
+                    # a follow-up's buffered audio starts with; keep listening for the command
+                    self._empty_ends += 1
+                    continue
                 return "end"
             if text == FIN_TOKEN:
                 return "finalize"
@@ -683,10 +687,6 @@ class _Recognition:
         """A token's time from the start of the turn's audio."""
         return int(token.get(field, 0)) - self._offset_ms
 
-    def _only_wake_word(self) -> bool:
-        text, found = self._strip(self._final)
-        return found and not text
-
     async def _show_partial(self, partial: list[Token]) -> None:
         text = self._strip(self._final + partial)[0]
         if text and text != self._partial_shown:
@@ -703,4 +703,5 @@ class _Recognition:
             "audio_s": round(self._samples / fmt.sample_rate, 2),
             "speech_end_s": round(self._speech_end_ms / 1000, 2),
             "wake_word_cut": found,
+            "empty_ends": self._empty_ends,
         }
