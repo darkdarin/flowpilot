@@ -148,8 +148,8 @@ class FlowPilotConfigFlow(ConfigFlow, domain=DOMAIN):
 
 class FlowPilotOptionsFlow(OptionsFlow):
     """The fallback voice: speaks what FlowPilot has no speech for (see tts.py); quieting the
-    media players of a listening satellite's area (see duck.py); the speaker for timers set from
-    a chat (see timers.py)."""
+    media players of a listening satellite's area (see duck.py); the speaker for timers and
+    alarms set from a chat (see timers.py)."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:

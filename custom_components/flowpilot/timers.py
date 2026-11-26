@@ -1,10 +1,13 @@
-"""Timers from a turn without a speaker of its own (a Telegram chat, the Assist chat).
+"""Speaker tools in a turn without a speaker of its own (a Telegram chat, the Assist chat).
 
-Home Assistant's timers belong to a device that rings them: a voice satellite that registered for
-timers. A typed turn has no device, so Home Assistant refuses its timers ("Device does not support
-timers"). Here a timer tool of such a turn gets a ``device`` argument: the agent names the speaker
-(its name or room); not named, the speaker chosen in the integration's options; none chosen and
-only one speaker able to ring timers, that one; else the agent is asked to say which.
+Some tools act on the speaker that heard the turn. Home Assistant's timers belong to a device that
+rings them: a voice satellite that registered for timers; a typed turn has no device, so Home
+Assistant gives it no timer tools. A Yandex Station's alarms are set on the station the turn came
+from; a typed turn gets them only with the integration's own ``station`` choice. Such a tool is
+one a speaker offers differently from the chat: missing there, or with other parameters. Here it
+comes as the speaker offers it, with a ``device`` argument: the agent names the speaker (its name,
+another name of it or its room); not named, the speaker chosen in the integration's options; none
+chosen and only one speaker offering the tool, that one; else the agent is asked to say which.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers import intent
+from homeassistant.helpers import intent, llm
 
 from .music import GOOD_MATCH, _sim
 
@@ -41,6 +44,13 @@ SPEAKER_DOMAINS = frozenset({"assist_satellite", "media_player"})
 def is_timer_tool(name: str) -> bool:
     """A timer tool of the Assist API ("HassStartTimer", or namespaced "intent__HassStartTimer")."""
     return name.rsplit("__", 1)[-1] in TIMER_INTENTS
+
+
+def may_be_a_speakers(tool: llm.Tool) -> bool:
+    """Whether a tool may depend on the speaker of the turn: a timer, or a tool of an
+    integration (a station's alarms). Home Assistant's other intents act on what the person
+    names, the same from any device."""
+    return is_timer_tool(tool.name) or not isinstance(tool, llm.IntentTool)
 
 
 def rings_timers(hass: HomeAssistant, device_id: str | None) -> bool:
@@ -93,20 +103,22 @@ def with_device_argument(spec: dict[str, Any], labels: list[str]) -> dict[str, A
         "type": "string",
         "enum": labels,
         "description": (
-            "The speaker the timer rings on (this conversation has no speaker of its own): the "
-            "one the person named, by its name, another name of it or its room. Leave it out "
-            "when they did not name one."
+            "The speaker this is on, e.g. where a timer or an alarm rings (this conversation "
+            "has no speaker of its own): the one the person named, by its name, another name of "
+            "it or its room. Leave it out when they did not name one."
         ),
     }
     parameters["properties"] = properties
     return {**spec, "parameters": parameters}
 
 
-def timer_device(hass: HomeAssistant, wanted: str | None, default: str | None) -> str:
-    """The device a timer of a turn without a speaker goes to (see the module's docstring)."""
-    devices = timer_devices(hass)
+def speaker_device(
+    hass: HomeAssistant, devices: dict[str, str], wanted: str | None, default: str | None
+) -> str:
+    """Which of the speakers offering a tool (device id → label) a call of a turn without a
+    speaker goes to (see the module's docstring)."""
     if not devices:
-        raise HomeAssistantError("no speaker in this home can ring timers")
+        raise HomeAssistantError("no speaker in this home can do this")
     if wanted:
         exact = [
             d
@@ -119,14 +131,15 @@ def timer_device(hass: HomeAssistant, wanted: str | None, default: str | None) -
         if _similarity(hass, wanted, best, devices[best]) >= GOOD_MATCH:
             return best
         raise HomeAssistantError(
-            f"no speaker like {wanted!r} rings timers; they are: {', '.join(devices.values())}"
+            f"no speaker like {wanted!r} can do this; the ones that can: "
+            f"{', '.join(devices.values())}"
         )
     if default and default in devices:
         return default
     if len(devices) == 1:
         return next(iter(devices))
     raise HomeAssistantError(
-        "this conversation has no speaker of its own: ask which speaker the timer is on "
+        "this conversation has no speaker of its own: ask which speaker it is on "
         f"({', '.join(devices.values())}) and pass it as {DEVICE_ARG}"
     )
 

@@ -392,27 +392,46 @@ def build_host_ops(
         }
         return {"name": tool.name, "description": tool.description or "", "parameters": schema}
 
+    async def speaker_tools(
+        request: HostRequest, api: llm.APIInstance, only: str | None = None
+    ) -> dict[str, tuple[dict[str, Any], dict[str, str]]]:
+        """In a turn without a speaker of its own, the tools (or just ``only``) a speaker offers
+        differently from the turn: name → (the tool as a speaker offers it, the speakers
+        offering it: device id → label). See timers.py."""
+        devices = timers.timer_devices(hass)
+        if not devices or timers.rings_timers(hass, api.llm_context.device_id):
+            return {}
+        own = {
+            t.name: tool_spec(api, t)["parameters"]
+            for t in api.tools
+            if timers.may_be_a_speakers(t)
+        }
+        found: dict[str, tuple[dict[str, Any], dict[str, str]]] = {}
+        # the chosen speaker first, so its version of a tool is the one the agent sees
+        chosen = entry.options.get(CONF_TIMER_DEVICE)
+        for device_id in sorted(devices, key=lambda d: d != chosen):
+            speaker = await llm_api(request, device_id)
+            for tool in speaker.tools:
+                if not timers.may_be_a_speakers(tool) or only not in (None, tool.name):
+                    continue
+                spec = tool_spec(speaker, tool)
+                if own.get(tool.name) == spec["parameters"]:
+                    continue
+                found.setdefault(tool.name, (spec, {}))[1][device_id] = devices[device_id]
+        return found
+
     async def llm_tools(request: HostRequest) -> Any:
         """The Assist API's instructions and tools, with JSON Schema parameters."""
         api = await llm_api(request)
         tools = [tool_spec(api, tool) for tool in api.tools]
-        # a turn without a speaker of its own (a chat): Home Assistant gives it no timer tools,
-        # so they come from a speaker that rings timers, and the agent names the speaker
-        devices = timers.timer_devices(hass)
-        if devices and not timers.rings_timers(hass, api.llm_context.device_id):
-            chosen = entry.options.get(CONF_TIMER_DEVICE)
-            speaker = await llm_api(request, chosen if chosen in devices else next(iter(devices)))
-            have = {t["name"] for t in tools}
-            tools += [
-                tool_spec(speaker, t)
-                for t in speaker.tools
-                if timers.is_timer_tool(t.name) and t.name not in have
-            ]
-            labels = timers.speaker_names(hass, devices)
-            tools = [
-                timers.with_device_argument(t, labels) if timers.is_timer_tool(t["name"]) else t
-                for t in tools
-            ]
+        # a turn without a speaker of its own (a chat): the tools a speaker offers of its own
+        # (timers, a station's alarms) come as a speaker offers them, and the agent names it
+        bound = await speaker_tools(request, api)
+        tools = [t for t in tools if t["name"] not in bound]
+        tools += [
+            timers.with_device_argument(spec, timers.speaker_names(hass, devices))
+            for spec, devices in bound.values()
+        ]
         # FlowPilot's own tools where Home Assistant's fall short (starting music, saying a text
         # on chosen speakers)
         tools.extend(music.music_tools(hass))
@@ -429,11 +448,20 @@ def build_host_ops(
         api = await llm_api(request)
         arguments = dict(request.args.get("arguments") or {})
         name = str(request.args["name"])
-        if timers.is_timer_tool(name) and not timers.rings_timers(hass, api.llm_context.device_id):
+        # Home Assistant's own intents (but timers) are the same from any speaker
+        mine = next((t for t in api.tools if t.name == name), None)
+        if mine is None or timers.may_be_a_speakers(mine):
+            bound = await speaker_tools(request, api, name)
+        else:
+            bound = {}
+        if name in bound:
             wanted = arguments.pop(timers.DEVICE_ARG, None)
             try:
-                device_id = timers.timer_device(
-                    hass, str(wanted) if wanted else None, entry.options.get(CONF_TIMER_DEVICE)
+                device_id = timers.speaker_device(
+                    hass,
+                    bound[name][1],
+                    str(wanted) if wanted else None,
+                    entry.options.get(CONF_TIMER_DEVICE),
                 )
             except HomeAssistantError as err:
                 return {"error": True, "data": {"error": type(err).__name__, "message": str(err)}}

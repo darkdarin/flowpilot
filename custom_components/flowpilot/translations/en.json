@@ -40,7 +40,7 @@
           "duck_level": "Volume while quiet",
           "duck_fallback": "Players without a volume",
           "duck_exclude": "Do not touch",
-          "timer_device": "Speaker for timers from chats"
+          "timer_device": "Speaker for timers and alarms from chats"
         },
         "data_description": {
           "fallback_tts": "Speaks what FlowPilot has no speech for: answers of local intents, satellite announcements, tts.speak, and graphs without text-to-speech.",
@@ -48,7 +48,7 @@
           "duck_level": "Percent of the player's volume while the satellite listens.",
           "duck_fallback": "What to do with players that cannot change their volume.",
           "duck_exclude": "Media players that keep their sound, such as the satellite's own speaker in another integration.",
-          "timer_device": "Rings the timers set from a conversation without a speaker of its own (Telegram, the Assist chat) when the person did not name one. Not set: the only speaker that rings timers, or the agent asks which."
+          "timer_device": "Where the timers and the alarms set from a conversation without a speaker of its own (Telegram, the Assist chat) ring when the person did not name a speaker. Not set: the only speaker that can, or the agent asks which."
         }
       }
     }

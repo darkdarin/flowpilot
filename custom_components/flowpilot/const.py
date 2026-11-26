@@ -15,7 +15,8 @@ CONF_DUCK_LEVEL: Final = "duck_level"  # percent of the player's volume while du
 CONF_DUCK_FALLBACK: Final = "duck_fallback"  # for players without a volume: mute, pause, none
 CONF_DUCK_EXCLUDE: Final = "duck_exclude"
 DUCK_LEVEL_DEFAULT: Final = 20
-# Options: the speaker that rings timers set from a turn without one (a chat), see timers.py
+# Options: the speaker that rings timers and alarms set from a turn without one (a chat), see
+# timers.py
 CONF_TIMER_DEVICE: Final = "timer_device"
 DUCK_MUTE: Final = "mute"
 DUCK_PAUSE: Final = "pause"
