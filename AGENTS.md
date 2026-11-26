@@ -21,7 +21,10 @@ Development documentation is kept in **Notion**, page
   contracts v1 (ADR-013); the code in `packages/flowpilot-sdk` is the source of truth for signatures
 - [04 · Integrations: HA, Yandex Station, Soniox, Wyoming](https://app.notion.com/p/40de74ee720f8139b4afff9b2b9d55f8)
 - [05 · Speaker identification, security and child mode](https://app.notion.com/p/40de74ee720f81869845d32daf4a8625)
-- [07 · Roadmap, backlog and architecture decisions (ADR)](https://app.notion.com/p/40de74ee720f81fdad0ac07cab8fe6c8)
+- [07 · Roadmap, backlog and architecture decisions (ADR)](https://app.notion.com/p/40de74ee720f81fdad0ac07cab8fe6c8) —
+  milestones, priorities and ADRs; tasks and their statuses live only in its database
+  [Roadmap — задачи](https://app.notion.com/p/424e74ee720f81409136d373419741ea): add a task for new work, keep
+  details, commits and releases on the task's page, update its status as the work moves
 - [08 · Development: environment and commands](https://app.notion.com/p/40de74ee720f8129b245de50c6bfa7e1)
 - [Поставка в Home Assistant](https://app.notion.com/p/410e74ee720f81f184cfc6ecf07080ba) — how the
   family of projects ships: README, branding, app image, changelog, releases, CI (shared practice)
