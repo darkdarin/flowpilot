@@ -163,8 +163,31 @@ def memory_tools(
     ]
 
 
+def describe_command(command: QuickCommand) -> str:
+    """One line for the model: the phrases, what it does and its reply."""
+    actions = "; ".join(
+        f"{a.tool} {json.dumps(dict(a.arguments), ensure_ascii=False)}" for a in command.actions
+    )
+    reply = f" → «{command.reply}»" if command.reply else ""
+    return f"«{'», «'.join(command.phrases)}»: {actions}{reply}"
+
+
+def commands_text(commands: QuickCommands, limit: int) -> str:
+    """The saved quick commands in the order they were saved, at most ``limit`` of them (a
+    stable text: the prompt that holds it stays cached until a command changes)."""
+    saved = commands.all()
+    if not saved:
+        return "No quick commands are saved yet."
+    lines = [f"- {describe_command(c)}" for c in saved[:limit]]
+    more = len(saved) - limit
+    if more > 0:
+        lines.append(f"- … and {more} more: list_quick_commands shows them all")
+    return "Quick commands saved already (phrases: actions → reply):\n" + "\n".join(lines)
+
+
 def command_tools(commands: QuickCommands, speaker: str | None, home: set[str]) -> list[Tool]:
-    """``save_quick_command`` and ``forget_quick_command``: quick commands people teach.
+    """``list_quick_commands``, ``save_quick_command``, ``update_quick_command`` and
+    ``forget_quick_command``: quick commands people teach.
 
     ``home`` are the Home Assistant tools of this turn: a command may only replay those.
     """
@@ -272,6 +295,9 @@ def command_tools(commands: QuickCommands, speaker: str | None, home: set[str]) 
         commands.remove(found[0].id)
         return f"forgotten: «{found[0].phrases[0]}»"
 
+    async def listed(args: Mapping[str, Any]) -> str:
+        return commands_text(commands, limit=len(commands.all()) or 1)
+
     action = {
         "type": "object",
         "properties": {
@@ -281,6 +307,14 @@ def command_tools(commands: QuickCommands, speaker: str | None, home: set[str]) 
         "required": ["tool", "arguments"],
     }
     return [
+        Tool(
+            "list_quick_commands",
+            "All the quick commands the home was taught: their phrases, actions and replies. "
+            "Use it when asked what quick commands there are, or before offering to save one "
+            "when the list you were given is not complete.",
+            {"type": "object", "properties": {}},
+            listed,
+        ),
         Tool(
             "save_quick_command",
             "Teach the home a quick command: after this, saying one of the phrases does the "

@@ -58,6 +58,7 @@ from .tools import (
     Tool,
     Toolbox,
     command_tools,
+    commands_text,
     confirm_tool,
     memory_tools,
     run_skill,
@@ -235,10 +236,14 @@ TEACH_TEXT = (
     "words, above all several things at once (a scene such as 'movie night') or a device called "
     "by a nickname, offer in one short sentence to remember it as a quick command. Save only "
     "after the person agrees, with the phrases they use and exactly the tool calls you made. Do "
-    "not offer for questions or one-off requests, and not again for what was declined. To change "
-    "a quick command (more phrases, other actions, another reply) use update_quick_command, "
-    "never save it again as a new one; to forget one, forget_quick_command."
+    "not offer for questions or one-off requests, and not again for what was declined. Never "
+    "offer to save what is a quick command already (the list below): when the person said it in "
+    "other words, you may offer to add those words to it as a phrase. To change a quick command "
+    "(more phrases, other actions, another reply) use update_quick_command, never save it again "
+    "as a new one; to forget one, forget_quick_command; to see them all, list_quick_commands."
 )
+# saved quick commands shown in the prompt; the rest only through list_quick_commands
+LISTED_COMMANDS = 30
 
 
 def acknowledge_kind(tools: list[str]) -> str:
@@ -952,7 +957,7 @@ class LlmAgent:
         teach_text = ""
         if teaching and self._commands is not None:
             toolbox = toolbox.with_tools(command_tools(self._commands, speaker, home_names))
-            teach_text = TEACH_TEXT
+            teach_text = f"{TEACH_TEXT}\n\n{commands_text(self._commands, LISTED_COMMANDS)}"
             if earlier_calls:
                 teach_text += (
                     "\n\nThe Home Assistant tool calls of your previous answer (to save them): "

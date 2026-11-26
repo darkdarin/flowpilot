@@ -492,6 +492,13 @@ async def test_the_agent_teaches_a_quick_command_after_doing_it(
         await say("да, запомни")
         # the calls of the previous answer were shown to the model
         assert '"intent__HassTurnOn"' in fake.requests[0]["messages"][0]["content"]
+        assert "No quick commands are saved yet" in fake.requests[0]["messages"][0]["content"]
+        fake.requests.clear()
+        fake.calls = []
+        await say("вруби люстру")
+        # the saved command is in the prompt: the agent does not offer to save it again
+        system = fake.requests[0]["messages"][0]["content"]
+        assert '«вруби люстру»: intent__HassTurnOn {"name": "Люстра"} → «Люстра горит»' in system
     finally:
         await node.stop()
     [command] = commands.all()
@@ -546,6 +553,25 @@ async def test_changing_a_quick_command_never_makes_a_copy() -> None:
     assert len(command.actions) == 2  # kept: not asked to change them
     _, ok = await tools.call("update_quick_command", json.dumps({"phrase": "нет такой"}))
     assert not ok
+
+
+async def test_the_agent_lists_the_quick_commands() -> None:
+    from flowpilot_llm.tools import Toolbox, command_tools, commands_text
+    from flowpilot_sdk import Action
+    from flowpilot_server.commands_store import CommandStore
+
+    commands = CommandStore(None)
+    tools = Toolbox(command_tools(commands, None, {"intent__HassTurnOn"}))
+    result, ok = await tools.call("list_quick_commands", "{}")
+    assert ok and "No quick commands" in result
+    for n in range(3):
+        on = Action("intent__HassTurnOn", {"name": f"Лампа {n}"})
+        commands.add([f"лампа {n}"], [on], "", created_by="pavel", source="llm.agent")
+    result, ok = await tools.call("list_quick_commands", "{}")  # anyone may see them
+    assert ok and all(f"«лампа {n}»" in result for n in range(3))
+    short = commands_text(commands, 2)
+    assert "«лампа 1»" in short and "«лампа 2»" not in short
+    assert "1 more: list_quick_commands" in short
 
 
 async def test_the_agent_uses_a_skill_and_home_assistant_runs_it(
