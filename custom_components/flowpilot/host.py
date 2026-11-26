@@ -22,7 +22,7 @@ from homeassistant.helpers import floor_registry as fr
 from homeassistant.helpers import intent, llm
 from homeassistant.helpers.json import JSONEncoder
 
-from . import music, timers
+from . import announce, music, timers
 from .client import FlowPilotClient, HostHandler, HostRequest
 from .const import (
     ATTACH_TIMEOUT_S,
@@ -413,8 +413,10 @@ def build_host_ops(
                 timers.with_device_argument(t, labels) if timers.is_timer_tool(t["name"]) else t
                 for t in tools
             ]
-        # FlowPilot's own tools where Home Assistant's fall short (starting music)
+        # FlowPilot's own tools where Home Assistant's fall short (starting music, saying a text
+        # on chosen speakers)
         tools.extend(music.music_tools(hass))
+        tools.extend(announce.announce_tools(hass))
         answer: dict[str, Any] = {"prompt": api.api_prompt, "tools": tools}
         # the state of the exposed devices now, so the agent need not ask for it first
         if request.args.get("live_context") and (state := await live_context(api)) is not None:
@@ -436,6 +438,12 @@ def build_host_ops(
             except HomeAssistantError as err:
                 return {"error": True, "data": {"error": type(err).__name__, "message": str(err)}}
             api = await llm_api(request, device_id)
+        if name == announce.TOOL_NAME:
+            try:
+                said = await announce.announce(hass, api.llm_context.context, arguments)
+            except (HomeAssistantError, ValueError) as err:
+                return {"error": True, "data": {"error": type(err).__name__, "message": str(err)}}
+            return {"error": False, "data": said}
         if name == music.TOOL_NAME:
             try:
                 found = await music.play_music(hass, api.llm_context, dict(arguments))
