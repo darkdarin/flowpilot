@@ -16,7 +16,7 @@
       },
       "model": {
         "title": "Модель",
-        "description": "Модель Soniox для реального времени; если не задано — stt-rt-v5."
+        "description": "Модель Soniox для реального времени; если не задано — stt-rt-v6."
       },
       "language": {
         "title": "Язык",

@@ -95,7 +95,7 @@ class FakeSoniox:
         return base64.b64encode(bytes(2 * 100 * len(text))).decode()  # 100 samples a character
 
     async def models(self, request: web.Request) -> web.Response:
-        return web.json_response({"models": [{"id": "stt-rt-v5", "name": "Real-time v5"}]})
+        return web.json_response({"models": [{"id": "stt-rt-v6", "name": "Real-time v6"}]})
 
     async def voices(self, request: web.Request) -> web.Response:
         def voice(uuid: str, name: str, status: str) -> dict[str, Any]:
@@ -167,6 +167,16 @@ async def test_stt_ends_on_the_endpoint_and_cuts_the_wake_word(fake: FakeSoniox)
     assert fake.stt_config["context"] == {"terms": ["свет", "Алиса"]}
     (event,) = [e for e in run.trace.events if e.event == "soniox.stt"]
     assert event.attrs["ended_by"] == "end" and event.attrs["wake_word_cut"] is True
+
+
+async def test_stt_uses_v6_also_for_a_graph_saved_with_v5(fake: FakeSoniox) -> None:
+    for config, model in [({}, "stt-rt-v6"), ({"model": "stt-rt-v5"}, "stt-rt-v6")]:
+        fake.stt_audio = 0
+        node = await started(SonioxStt, {"language": "ru", **config})
+        run = await run_node_once(node, {"audio": speech(2000)})
+        assert run.error is None, run.error
+        assert fake.stt_config["model"] == model
+        assert "api_key" not in fake.stt_config  # the key goes in the Authorization header
 
 
 async def test_stt_tells_the_language_most_of_the_text_was_heard_in(fake: FakeSoniox) -> None:
@@ -310,7 +320,7 @@ async def test_setting_choices_use_the_resolved_key(fake: FakeSoniox) -> None:
         ("Adrian", "Adrian", "male"),
     ]
     models = await SonioxStt.config_options("model", resolved)
-    assert [m.id for m in models] == ["stt-rt-v5"]
+    assert [m.id for m in models] == ["stt-rt-v6"]
     assert await SonioxTts.config_options("voice", CONFIG) == []  # the key is not set yet
     assert len(await SonioxStt.config_options("language", {})) > 50
 

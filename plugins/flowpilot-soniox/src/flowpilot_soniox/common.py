@@ -14,6 +14,11 @@ TTS_URL = "wss://tts-rt.soniox.com/tts-websocket"
 API_URL = "https://api.soniox.com/v1"
 HTTP_TIMEOUT_S = 15.0
 
+STT_MODEL = "stt-rt-v6"
+# Soniox removes a model on a date (https://docs.soniox.com/stt/models); a graph saved with it
+# goes to its successor, the same API
+REPLACED_MODELS = {"stt-rt-v5": STT_MODEL}
+
 # https://docs.soniox.com/stt/concepts/supported-languages
 LANGUAGES = [
     "af", "ar", "az", "be", "bg", "bn", "bs", "ca", "cs", "cy", "da", "de", "el", "en", "es", "et",

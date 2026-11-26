@@ -40,6 +40,8 @@ from flowpilot_sdk.wake_word import Token, strip_wake_word
 from .common import (
     API_KEY_SETTING,
     LANGUAGES,
+    REPLACED_MODELS,
+    STT_MODEL,
     STT_URL,
     SonioxError,
     api_key_of,
@@ -80,9 +82,9 @@ class SonioxStt:
                 "api_key": API_KEY_SETTING,
                 "model": {
                     "title": "Model",
-                    "description": "A real-time Soniox model; stt-rt-v5 when not set.",
+                    "description": f"A real-time Soniox model; {STT_MODEL} when not set.",
                     "type": "string",
-                    "default": "stt-rt-v5",
+                    "default": STT_MODEL,
                     NODE_OPTIONS_KEY: True,
                 },
                 "language": {
@@ -214,8 +216,10 @@ class SonioxStt:
 
     def _session_config(self, fmt: AudioFormat, language: str | None) -> dict[str, Any]:
         cfg = self._config
+        model = str(cfg.get("model") or STT_MODEL)
+        model = REPLACED_MODELS.get(model, model)
         config: dict[str, Any] = {
-            "model": cfg.get("model", "stt-rt-v5"),
+            "model": model,
             "audio_format": "pcm_s16le",
             "sample_rate": fmt.sample_rate,
             "num_channels": fmt.channels,
