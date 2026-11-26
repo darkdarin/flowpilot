@@ -14,7 +14,9 @@ from aiohttp.test_utils import TestServer
 
 from flowpilot_core.conformance import InputFeed, assert_conforms, check_node, run_node_once
 from flowpilot_core.runtime import RuntimeNodeContext
-from flowpilot_sdk import AudioChunk, AudioFormat, TextDelta
+from flowpilot_core.runtime.deployment import SHARED_NAMESPACE
+from flowpilot_core.runtime.state import MemorySessionStore
+from flowpilot_sdk import AudioChunk, AudioFormat, TextDelta, dialogue
 from flowpilot_soniox import SonioxError, SonioxStt, SonioxTts, common, stt, tts
 
 KEY = "test-key"
@@ -35,34 +37,47 @@ class FakeSoniox:
         self.tts_text: dict[str, str] = {}
         self.tts_timeout_first = False
         self.auth: list[str] = []
+        self.connections = 0
+        self.messages: list[dict[str, Any]] = []  # what the node sent besides config and audio
+        self.stream_ms = 0
 
     async def stt(self, request: web.Request) -> web.WebSocketResponse:
+        """One stream; it carries several commands: the script restarts after each end."""
         self.auth.append(request.headers.get("Authorization", ""))
+        self.connections += 1
         ws = web.WebSocketResponse()
         await ws.prepare(request)
+        segment = 0  # audio bytes since the last end
+        self.stream_ms = 0  # where the segment starts in the stream
         async for msg in ws:
             if msg.type == WSMsgType.TEXT:
                 data = json.loads(msg.data)
                 if "model" in data:
                     self.stt_config = data
-                elif data == {"type": "finalize"}:
+                    continue
+                self.messages.append(data)
+                if data == {"type": "finalize"}:
                     await ws.send_json({"tokens": [self.final(" свет"), self.final("<fin>")]})
+                    self.stream_ms += segment // 32
+                    segment = 0
             elif msg.type == WSMsgType.BINARY:
                 self.stt_audio += len(msg.data)
+                segment += len(msg.data)
                 if self.stt_script == "error":
                     await ws.send_json({"error_code": 401, "error_message": "bad key"})
                     break
-                if self.stt_audio == 3200:  # 100 ms in: a partial result
+                if segment == 3200:  # 100 ms in: a partial result
                     await ws.send_json({"tokens": [{"text": " Алиса", "is_final": False}]})
-                if self.stt_audio == 6400:
+                if segment == 6400:
                     await ws.send_json(
                         {"tokens": [self.final(" Алиса", 0), self.final(" включи", 900)]}
                     )
-                if self.stt_audio == 9600 and self.stt_script == "endpoint":
+                if segment == 9600 and self.stt_script == "endpoint":
                     await ws.send_json({"tokens": [self.final(" свет"), self.final("<end>")]})
         return ws
 
     def final(self, text: str, start_ms: int = 1200) -> dict[str, Any]:
+        start_ms += self.stream_ms  # Soniox times tokens from the start of the stream
         token = {"text": text, "is_final": True, "start_ms": start_ms, "end_ms": start_ms + 300}
         if language := self.languages.get(text.strip()):
             token["language"] = language
@@ -133,14 +148,22 @@ async def fake(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[FakeSoniox]:
     monkeypatch.setattr(stt, "STT_URL", base.replace("http", "ws") + "/stt")
     monkeypatch.setattr(tts, "TTS_URL", base.replace("http", "ws") + "/tts")
     monkeypatch.setattr(common, "API_URL", base + "/v1")
+    SAID.clear()
     yield soniox
+    for node in STARTED:
+        await node.stop()
+    STARTED.clear()
     await server.close()
+
+
+STARTED: list[Any] = []  # stopped when the test ends
 
 
 async def started(cls: type[Any], config: dict[str, Any]) -> Any:
     node = cls()
     ctx = RuntimeNodeContext("n", CONFIG | config, {"soniox": KEY}, frozenset({"soniox"}))
     await node.start(ctx)
+    STARTED.append(node)
     return node
 
 
@@ -171,12 +194,110 @@ async def test_stt_ends_on_the_endpoint_and_cuts_the_wake_word(fake: FakeSoniox)
 
 async def test_stt_uses_v6_also_for_a_graph_saved_with_v5(fake: FakeSoniox) -> None:
     for config, model in [({}, "stt-rt-v6"), ({"model": "stt-rt-v5"}, "stt-rt-v6")]:
-        fake.stt_audio = 0
         node = await started(SonioxStt, {"language": "ru", **config})
         run = await run_node_once(node, {"audio": speech(2000)})
         assert run.error is None, run.error
         assert fake.stt_config["model"] == model
         assert "api_key" not in fake.stt_config  # the key goes in the Authorization header
+
+
+async def say(
+    node: Any, store: MemorySessionStore, session: str = "s1", **context: Any
+) -> list[tuple[str, bool]]:
+    """One voice turn of the dialogue ``session``: its transcripts."""
+    run = await run_node_once(
+        node,
+        {"audio": speech(2000)},
+        sessions=store,
+        session_id=session,
+        context={"language": "ru", **context},
+    )
+    assert run.error is None, run.error
+    SAID.append(run.trace.named("soniox.stt")[-1].attrs)
+    return [(t.text, t.final) for t in run.outputs["transcript"].items]
+
+
+SAID: list[dict[str, Any]] = []  # the soniox.stt trace of each turn of ``say``
+
+
+async def until(condition: Any) -> None:
+    for _ in range(100):
+        if condition():
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError("did not happen")
+
+
+async def test_a_dialogue_keeps_its_connection(fake: FakeSoniox) -> None:
+    node = await started(SonioxStt, {"wake_words": ["Алиса"]})
+    store = MemorySessionStore()
+    assert (await say(node, store))[-1] == ("Включи свет", True)
+    assert (await say(node, store))[-1] == ("Включи свет", True)  # the wake word still cut
+    assert fake.connections == 1
+    first, second = SAID[-2:]
+    assert second["connection_turn"] == 2
+    assert second["speech_end_s"] == first["speech_end_s"]  # timed from the turn's own audio
+    # what Soniox held after the first command's end was finalized and dropped before the second
+    assert {"type": "finalize"} in fake.messages
+    await say(node, store, session="s2")
+    assert fake.connections == 2  # another dialogue, another connection
+
+
+async def test_a_new_language_opens_a_new_connection(fake: FakeSoniox) -> None:
+    node = await started(SonioxStt, {"detect_language": False})
+    store = MemorySessionStore()
+    await say(node, store)
+    await say(node, store, language="en")
+    assert fake.connections == 2 and fake.stt_config["language_hints"] == ["en"]
+
+
+async def test_one_connection_per_command_when_not_kept(fake: FakeSoniox) -> None:
+    node = await started(SonioxStt, {"keep_connection_s": 0})
+    store = MemorySessionStore()
+    await say(node, store)
+    await say(node, store)
+    assert fake.connections == 2 and not node._streams
+
+
+async def test_an_idle_connection_gets_keepalives_then_closes(
+    fake: FakeSoniox, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(stt, "KEEPALIVE_S", 0.1)
+    node = await started(SonioxStt, {"keep_connection_s": 0.5})
+    await say(node, MemorySessionStore())
+    await until(lambda: {"type": "keepalive"} in fake.messages)
+    await until(lambda: not node._streams)
+
+
+async def test_soniox_hears_the_assistants_answer(fake: FakeSoniox) -> None:
+    node = await started(SonioxStt, {})
+    store = MemorySessionStore()
+    shared = store.view("s1", SHARED_NAMESPACE)
+    await dialogue.add(shared, "выключи свет", "Выключить свет в какой комнате?", by="agent")
+    await say(node, store)
+    assert fake.stt_config["enable_agent_text_input"] is True
+    told = [m for m in fake.messages if m.get("type") == "agent_text"]
+    assert told == [
+        {"type": "agent_text", "text": "Выключить свет в какой комнате?", "end_of_segment": True}
+    ]
+    await say(node, store)  # no new answer: nothing more to tell
+    await dialogue.add(shared, "в спальне", "Готово.", by="agent")
+    await say(node, store)
+    assert [m["text"] for m in fake.messages if m.get("type") == "agent_text"][-1] == "Готово."
+
+
+async def test_agent_text_needs_v6_and_can_be_off(fake: FakeSoniox) -> None:
+    assert stt.takes_agent_text("stt-rt-v6") and stt.takes_agent_text("stt-rt-v7")
+    assert not stt.takes_agent_text("stt-rt-v4")
+    store = MemorySessionStore()
+    await dialogue.add(store.view("s1", SHARED_NAMESPACE), "привет", "Привет!", by="agent")
+    await say(await started(SonioxStt, {"agent_text": False}), store)
+    assert "enable_agent_text_input" not in fake.stt_config
+    assert not any(m.get("type") == "agent_text" for m in fake.messages)
+    assert (
+        stt.answer_tail("слово " * 300).startswith("слово")
+        and len(stt.answer_tail("слово " * 300)) <= stt.AGENT_TEXT_MAX_CHARS
+    )
 
 
 async def test_stt_tells_the_language_most_of_the_text_was_heard_in(fake: FakeSoniox) -> None:
@@ -329,5 +450,9 @@ async def test_conforms(fake: FakeSoniox) -> None:
     secrets = {"soniox": KEY}
     stt_sample = {"audio": speech(400, end="end")}
     tts_sample = {"text": InputFeed(items=[TextDelta("Hi.")], meta={}, end="end")}
-    assert_conforms(await check_node(SonioxStt, config=CONFIG, secrets=secrets, sample=stt_sample))
+    # one connection per command: a kept one keeps the fake server's handler tasks running
+    stt_config = CONFIG | {"keep_connection_s": 0}
+    assert_conforms(
+        await check_node(SonioxStt, config=stt_config, secrets=secrets, sample=stt_sample)
+    )
     assert_conforms(await check_node(SonioxTts, config=CONFIG, secrets=secrets, sample=tts_sample))
