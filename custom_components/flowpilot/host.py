@@ -22,10 +22,11 @@ from homeassistant.helpers import floor_registry as fr
 from homeassistant.helpers import intent, llm
 from homeassistant.helpers.json import JSONEncoder
 
-from . import music
+from . import music, timers
 from .client import FlowPilotClient, HostHandler, HostRequest
 from .const import (
     ATTACH_TIMEOUT_S,
+    CONF_TIMER_DEVICE,
     DEFAULT_AGENT_ID,
     DOMAIN,
     HOST_OP_CONVERSATION,
@@ -357,9 +358,10 @@ def build_host_ops(
             "area": area.name if area else None,
         }
 
-    async def llm_api(request: HostRequest) -> llm.APIInstance:
+    async def llm_api(request: HostRequest, device_id: str | None = None) -> llm.APIInstance:
         """Home Assistant's Assist LLM API for the turn's person, device and language: only
-        entities exposed to Assist, tools run with the person's context."""
+        entities exposed to Assist, tools run with the person's context. ``device_id`` stands
+        in for the turn's device (the speaker a timer of a typed turn rings on)."""
         args = request.args
         user_input = await turn_input_unless_known(request)
         user_id = args.get("user_id")
@@ -373,27 +375,44 @@ def build_host_ops(
             context=context,
             language=args.get("language") or (user_input.language if user_input else None),
             assistant=conversation.DOMAIN,
-            device_id=args.get("device_id") or (user_input.device_id if user_input else None),
+            device_id=device_id
+            or args.get("device_id")
+            or (user_input.device_id if user_input else None),
         )
         return await llm.async_get_api(hass, llm.LLM_API_ASSIST, llm_context)
+
+    def tool_spec(api: llm.APIInstance, tool: llm.Tool) -> dict[str, Any]:
+        """A tool of the Assist API with JSON Schema parameters."""
+        schema = probatio.to_openapi(
+            tool.parameters, custom_serializer=api.custom_serializer, openapi_version="3.1.0"
+        )
+        # like Home Assistant's OpenAI integration: providers reject these at the top level
+        schema = {
+            k: v for k, v in schema.items() if k not in {"oneOf", "anyOf", "allOf", "enum", "not"}
+        }
+        return {"name": tool.name, "description": tool.description or "", "parameters": schema}
 
     async def llm_tools(request: HostRequest) -> Any:
         """The Assist API's instructions and tools, with JSON Schema parameters."""
         api = await llm_api(request)
-        tools = []
-        for tool in api.tools:
-            schema = probatio.to_openapi(
-                tool.parameters, custom_serializer=api.custom_serializer, openapi_version="3.1.0"
-            )
-            # like Home Assistant's OpenAI integration: providers reject these at the top level
-            schema = {
-                k: v
-                for k, v in schema.items()
-                if k not in {"oneOf", "anyOf", "allOf", "enum", "not"}
-            }
-            tools.append(
-                {"name": tool.name, "description": tool.description or "", "parameters": schema}
-            )
+        tools = [tool_spec(api, tool) for tool in api.tools]
+        # a turn without a speaker of its own (a chat): Home Assistant gives it no timer tools,
+        # so they come from a speaker that rings timers, and the agent names the speaker
+        devices = timers.timer_devices(hass)
+        if devices and not timers.rings_timers(hass, api.llm_context.device_id):
+            chosen = entry.options.get(CONF_TIMER_DEVICE)
+            speaker = await llm_api(request, chosen if chosen in devices else next(iter(devices)))
+            have = {t["name"] for t in tools}
+            tools += [
+                tool_spec(speaker, t)
+                for t in speaker.tools
+                if timers.is_timer_tool(t.name) and t.name not in have
+            ]
+            labels = sorted(devices.values())
+            tools = [
+                timers.with_device_argument(t, labels) if timers.is_timer_tool(t["name"]) else t
+                for t in tools
+            ]
         # FlowPilot's own tools where Home Assistant's fall short (starting music)
         tools.extend(music.music_tools(hass))
         answer: dict[str, Any] = {"prompt": api.api_prompt, "tools": tools}
@@ -406,8 +425,17 @@ def build_host_ops(
         """Run one tool of the Assist API; failures come back as text for the model."""
         await release_media(request.args.get("satellite_id"))
         api = await llm_api(request)
-        arguments = request.args.get("arguments") or {}
+        arguments = dict(request.args.get("arguments") or {})
         name = str(request.args["name"])
+        if timers.is_timer_tool(name) and not timers.rings_timers(hass, api.llm_context.device_id):
+            wanted = arguments.pop(timers.DEVICE_ARG, None)
+            try:
+                device_id = timers.timer_device(
+                    hass, str(wanted) if wanted else None, entry.options.get(CONF_TIMER_DEVICE)
+                )
+            except HomeAssistantError as err:
+                return {"error": True, "data": {"error": type(err).__name__, "message": str(err)}}
+            api = await llm_api(request, device_id)
         if name == music.TOOL_NAME:
             try:
                 found = await music.play_music(hass, api.llm_context, dict(arguments))

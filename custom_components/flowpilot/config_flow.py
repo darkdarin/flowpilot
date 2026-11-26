@@ -27,6 +27,7 @@ from .const import (
     CONF_DUCK_FALLBACK,
     CONF_DUCK_LEVEL,
     CONF_FALLBACK_TTS,
+    CONF_TIMER_DEVICE,
     CONF_TOKEN,
     CONF_URL,
     DOMAIN,
@@ -35,6 +36,7 @@ from .const import (
     DUCK_NONE,
     DUCK_PAUSE,
 )
+from .timers import timer_devices
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -146,7 +148,8 @@ class FlowPilotConfigFlow(ConfigFlow, domain=DOMAIN):
 
 class FlowPilotOptionsFlow(OptionsFlow):
     """The fallback voice: speaks what FlowPilot has no speech for (see tts.py); quieting the
-    media players of a listening satellite's area (see duck.py)."""
+    media players of a listening satellite's area (see duck.py); the speaker for timers set from
+    a chat (see timers.py)."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
@@ -195,6 +198,20 @@ class FlowPilotOptionsFlow(OptionsFlow):
                     description={"suggested_value": current.get(CONF_DUCK_EXCLUDE)},
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="media_player", multiple=True)
+                ),
+                probatio.Optional(
+                    CONF_TIMER_DEVICE,
+                    description={"suggested_value": current.get(CONF_TIMER_DEVICE)},
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value=device_id, label=label)
+                            for device_id, label in sorted(
+                                timer_devices(self.hass).items(), key=lambda item: item[1]
+                            )
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
                 ),
             }
         )
