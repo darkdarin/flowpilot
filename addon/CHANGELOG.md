@@ -4,6 +4,29 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.46
+
+Update the integration only.
+
+### App
+
+No changes, no need to update.
+
+### Integration
+
+- **Timers from a chat.** A timer set from Telegram or the Assist chat rings on a speaker: the
+  one you name ("on the kitchen"), else the one chosen in the integration's options ("Speaker for
+  timers and alarms from chats"), else the only speaker that rings timers; with several and none
+  chosen the agent asks which. Home Assistant refused such timers before: a chat has no speaker
+  of its own.
+- **Alarms from a chat.** The alarms of a Yandex Station (Yandex Quasar 0.2.28 or newer) are set,
+  listed and cancelled from a chat on a speaker chosen the same way.
+- **Say a text on a speaker.** The agent says a message on the speakers you name ("tell the
+  kitchen dinner is ready"); a home with one speaker needs no name. Any voice satellite that can
+  announce works, a Yandex Station among them.
+- A speaker can be named by the aliases of its satellite or media player in Home Assistant
+  ("Alice"), for timers, alarms and messages.
+
 ## 0.1.45
 
 Update the app only.
