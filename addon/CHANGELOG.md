@@ -4,6 +4,30 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.47
+
+Update the app; the integration has only a manifest fix.
+
+### App
+
+- **Soniox recognizes speech with `stt-rt-v6`.** Soniox removes the `stt-rt-v5` models on
+  December 15, 2026. The Soniox speech-to-text node now uses `stt-rt-v6` by default, and a graph
+  saved with `stt-rt-v5` uses it too: nothing to change in your graphs.
+- **A dialogue keeps its Soniox connection.** The next command of a conversation goes on the
+  connection the previous one opened, so Soniox hears the whole dialogue and no time is spent
+  connecting. The node's new setting "Keep the connection, s" (30 by default) says how long a
+  connection stays open after a command; 0 opens one per command as before. Soniox bills the time
+  a connection is open.
+- **Soniox knows what the assistant answered.** Before a command the node tells Soniox the
+  assistant's last answer, so a short reply ("in the bedroom", "yes") is recognized against the
+  question it answers, and an echo of the assistant's voice is left out of the text. On by
+  default ("Tell Soniox the answer"); needs `stt-rt-v6` or newer.
+
+### Integration
+
+- The integration declares that it uses Home Assistant's intent component (a manifest fix for
+  Home Assistant's checks). Nothing changes in use: updating is optional.
+
 ## 0.1.46
 
 Update the integration only.
