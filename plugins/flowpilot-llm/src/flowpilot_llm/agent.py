@@ -31,9 +31,11 @@ from flowpilot_sdk import (
     GROUPS_KEY,
     LOG_EVENT,
     NODE_OPTIONS_KEY,
+    OPTIONS_KEY,
     ConfigOption,
     HostError,
     HostUnavailable,
+    McpServers,
     Memory,
     NodeContext,
     NodeSpec,
@@ -55,11 +57,13 @@ from flowpilot_sdk.skills import definition as skill_definition
 from .search import DEFAULT_RESULTS, PROVIDERS, WebSearch
 from .tools import (
     CONFIRM_TOOL,
+    MCP_TEXT,
     Tool,
     Toolbox,
     command_tools,
     commands_text,
     confirm_tool,
+    mcp_tools,
     memory_tools,
     run_skill,
 )
@@ -77,6 +81,7 @@ HOME_TOOLS_OP = "ha.llm.tools"
 HOME_CALL_OP = "ha.llm.call"
 HOME_TOOLS_TIMEOUT_S = 3.0
 HOME_CALL_TIMEOUT_S = 20.0
+MCP_CALL_TIMEOUT_S = 30.0  # an outside service (ADR-025)
 # a Home Assistant action of a skill the owner described (flowpilot_sdk.skills)
 SERVICE_CALL_OP = "ha.service.call"
 # Rounds of tool calls in one turn; the last round must answer in words.
@@ -555,6 +560,18 @@ class LlmAgent:
                     "default": DEFAULT_RESULTS,
                     GROUP_KEY: "tools",
                 },
+                "mcp_servers": {
+                    "title": "MCP servers",
+                    "description": (
+                        "Services whose tools the agent may use, from the MCP servers page (a "
+                        "server that is not connected or signed in is skipped). Tools that may "
+                        "change things run only for a person the assistant knows. Needs a model "
+                        "with function calling; none when not set."
+                    ),
+                    "type": "array",
+                    "items": {"type": "string", OPTIONS_KEY: "flowpilot.mcp"},
+                    GROUP_KEY: "tools",
+                },
                 "people": {
                     "title": "Knows the household",
                     "description": (
@@ -627,6 +644,7 @@ class LlmAgent:
         self._memory: Memory | None = None
         self._commands: QuickCommands | None = None
         self._skills: Skills | None = None
+        self._mcp: McpServers | None = None
         # the provider refused tools with reasoning on (see _complete_with_tools)
         self._no_reasoning = False
         self._search: WebSearch | None = None
@@ -650,6 +668,7 @@ class LlmAgent:
     async def start(self, ctx: NodeContext) -> None:
         self._commands = getattr(ctx, "commands", None)
         self._skills = getattr(ctx, "skills", None)
+        self._mcp = getattr(ctx, "mcp", None)
         self._config = dict(ctx.config)
         self._node = ctx.node_id
         self._memory = getattr(ctx, "memory", None)
@@ -841,6 +860,21 @@ class LlmAgent:
         tools += [self._skill_tool(turn, s, who, done) for s in self._enabled_skills()]
         return str(result.get("prompt") or ""), tools, str(result.get("live_context") or "")
 
+    def _mcp_tools(
+        self, turn: TurnSession, speaker: str | None, timeout_s: float, used: list[dict[str, Any]]
+    ) -> list[Tool]:
+        """The tools of the MCP servers in the settings (ADR-025); servers that are not ready are
+        left out and named in the trace."""
+        wanted = [str(s) for s in self._config.get("mcp_servers") or []]
+        if not wanted or self._mcp is None:
+            return []
+        tools, waiting = mcp_tools(
+            self._mcp, wanted, known_speaker=speaker is not None, timeout_s=timeout_s, used=used
+        )
+        for server in waiting:
+            turn.trace("llm.agent.mcp_not_ready", server=server.name, state=server.state)
+        return tools
+
     def _enabled_skills(self) -> list[Skill]:
         return [s for s in self._skills.all() if s.enabled] if self._skills is not None else []
 
@@ -945,6 +979,10 @@ class LlmAgent:
             toolbox = toolbox.with_tools([self._search.tool(self._http, language)])
         elif self._search_problem:
             turn.trace("llm.agent.no_web_search", reason=self._search_problem)
+        mcp_used: list[dict[str, Any]] = []
+        outside = self._mcp_tools(turn, speaker, MCP_CALL_TIMEOUT_S, mcp_used)
+        if outside:
+            toolbox = toolbox.with_tools(outside)
         mode = str(self._config.get("acknowledge", "area"))
         confirming = bool(home_tools) and mode != "never" and turn.output("ack").connected
         if confirming:
@@ -987,14 +1025,15 @@ class LlmAgent:
         # last: it changes every turn, the rest stays the same and is cached by the provider
         state = STATE_TEXT.format(home_state) if home_tools and home_state else ""
         searching = SEARCH_TEXT if self._search is not None else ""
-        system = "\n\n".join(p for p in (*parts, guide, searching, state) if p)
+        services = MCP_TEXT if outside else ""
+        system = "\n\n".join(p for p in (*parts, guide, searching, services, state) if p)
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}] if system else []
         messages += history[-2 * keep :] if keep else []
         messages.append({"role": "user", "content": said.text})
         log(
             "context",
             f"speaker: {who or 'unknown'}; people: {len(people or [])}; tools: {len(toolbox)} "
-            f"({len(home_tools)} from Home Assistant)",
+            f"({len(home_tools)} from Home Assistant, {len(outside)} from MCP servers)",
             system or None,
             tools=len(toolbox),
         )
@@ -1184,6 +1223,7 @@ class LlmAgent:
             facts=len(home) + len(own),
             people=len(people) if people is not None else None,
             tools=",".join(used) or None,
+            mcp_ms=sum(int(u.get("ms") or 0) for u in mcp_used) or None,
             acknowledge=acknowledged,
             told=told,
         )

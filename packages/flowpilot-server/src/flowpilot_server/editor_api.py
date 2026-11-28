@@ -139,7 +139,10 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
 
     async def options(request: web.Request) -> web.Response:
         max_age = 0.0 if request.query.get("refresh") else OPTIONS_CACHE_S
-        return web.json_response(await server.host_options(max_age_s=max_age))
+        value = await server.host_options(max_age_s=max_age)
+        # the runtime's own choices: its MCP servers (ADR-025), current, not cached
+        mcp = [{"id": s.name, "name": s.title} for s in manager.mcp.servers()]
+        return web.json_response({**value, "options": {**value["options"], "flowpilot.mcp": mcp}})
 
     async def node_options(request: web.Request) -> web.Response:
         body = await request.json()

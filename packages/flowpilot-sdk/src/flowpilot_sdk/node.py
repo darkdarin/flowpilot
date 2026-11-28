@@ -82,7 +82,8 @@ class PortSpec:
 # ``{"type": "string", OPTIONS_KEY: "ha.stt"}``. Editors offer the host's list for it and Home
 # Assistant raises a repair issue when a deployed graph refers to something that is gone.
 # Kinds: ``ha.stt``, ``ha.tts``, ``ha.conversation`` (entity ids), ``wyoming.asr``,
-# ``wyoming.tts`` (``tcp://host:port`` of services Home Assistant knows).
+# ``wyoming.tts`` (``tcp://host:port`` of services Home Assistant knows); and the runtime's own
+# ``flowpilot.mcp`` (names of its MCP servers).
 OPTIONS_KEY = "x-flowpilot-options"
 
 # JSON Schema keyword (``true``) for a config property whose choices the node lists itself from the

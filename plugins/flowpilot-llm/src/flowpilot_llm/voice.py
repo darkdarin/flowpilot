@@ -76,7 +76,9 @@ from .agent import (
     _tool_detail,
     _tools_text,
 )
-from .tools import Toolbox
+from .tools import MCP_TEXT, Toolbox
+
+MCP_VOICE_TIMEOUT_S = 15.0  # someone waits in silence (ADR-025)
 
 REALTIME_URL = "wss://api.openai.com/v1/realtime"
 DEFAULT_MODEL = "gpt-realtime-2.1-mini"
@@ -183,6 +185,7 @@ SHARED_SETTINGS = (
     "web_search_key",
     "web_search_url",
     "web_search_results",
+    "mcp_servers",
     "timeout_s",
 )
 
@@ -351,6 +354,7 @@ class VoiceAgent(LlmAgent):
 
     async def start(self, ctx: NodeContext) -> None:
         self._skills = getattr(ctx, "skills", None)
+        self._mcp = getattr(ctx, "mcp", None)
         self._config = dict(ctx.config)
         self._node = ctx.node_id
         self._memory = getattr(ctx, "memory", None)
@@ -403,6 +407,9 @@ class VoiceAgent(LlmAgent):
             toolbox = toolbox.with_tools([self._search.tool(self._http, language)])
         elif self._search_problem:
             turn.trace("llm.voice.no_web_search", reason=self._search_problem)
+        outside = self._mcp_tools(turn, speaker, MCP_VOICE_TIMEOUT_S, [])
+        if outside:
+            toolbox = toolbox.with_tools(outside)
         who = next(
             (str(p.get("name")) for p in people or [] if speaker and p.get("user_id") == speaker),
             speaker,
@@ -415,6 +422,7 @@ class VoiceAgent(LlmAgent):
             home_prompt if home_tools else "",
             guide,
             SEARCH_TEXT if self._search is not None else "",
+            MCP_TEXT if outside else "",
             HISTORY_TEXT.format("\n".join(lines)) if lines else "",
             STATE_TEXT.format(home_state) if home_tools and home_state else "",
         )
@@ -423,7 +431,7 @@ class VoiceAgent(LlmAgent):
             "context",
             f"speaker: {who or 'unknown'}; {len(home)} facts of the home, {len(own)} own; "
             f"dialogue: {len(lines) // 2} earlier exchanges; tools: {len(toolbox)} "
-            f"({len(home_tools)} from Home Assistant)",
+            f"({len(home_tools)} from Home Assistant, {len(outside)} from MCP servers)",
             instructions or None,
             tools=len(toolbox),
         )

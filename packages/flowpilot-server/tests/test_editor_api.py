@@ -353,7 +353,13 @@ async def host_client(session: aiohttp.ClientSession, url: Any, agents: list[str
 async def test_host_options_and_reference_warnings(env: Any) -> None:
     session, url, _ = env
     body = await (await session.get(url("/api/editor/options"), headers=AUTH)).json()
-    assert body == {"available": False, "hosts": [], "options": {}, "strict": []}
+    # no host; the runtime's own choices (its MCP servers) are always there
+    assert body == {
+        "available": False,
+        "hosts": [],
+        "options": {"flowpilot.mcp": []},
+        "strict": [],
+    }
 
     with_agent = graph("v1")
     with_agent["nodes"][1]["config"]["agent"] = "conversation.gone"
