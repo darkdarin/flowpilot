@@ -4,6 +4,33 @@ The app (**FlowPilot**: the runtime and the graph editor) and the integration (*
 Assist**) are released together with one version, so Home Assistant offers to update both. Each
 version says what changed in each of them: a part that says "No changes" does not need updating.
 
+## 0.1.48
+
+Update both: the app connects MCP servers, the integration brings their sign-in back to it.
+
+### App
+
+- **MCP servers.** Agents can use the tools of outside services through the Model Context
+  Protocol. Add a server under **Assistant → MCP servers** in the editor: its address and how it
+  signs in (OAuth, a token, or none). With OAuth press **Sign in**: the service opens in a window,
+  you allow access, and FlowPilot keeps and renews the tokens itself. FlowPilot keeps one
+  connection to each server for every graph and reconnects on its own; you can turn single tools
+  off. Choose the servers an agent may use in its new setting **MCP servers** (the LLM agent and
+  the voice agent). Tools that may change something in the service run only for a person the
+  assistant knows, and what a service returns is treated as data, not as instructions.
+- **The editor's top bar is tidier.** Memory, voices, quick commands, skills, MCP servers and
+  secrets are now in one **Assistant** menu, each with a line on what it is.
+- **Soniox no longer loses a command after a pause.** When the Yandex Station keeps listening
+  after an answer (the dim light), it sends the whole phrase at once, starting with a pause; an
+  end of speech Soniox reported on that pause ended the command before the words. Now an end
+  before any word does not end the command.
+
+### Integration
+
+- **The way back from an MCP sign-in.** The sign-in of an MCP server returns to Home Assistant's
+  own address, and the integration passes it on to the app (the app's page through Ingress would
+  refuse a return from another site). Needed to sign in to MCP servers with OAuth.
+
 ## 0.1.47
 
 Update the app; the integration has only a manifest fix.
