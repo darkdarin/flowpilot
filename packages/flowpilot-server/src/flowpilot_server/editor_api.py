@@ -561,7 +561,8 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
     async def mcp_callback(request: web.Request) -> web.Response:
         query = request.query
         state, code, error = query.get("state", ""), query.get("code"), query.get("error")
-        if state and manager.mcp.callback(state, code, error):
+        known = bool(state) and manager.mcp.callback(state, code, error)
+        if known:
             ok = bool(code)
             message = (
                 "Вход выполнен, окно можно закрыть."
@@ -570,7 +571,12 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
             )
         else:
             ok, message = False, "Этот вход устарел или уже завершён. Начните вход заново."
-        return web.Response(text=callback_page(ok, message), content_type="text/html")
+        return web.Response(
+            text=callback_page(ok, message),
+            content_type="text/html",
+            # FlowPilot Assist forwards answers through Home Assistant and asks each runtime
+            headers={"X-FlowPilot-Login": "known" if known else "unknown"},
+        )
 
     app.router.add_get("/api/mcp/oauth/callback", mcp_callback)
 

@@ -1,0 +1,9 @@
+{
+  "client_id": "https://darkdarin.github.io/flowpilot/oauth/client.json",
+  "client_name": "FlowPilot",
+  "client_uri": "https://github.com/darkdarin/flowpilot",
+  "redirect_uris": ["https://darkdarin.github.io/flowpilot/oauth/"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none"
+}

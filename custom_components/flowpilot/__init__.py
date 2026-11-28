@@ -10,6 +10,7 @@ from .client import FlowPilotClient
 from .const import CONF_TOKEN, CONF_URL, SIGNAL_CONNECTION
 from .duck import MediaDucker
 from .host import build_host_ops
+from .oauth import register as register_oauth_view
 from .references import ReferenceMonitor
 
 PLATFORMS = [Platform.CONVERSATION, Platform.STT, Platform.TTS]
@@ -33,6 +34,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FlowPilotConfigEntry) ->
     monitor.start()
     entry.async_on_unload(monitor.stop)
     entry.runtime_data = client
+    register_oauth_view(hass)  # MCP sign-ins come back through Home Assistant (ADR-025)
     client.start()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True

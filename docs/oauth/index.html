@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>FlowPilot sign-in</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 2rem 1rem; max-width: 36rem; margin-inline: auto; line-height: 1.5; }
+  h1 { font-size: 1.25rem; }
+  code { word-break: break-all; }
+</style>
+</head>
+<body>
+<h1 id="title">FlowPilot</h1>
+<p id="text">Signing in…</p>
+<script>
+/*
+ * The OAuth return page of FlowPilot's MCP client (ADR-025): one fixed https redirect_uri for every
+ * FlowPilot, as providers and client ID metadata documents (client.json) need.
+ *
+ * 1. The editor opens   ?start=<provider's authorization URL>&return=<where this FlowPilot takes
+ *    the answer>. The page keeps "return" in this browser under the sign-in's state and goes on
+ *    to the provider.
+ * 2. The provider sends ?code=…&state=… (or ?error=…) here. The page takes the address kept for
+ *    that state and passes the answer on. Nothing leaves this browser; a code is useless without
+ *    the verifier that only the FlowPilot which started the sign-in has (PKCE).
+ */
+(function () {
+  var PREFIX = "flowpilot-oauth:";
+  var MAX_AGE_MS = 30 * 60 * 1000;
+  var query = new URLSearchParams(location.search);
+
+  function show(title, text) {
+    document.getElementById("title").textContent = title;
+    document.getElementById("text").textContent = text;
+  }
+
+  function web(address) {
+    try {
+      var url = new URL(address);
+      return url.protocol === "https:" || url.protocol === "http:" ? url : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function store() {
+    try { return window.localStorage; } catch (e) { return null; }
+  }
+
+  if (query.has("start")) {
+    var start = web(query.get("start"));
+    var back = web(query.get("return") || "");
+    var state = start && start.searchParams.get("state");
+    var storage = store();
+    if (!start || !back || !state || !storage) {
+      show("Cannot sign in", "This sign-in link is incomplete, or the browser does not keep site data. Start again in FlowPilot.");
+      return;
+    }
+    for (var i = storage.length - 1; i >= 0; i--) {  // forget old sign-ins
+      var key = storage.key(i);
+      if (key && key.indexOf(PREFIX) === 0) {
+        try {
+          if (Date.now() - JSON.parse(storage.getItem(key)).at > MAX_AGE_MS) storage.removeItem(key);
+        } catch (e) { storage.removeItem(key); }
+      }
+    }
+    storage.setItem(PREFIX + state, JSON.stringify({ back: back.href, at: Date.now() }));
+    location.replace(start.href);
+    return;
+  }
+
+  if (query.has("state")) {
+    var storage2 = store();
+    var key2 = PREFIX + query.get("state");
+    var kept = null;
+    try { kept = JSON.parse(storage2.getItem(key2)); } catch (e) { kept = null; }
+    if (storage2) storage2.removeItem(key2);
+    var target = kept && web(kept.back);
+    if (!target || Date.now() - kept.at > MAX_AGE_MS) {
+      show("Sign-in expired", "This sign-in is unknown in this browser or too old. Start again in FlowPilot, in the same browser.");
+      return;
+    }
+    ["code", "state", "error", "error_description", "iss"].forEach(function (name) {
+      if (query.has(name)) target.searchParams.set(name, query.get(name));
+    });
+    location.replace(target.href);
+    return;
+  }
+
+  show("FlowPilot", "This page completes sign-ins to MCP servers from FlowPilot. There is nothing to do here.");
+})();
+</script>
+</body>
+</html>
