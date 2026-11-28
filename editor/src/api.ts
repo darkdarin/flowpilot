@@ -157,6 +157,42 @@ export interface Skill {
   enabled: boolean;
 }
 
+/** An MCP server of the runtime (ADR-025); secret values never come back, only whether set. */
+export interface McpTool {
+  name: string;
+  title: string;
+  description: string;
+  read_only: boolean;
+  destructive: boolean;
+  enabled: boolean;
+}
+
+export interface McpServer {
+  id: string;
+  name: string;
+  title: string;
+  url: string;
+  transport: "http" | "sse";
+  auth: "none" | "token" | "oauth";
+  enabled: boolean;
+  disabled_tools: string[];
+  client_id: string;
+  scope: string;
+  token_set: boolean;
+  client_secret_set: boolean;
+  signed_in: boolean;
+  state: "ready" | "connecting" | "needs_auth" | "error" | "disabled";
+  error: string | null;
+  tools: McpTool[];
+}
+
+export type McpServerInput = Pick<McpServer, "name" | "title" | "url" | "transport" | "auth" | "enabled" | "client_id" | "scope"> & {
+  id?: string;
+  /** a new value replaces, "" clears, absent keeps */
+  token?: string;
+  client_secret?: string;
+};
+
 /** A quick command people taught: phrases and the Home Assistant tool calls they replay. */
 export interface QuickCommand {
   id: string;
@@ -389,6 +425,30 @@ export class Api {
   }
   deleteSkill(id: string) {
     return this.call<{ removed: boolean }>("DELETE", `/skills/${encodeURIComponent(id)}`);
+  }
+  mcp() {
+    return this.call<{ servers: McpServer[]; return_page: string }>("GET", "/mcp");
+  }
+  saveMcp(server: McpServerInput) {
+    return server.id
+      ? this.call<McpServer>("PUT", `/mcp/${encodeURIComponent(server.id)}`, server)
+      : this.call<McpServer>("POST", "/mcp", server);
+  }
+  deleteMcp(id: string) {
+    return this.call<{ removed: boolean }>("DELETE", `/mcp/${encodeURIComponent(id)}`);
+  }
+  setMcpTools(id: string, disabled: string[]) {
+    return this.call<McpServer>("PUT", `/mcp/${encodeURIComponent(id)}/tools`, { disabled });
+  }
+  reconnectMcp(id: string) {
+    return this.call<{ ok: boolean }>("POST", `/mcp/${encodeURIComponent(id)}/reconnect`);
+  }
+  /** Start an OAuth sign-in: the provider's address, to open through the return page. */
+  loginMcp(id: string) {
+    return this.call<{ url: string; return_page: string }>("POST", `/mcp/${encodeURIComponent(id)}/login`);
+  }
+  logoutMcp(id: string) {
+    return this.call<{ ok: boolean }>("POST", `/mcp/${encodeURIComponent(id)}/logout`);
   }
   commands() {
     return this.call<CommandList>("GET", "/commands");

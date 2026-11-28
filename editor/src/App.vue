@@ -9,6 +9,7 @@ import DebugPanel from "./components/DebugPanel.vue";
 import FpNode from "./components/FpNode.vue";
 import Inspector from "./components/Inspector.vue";
 import CommandsDialog from "./components/CommandsDialog.vue";
+import McpDialog from "./components/McpDialog.vue";
 import SkillsDialog from "./components/SkillsDialog.vue";
 import VoicesDialog from "./components/VoicesDialog.vue";
 import MemoryDialog from "./components/MemoryDialog.vue";
@@ -50,6 +51,7 @@ import {
   memoryOpen,
   commandsOpen,
   skillsOpen,
+  mcpOpen,
   voicesOpen,
 } from "./store";
 import { connectProblem, edgeType, fittingPort } from "./porttypes";
@@ -441,6 +443,9 @@ function legendTypes() {
       <button class="btn icon ghost" :title="t('skills.title')" :aria-label="t('skills.title')" @click="skillsOpen = true">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 2.5h3v3h3v3h-3v3h-3v-3h-3v-3h3z" /></svg>
       </button>
+      <button class="btn icon ghost" :title="t('mcp.title')" :aria-label="t('mcp.title')" @click="mcpOpen = true">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 2v3.5M10.5 2v3.5M3.5 5.5h9v2a4.5 4.5 0 0 1-9 0zM8 12v2.5" /></svg>
+      </button>
       <button class="btn icon ghost" :title="t('secrets.title')" :aria-label="t('secrets.title')" @click="secretsOpen = true">
         <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5.5" cy="8" r="3" /><path d="M8.5 8H14.5M12.5 8v2.5M14.5 8v2" /></svg>
       </button>
@@ -531,6 +536,7 @@ function legendTypes() {
     <MemoryDialog v-if="memoryOpen" />
     <CommandsDialog v-if="commandsOpen" />
     <SkillsDialog v-if="skillsOpen" />
+    <McpDialog v-if="mcpOpen" />
     <VoicesDialog v-if="voicesOpen" />
 
     <div v-if="creating" class="modal" @click.self="creating = false">
