@@ -9,6 +9,7 @@ import DebugPanel from "./components/DebugPanel.vue";
 import FpNode from "./components/FpNode.vue";
 import Inspector from "./components/Inspector.vue";
 import CommandsDialog from "./components/CommandsDialog.vue";
+import AssistantMenu from "./components/AssistantMenu.vue";
 import McpDialog from "./components/McpDialog.vue";
 import SkillsDialog from "./components/SkillsDialog.vue";
 import VoicesDialog from "./components/VoicesDialog.vue";
@@ -431,24 +432,7 @@ function legendTypes() {
       <button class="btn debug-toggle" :class="{ on: debug.enabled }" :aria-pressed="debug.enabled" @click="debug.enabled = !debug.enabled">
         <i />{{ t("action.debug") }}
       </button>
-      <button class="btn icon ghost" :title="t('memory.title')" :aria-label="t('memory.title')" @click="memoryOpen = true">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h8.5l1.5 1.5v9.5H3z" /><path d="M5.5 6h5M5.5 8.5h5M5.5 11h3" /></svg>
-      </button>
-      <button class="btn icon ghost" :title="t('voices.title')" :aria-label="t('voices.title')" @click="voicesOpen = true">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="2" width="4" height="7.5" rx="2" /><path d="M3.5 8a4.5 4.5 0 0 0 9 0M8 12.5V14.5" /></svg>
-      </button>
-      <button class="btn icon ghost" :title="t('commands.title')" :aria-label="t('commands.title')" @click="commandsOpen = true">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 1.5 3.5 9H8l-1 5.5L12.5 7H8z" /></svg>
-      </button>
-      <button class="btn icon ghost" :title="t('skills.title')" :aria-label="t('skills.title')" @click="skillsOpen = true">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 2.5h3v3h3v3h-3v3h-3v-3h-3v-3h3z" /></svg>
-      </button>
-      <button class="btn icon ghost" :title="t('mcp.title')" :aria-label="t('mcp.title')" @click="mcpOpen = true">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 2v3.5M10.5 2v3.5M3.5 5.5h9v2a4.5 4.5 0 0 1-9 0zM8 12v2.5" /></svg>
-      </button>
-      <button class="btn icon ghost" :title="t('secrets.title')" :aria-label="t('secrets.title')" @click="secretsOpen = true">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5.5" cy="8" r="3" /><path d="M8.5 8H14.5M12.5 8v2.5M14.5 8v2" /></svg>
-      </button>
+      <AssistantMenu />
       <button class="btn icon ghost" :title="t('action.fit')" :aria-label="t('action.fit')" @click="fitView({ padding: 0.2 })">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" /></svg>
       </button>
