@@ -4,6 +4,7 @@ from .commands import Action, QuickCommand, QuickCommands
 from .context import DeviceInfo, SessionInfo, SessionState, SourceInfo, TurnContext
 from .host import HostAudio, HostError, HostUnavailable
 from .ids import new_ulid
+from .mcp import McpResult, McpServer, McpServers, McpTool, McpUnavailable
 from .memory import MAX_FACT_CHARS, Fact, Memory
 from .node import (
     DYNAMIC_KEY,
@@ -66,6 +67,11 @@ __all__ = [
     "SkillAction",
     "SkillField",
     "Skills",
+    "McpResult",
+    "McpServer",
+    "McpServers",
+    "McpTool",
+    "McpUnavailable",
     "QuickCommand",
     "QuickCommands",
     "MAX_FACT_CHARS",

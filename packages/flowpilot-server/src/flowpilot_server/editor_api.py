@@ -21,6 +21,16 @@ All routes need ``Authorization: Bearer <token>``.
 - ``GET  /api/editor/skills``                 skills described for the LLM agent; ``POST``
                                               creates one, ``PUT``/``DELETE
                                               /api/editor/skills/{id}``
+- ``GET  /api/editor/mcp``                    MCP servers: settings (no secret values), state,
+                                              tools; ``POST`` adds one, ``PUT``/``DELETE
+                                              /api/editor/mcp/{id}``
+- ``PUT  /api/editor/mcp/{id}/tools``         ``{disabled: [names]}``: tools the agents do not get
+- ``POST /api/editor/mcp/{id}/reconnect``     connect again now
+- ``POST /api/editor/mcp/{id}/login``         start an OAuth sign-in: ``{url}`` to open through
+                                              the return page (``return_page``); ``POST
+                                              .../logout`` forgets the tokens
+- ``GET  /api/mcp/oauth/callback``            the provider's answer (no token: the sign-in's
+                                              ``state`` is the proof), a page that closes itself
 - ``GET  /api/editor/voices``                 voice profiles (samples per person, no embeddings),
                                               the people, the model and match settings;
                                               ``PUT`` ``{model, threshold, margin}``
@@ -64,6 +74,7 @@ from flowpilot_sdk import AudioFormat
 from .auth import bearer_token
 from .captures import list_recordings, recording_path, recordings_dir
 from .manager import GRAPH_ID_RE, DeployError, GraphManager, GraphStore, issue_dicts
+from .mcp_hub import SignInNeeded, callback_page
 from .references import OPTIONS_CACHE_S
 from .secret_store import secret_fields
 from .voices import MAX_SECONDS as MAX_VOICE_SECONDS
@@ -485,7 +496,93 @@ def add_editor_routes(app: web.Application, server: FlowPilotServer) -> None:
             return _error(404, "no such skill")
         return web.json_response({"removed": True})
 
+    async def list_mcp(request: web.Request) -> web.Response:
+        return web.json_response(
+            {"servers": manager.mcp.public(), "return_page": manager.mcp.oauth.redirect_url}
+        )
+
+    async def add_mcp(request: web.Request) -> web.Response:
+        try:
+            server = await manager.mcp.add(await request.json())
+        except ValueError as err:
+            return _error(400, str(err))
+        return web.json_response(manager.mcp.store.public(server))
+
+    async def update_mcp(request: web.Request) -> web.Response:
+        try:
+            server = await manager.mcp.update(request.match_info["id"], await request.json())
+        except KeyError:
+            return _error(404, "no such server")
+        except ValueError as err:
+            return _error(400, str(err))
+        return web.json_response(manager.mcp.store.public(server))
+
+    async def set_mcp_tools(request: web.Request) -> web.Response:
+        body = await request.json()
+        disabled = body.get("disabled") if isinstance(body, dict) else None
+        if not isinstance(disabled, list):
+            return _error(400, "disabled is a list of tool names")
+        try:
+            server = await manager.mcp.set_tools(
+                request.match_info["id"], [str(d) for d in disabled]
+            )
+        except KeyError:
+            return _error(404, "no such server")
+        return web.json_response(manager.mcp.store.public(server))
+
+    async def delete_mcp(request: web.Request) -> web.Response:
+        if not await manager.mcp.remove(request.match_info["id"]):
+            return _error(404, "no such server")
+        return web.json_response({"removed": True})
+
+    async def reconnect_mcp(request: web.Request) -> web.Response:
+        try:
+            await manager.mcp.reconnect(request.match_info["id"])
+        except KeyError:
+            return _error(404, "no such server")
+        return web.json_response({"ok": True})
+
+    async def login_mcp(request: web.Request) -> web.Response:
+        try:
+            url = await manager.mcp.login(request.match_info["id"])
+        except KeyError:
+            return _error(404, "no such server")
+        except SignInNeeded as err:
+            return _error(409, str(err))
+        return web.json_response({"url": url, "return_page": manager.mcp.oauth.redirect_url})
+
+    async def logout_mcp(request: web.Request) -> web.Response:
+        try:
+            await manager.mcp.sign_out(request.match_info["id"])
+        except KeyError:
+            return _error(404, "no such server")
+        return web.json_response({"ok": True})
+
+    async def mcp_callback(request: web.Request) -> web.Response:
+        query = request.query
+        state, code, error = query.get("state", ""), query.get("code"), query.get("error")
+        if state and manager.mcp.callback(state, code, error):
+            ok = bool(code)
+            message = (
+                "Вход выполнен, окно можно закрыть."
+                if ok
+                else f"Провайдер отказал: {query.get('error_description') or error}"
+            )
+        else:
+            ok, message = False, "Этот вход устарел или уже завершён. Начните вход заново."
+        return web.Response(text=callback_page(ok, message), content_type="text/html")
+
+    app.router.add_get("/api/mcp/oauth/callback", mcp_callback)
+
     routes = [
+        ("GET", f"{PREFIX}/mcp", list_mcp),
+        ("POST", f"{PREFIX}/mcp", add_mcp),
+        ("PUT", f"{PREFIX}/mcp/{{id}}", update_mcp),
+        ("DELETE", f"{PREFIX}/mcp/{{id}}", delete_mcp),
+        ("PUT", f"{PREFIX}/mcp/{{id}}/tools", set_mcp_tools),
+        ("POST", f"{PREFIX}/mcp/{{id}}/reconnect", reconnect_mcp),
+        ("POST", f"{PREFIX}/mcp/{{id}}/login", login_mcp),
+        ("POST", f"{PREFIX}/mcp/{{id}}/logout", logout_mcp),
         ("GET", f"{PREFIX}/voices", list_voices),
         ("PUT", f"{PREFIX}/voices", set_voices),
         ("POST", f"{PREFIX}/voices/model", download_voice_model),

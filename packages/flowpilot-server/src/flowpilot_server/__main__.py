@@ -11,6 +11,8 @@ Configuration (JSON)::
       "secrets_file": "secrets.json",      # optional {name: value}
       "sessions_file": "sessions.json",    # optional; dialogues kept across restarts
       "memory_file": "memory.json",        # optional; facts about the home and its people
+      "mcp_file": "mcp.json",              # optional; MCP servers and their sign-in (ADR-025)
+      "oauth_redirect_url": "https://…",   # optional; the https page providers return to
       "grants": {"identity.resolve": ["identity.provider"]},
       "ingress": {"port": 8099, "trusted_peers": ["172.30.32.2"]}   # optional, see auth.py
     }
@@ -46,6 +48,8 @@ from .commands_store import CommandStore
 from .condition import Condition
 from .devnodes import DEV_NODES
 from .manager import GraphManager, GraphStore
+from .mcp_hub import McpHub, OAuthSettings
+from .mcp_store import McpStore
 from .memory_store import MemoryStore
 from .nodes import ClientSink, ClientSource, HaConversation, HaStt, HaTts
 from .quick import HaQuickCommands
@@ -94,6 +98,10 @@ async def serve(config_path: Path, *, dev: bool = False, announce: bool = False)
     config = _read_json(config_path)
     token = config.get("token") or (base / config["token_file"]).read_text().strip()
     secrets = SecretStore(base / config.get("secrets_file", "secrets.json"))
+    oauth = OAuthSettings()
+    if redirect := config.get("oauth_redirect_url"):  # one's own return page: no CIMD document
+        oauth = OAuthSettings(str(redirect), config.get("oauth_client_metadata_url"))
+    mcp = McpHub(McpStore(base / config.get("mcp_file", "mcp.json")), oauth)
     grants = GrantPolicy({node: frozenset(gs) for node, gs in (config.get("grants") or {}).items()})
     manager = GraphManager(
         build_registry(dev=dev),
@@ -105,6 +113,7 @@ async def serve(config_path: Path, *, dev: bool = False, announce: bool = False)
         commands=CommandStore(base / config.get("commands_file", "quick_commands.json")),
         skills=SkillStore(base / config.get("skills_file", "skills.json")),
         voices=VoiceStore(base / config.get("voices_file", "voices.json"), base / "models"),
+        mcp=mcp,
     )
 
     def remember_default(graph_id: str) -> None:
@@ -129,6 +138,7 @@ async def serve(config_path: Path, *, dev: bool = False, announce: bool = False)
     saving = asyncio.create_task(dialogues.run())
     runners: list[web.AppRunner] = []
     try:
+        await mcp.start()
         await manager.load_all()
         runners.append(web.AppRunner(server.app()))
         await runners[-1].setup()
@@ -152,6 +162,7 @@ async def serve(config_path: Path, *, dev: bool = False, announce: bool = False)
         for runner in runners:
             await runner.cleanup()
         await manager.stop()
+        await mcp.stop()
         saving.cancel()
         try:
             dialogues.save()

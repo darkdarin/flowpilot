@@ -33,6 +33,8 @@ from flowpilot_sdk.types import PRIVILEGED_TYPES, type_kind
 
 from .captures import TurnCapture, recordings_dir
 from .commands_store import CommandStore
+from .mcp_hub import McpHub
+from .mcp_store import McpStore
 from .memory_store import MemoryStore
 from .migrations import migrate_graph
 from .secret_store import secret_fields
@@ -140,8 +142,11 @@ class GraphManager:
         commands: CommandStore | None = None,
         skills: SkillStore | None = None,
         voices: VoiceStore | None = None,
+        mcp: McpHub | None = None,
     ) -> None:
         self.data_dir = data_dir
+        # MCP servers for every graph (flowpilot_sdk.McpServers, ADR-025); none when not given
+        self.mcp = mcp if mcp is not None else McpHub(McpStore(None))
         # quick commands people taught the assistant (flowpilot_sdk.QuickCommands)
         self.commands = commands if commands is not None else CommandStore(None)
         # skills people described for the agent (flowpilot_sdk.Skills)
@@ -251,6 +256,7 @@ class GraphManager:
             commands=self.commands,
             skills=self.skills,
             voices=self.voices,
+            mcp=self.mcp,
             taps_active=(lambda: watching(graph_id)) if watching else None,
             # live debug: what every node passed on, for the editor's journal
             output_tap=(

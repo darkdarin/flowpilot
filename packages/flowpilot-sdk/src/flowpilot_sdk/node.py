@@ -13,6 +13,7 @@ from typing import Any, ClassVar, Literal, Protocol
 from .commands import QuickCommands
 from .context import SessionInfo, SessionState, TurnContext
 from .host import HostAudio
+from .mcp import McpServers
 from .memory import Memory
 from .payloads import AudioFormat
 from .skills import Skills
@@ -245,6 +246,8 @@ class NodeContext(Protocol):
     skills: Skills | None
     # Voices people enrolled (flowpilot_sdk.voices); ``None`` when the runtime keeps none.
     voices: Voices | None
+    # MCP servers the runtime is connected to (flowpilot_sdk.mcp); ``None`` when it keeps none.
+    mcp: McpServers | None
 
     def secret(self, name: str) -> str:
         """Value of a secret referenced in the node config; ``KeyError`` if not granted."""

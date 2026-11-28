@@ -16,6 +16,7 @@ from flowpilot_sdk import (
     AudioFormat,
     HostAudio,
     HostUnavailable,
+    McpServers,
     Memory,
     Node,
     PortSpec,
@@ -98,6 +99,7 @@ class RuntimeNodeContext:
         commands: QuickCommands | None = None,
         skills: Skills | None = None,
         voices: Voices | None = None,
+        mcp: McpServers | None = None,
     ) -> None:
         self.node_id = node_id
         self.graph_id = graph_id
@@ -106,6 +108,7 @@ class RuntimeNodeContext:
         self.commands = commands
         self.skills = skills
         self.voices = voices
+        self.mcp = mcp
         self.config = config
         self.logger = logging.getLogger(f"flowpilot.node.{node_id}")
         self._secrets = secrets
@@ -262,6 +265,7 @@ class Deployment:
         commands: QuickCommands | None = None,
         skills: Skills | None = None,
         voices: Voices | None = None,
+        mcp: McpServers | None = None,
         taps_active: Callable[[], bool] | None = None,
         output_tap: OutputTapFactory | None = None,
     ) -> None:
@@ -276,6 +280,7 @@ class Deployment:
         self._commands = commands
         self._skills = skills
         self._voices = voices
+        self._mcp = mcp
         self._registry = registry
         self._secrets = secrets or {}
         self.trace: TraceSink = trace or NullTraceSink()
@@ -318,6 +323,7 @@ class Deployment:
                     commands=self._commands,
                     skills=self._skills,
                     voices=self._voices,
+                    mcp=self._mcp,
                 )
                 await instance.start(ctx)
                 self._instances[node_id] = instance
